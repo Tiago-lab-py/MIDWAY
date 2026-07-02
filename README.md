@@ -525,4 +525,3 @@ Esse comando grava, com intervalo de 1 segundo entre as etapas:
 1. `data/export/sobreposicao_total_uc`
 2. `data/export/sobreposicao_UC_parcial`
 3. `data/export/interrupcao_sem_uc`
-"# MIDWAY" 
