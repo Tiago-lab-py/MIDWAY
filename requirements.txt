@@ -1,0 +1,6 @@
+duckdb==1.5.4
+pandas==2.2.3
+polars==1.42.1
+python-dotenv==1.0.1
+oracledb==4.0.1
+streamlit==1.41.1
