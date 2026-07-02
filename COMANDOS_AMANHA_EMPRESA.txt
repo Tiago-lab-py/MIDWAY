@@ -1,0 +1,146 @@
+COMANDOS PARA AMANHA - COMPUTADOR DA EMPRESA
+============================================
+
+1) BAIXAR O PROJETO DO GITHUB
+-----------------------------
+
+cd /d D:\
+git clone https://github.com/Tiago-lab-py/MIDWAY.git
+cd MIDWAY
+
+
+2) SE A PASTA MIDWAY JA EXISTIR
+-------------------------------
+
+cd /d D:\MIDWAY
+git pull origin main
+
+
+3) CONFERIR A VERSAO
+--------------------
+
+run.bat versao
+
+Resultado esperado:
+
+6.0.0
+
+
+4) INSTALAR DEPENDENCIAS
+------------------------
+
+pip install -r requirements.txt
+
+
+5) CRIAR O ARQUIVO .env
+-----------------------
+
+Criar o arquivo abaixo:
+
+D:\MIDWAY\.env
+
+Conteudo exemplo:
+
+IQS_UID=usuario_real
+IQS_PWD=senha_real
+IQS_DB=dsn_real
+IQS_CONFIG_DIR=C:\oracle\network\admin
+ANOMES=202606
+
+Se precisar de Oracle Instant Client:
+
+IQS_ORACLE_THICK_MODE=1
+IQS_ORACLE_CLIENT_LIB_DIR=C:\oracle\instantclient_21_13
+
+
+6) RODAR EXTRACAO ADMS
+----------------------
+
+cd /d D:\MIDWAY
+set ANOMES=202606
+set REEXTRAIR=1
+run.bat extract
+
+
+7) RODAR EXTRACOES IQS AUXILIARES
+---------------------------------
+
+run.bat consumidores
+run.bat uc_fatura
+run.bat vrc
+run.bat metas_uc
+
+
+8) RODAR TRATAMENTO
+-------------------
+
+set REPROCESSAR=1
+run.bat reprocessar
+
+
+9) RODAR APURACAO PARCIAL
+-------------------------
+
+run.bat apuracao_parcial
+
+
+10) VALIDAR DADOS
+-----------------
+
+run.bat validar_dados
+
+
+11) ABRIR PAINEL
+----------------
+
+run.bat painel
+
+
+12) CONFERENCIAS RAPIDAS
+------------------------
+
+Conferir se os arquivos existem:
+
+data\raw\iqs_adms_raw_202606.duckdb
+data\raw\iqs_raw_202606.duckdb
+data\processed\iqs_adms_processed_202606.duckdb
+
+Conferir tabelas da apuracao:
+
+python -c "import duckdb; con=duckdb.connect('data/processed/iqs_adms_processed_202606.duckdb', read_only=True); print(con.execute('select count(1), sum(CI_LIQUIDO), sum(CHI_LIQUIDO) from gold_apuracao_uc').fetchall()); print(con.execute('select count(1), sum(FIC), sum(DIC) from gold_continuidade_uc').fetchall()); con.close()"
+
+
+13) SE DER ERRO DE LOCK
+-----------------------
+
+Verificar a pasta:
+
+data\control
+
+Se tiver certeza que nao existe processo rodando, remover o arquivo .lock correspondente.
+
+
+14) SE DER ERRO DE DUCKDB EM USO
+--------------------------------
+
+Fechar:
+
+- DBeaver
+- Streamlit
+- Python aberto
+- qualquer programa usando o DuckDB
+
+Depois rodar novamente.
+
+
+15) IMPORTANTE
+--------------
+
+Nao subir para o GitHub:
+
+- data\
+- .env
+- arquivos .duckdb
+- logs
+
+Esses arquivos devem ficar somente no computador local.
