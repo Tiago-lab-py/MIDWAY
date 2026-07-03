@@ -70,30 +70,55 @@ def adicionar_metricas_fechamento(con, metricas):
     ci_previa, chi_previa = con.execute(
         "SELECT SUM(CI_LIQUIDO), SUM(CHI_LIQUIDO) FROM gold_apuracao_previa"
     ).fetchone()
-    fic, dic = con.execute("SELECT SUM(FIC), SUM(DIC) FROM gold_continuidade_uc").fetchone()
+    fic, dic, fic_brt, dic_brt = con.execute(
+        """
+        SELECT
+            SUM(FIC),
+            SUM(DIC),
+            SUM(FIC_BRT),
+            SUM(DIC_BRT)
+        FROM gold_continuidade_uc
+        """
+    ).fetchone()
 
     diff_ci_fic = abs(valor_float(ci_uc) - valor_float(fic))
     diff_chi_dic = abs(valor_float(chi_uc) - valor_float(dic))
     diff_ci_previa = abs(valor_float(ci_uc) - valor_float(ci_previa))
     diff_chi_previa = abs(valor_float(chi_uc) - valor_float(chi_previa))
+    diff_fic_brt_fic = abs(valor_float(fic_brt) - valor_float(fic))
+    diff_dic_brt_dic = abs(valor_float(dic_brt) - valor_float(dic))
 
     metricas.extend(
         [
             {"metrica": "total_ci_liquido", "valor": ci_uc, "nivel": "INFO", "detalhe": "gold_apuracao_uc"},
             {"metrica": "total_chi_liquido", "valor": chi_uc, "nivel": "INFO", "detalhe": "gold_apuracao_uc"},
-            {"metrica": "total_fic", "valor": fic, "nivel": "INFO", "detalhe": "gold_continuidade_uc"},
-            {"metrica": "total_dic", "valor": dic, "nivel": "INFO", "detalhe": "gold_continuidade_uc"},
+            {"metrica": "total_fic_iqs_liquido", "valor": fic, "nivel": "INFO", "detalhe": "gold_continuidade_uc"},
+            {"metrica": "total_dic_iqs_liquido", "valor": dic, "nivel": "INFO", "detalhe": "gold_continuidade_uc"},
+            {"metrica": "total_fic_iqs_bruto", "valor": fic_brt, "nivel": "INFO", "detalhe": "gold_continuidade_uc"},
+            {"metrica": "total_dic_iqs_bruto", "valor": dic_brt, "nivel": "INFO", "detalhe": "gold_continuidade_uc"},
             {
-                "metrica": "diff_ci_fic",
+                "metrica": "diff_ci_fic_referencia_antiga",
                 "valor": diff_ci_fic,
-                "nivel": "OK" if diff_ci_fic == 0 else "CRITICO",
-                "detalhe": "CI liquido deve fechar com FIC",
+                "nivel": "INFO",
+                "detalhe": "Diferenca esperada apos filtros IQS, COMP52 e CAUSA71",
             },
             {
-                "metrica": "diff_chi_dic",
+                "metrica": "diff_chi_dic_referencia_antiga",
                 "valor": diff_chi_dic,
-                "nivel": "OK" if diff_chi_dic <= 0.001 else "CRITICO",
-                "detalhe": "CHI liquido deve fechar com DIC",
+                "nivel": "INFO",
+                "detalhe": "Diferenca esperada apos filtros IQS, COMP52 e CAUSA71",
+            },
+            {
+                "metrica": "diff_fic_brt_fic_liq_iqs",
+                "valor": diff_fic_brt_fic,
+                "nivel": "INFO",
+                "detalhe": "Diferenca entre FIC bruto IQS e FIC liquido IQS",
+            },
+            {
+                "metrica": "diff_dic_brt_dic_liq_iqs",
+                "valor": diff_dic_brt_dic,
+                "nivel": "INFO",
+                "detalhe": "Diferenca entre DIC bruto IQS e DIC liquido IQS",
             },
             {
                 "metrica": "diff_ci_previa_uc",
