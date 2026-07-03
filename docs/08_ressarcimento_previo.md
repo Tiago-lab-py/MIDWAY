@@ -46,11 +46,30 @@ Para calculo financeiro PRODIST, usar preferencialmente os campos `*_PRODIST` da
 
 | Indicador | Regra |
 | --- | --- |
-| `DIC` | somatorio de todas as duracoes da UC, incluindo a maior interrupcao |
-| `FIC` | quantidade de interrupcoes da UC |
-| `DMIC` | maior duracao individual de interrupcao da UC |
+| `DIC` | somatorio das duracoes elegiveis conforme regra IQS liquida |
+| `FIC` | quantidade de interrupcoes elegiveis conforme regra IQS liquida |
+| `DMIC` | maior duracao individual elegivel conforme regra IQS liquida |
+| `DIC_BRT` | somatorio das duracoes conforme regra IQS bruta |
+| `FIC_BRT` | quantidade de interrupcoes conforme regra IQS bruta |
+| `DMIC_BRT` | maior duracao individual conforme regra IQS bruta |
 
-`DIC`, `FIC` e `DMIC` usam a mesma base liquida de `DEC_LIQUIDO` e `FEC_LIQUIDO`: interrupcoes longas, contabilizaveis, de UCs validas/faturadas e com `TIPO_PROTOC_JUSTIF_UCI = '0'`.
+`DIC`, `FIC` e `DMIC` usam `TIPO_PROTOC_JUSTIF_UCI = '0'`, interrupcoes longas e contabilizaveis, aplicando tambem as siglas IQS de indicador e regra de expurgo quando disponiveis:
+
+```text
+SIGLA_TIQS_DIC
+SIGLA_REID_DIC
+SIGLA_TIQS_FIC
+SIGLA_REID_FIC
+```
+
+Quando essas siglas ainda nao existem na base processada, o MIDWAY assume comportamento padrao:
+
+```text
+SIGLA_TIQS_DIC = DIC_
+SIGLA_REID_DIC = nulo
+SIGLA_TIQS_FIC = FIC_
+SIGLA_REID_FIC = nulo
+```
 
 Exemplo:
 
@@ -60,6 +79,8 @@ DIC  = 25h
 FIC  = 5
 DMIC = 10h
 ```
+
+Eventos com `COD_COMP_INTRP = 52` ou `COD_CAUSA_INTRP = 71` nao compoem `DIC`, `FIC`, `DMIC` nem a base financeira de compensacao.
 
 ## Regra do KEI
 
@@ -119,19 +140,36 @@ Se a UC possuir apenas esse tipo de evento, os valores de compensacao ficam `0`.
 
 A coluna `CHAVE_PARTICULAR` fica `S` quando a UC possui evento enquadrado nessa regra.
 
-## Excecao por componente 52
+## Excecoes por componente 52 e causa 71
 
-Eventos com o componente abaixo nao compoem a base de compensacao, independentemente da causa:
+Eventos com componente `52` ou causa `71` nao compoem `DIC`, `FIC`, `DMIC` nem a base financeira de compensacao.
 
 | Campo | Valor |
 | --- | --- |
 | `COD_COMP_INTRP` | `52` |
+| `COD_CAUSA_INTRP` | `71` |
 
-O campo `COD_COMP_INTRP` deve ser tratado como texto/string, usando comparacao com `TRIM(CAST(campo AS VARCHAR))`.
+Os campos devem ser tratados como texto/string, usando comparacao normalizada:
 
-Os indicadores realizados continuam disponiveis para conferencia, mas as bases de compensacao desconsideram esses eventos.
+```sql
+TRIM(CAST(COD_COMP_INTRP AS VARCHAR)) = '52'
+```
 
-A coluna `COMP52` fica `S` quando a UC possui evento enquadrado nessa regra. A coluna `COMP52_CAUSA71` permanece como marcador complementar para a combinacao historica `COD_COMP_INTRP = 52` e `COD_CAUSA_INTRP = 71`.
+```sql
+TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)) = '71'
+```
+
+Os eventos continuam rastreaveis nas bases analiticas e exportacoes de conferencia, mas nao entram nos indicadores realizados de continuidade individual nem nas bases de compensacao.
+
+Colunas de controle:
+
+| Coluna | Regra |
+| --- | --- |
+| `COMP52` | `S` quando a UC possui evento com `COD_COMP_INTRP = 52` |
+| `CAUSA71` | `S` quando a UC possui evento com `COD_CAUSA_INTRP = 71` |
+| `COMP52_CAUSA71` | marcador complementar historico para `COD_COMP_INTRP = 52` ou `COD_CAUSA_INTRP = 71` |
+
+`COMP52_CAUSA71` e apenas marcador complementar historico; as regras principais sao `COMP52` e `CAUSA71`.
 
 ## Excecao por posto particular
 
@@ -165,21 +203,23 @@ END AS COMP_DMIC
 GREATEST(COMP_DIC, COMP_FIC, COMP_DMIC) AS COMP_GERAL
 ```
 
-## Observacao sobre FIC
+## Formula FIC PRODIST
 
-Foi informado o esboco:
-
-```sql
-VRC * (realizado_fic 730) * KEI
-```
-
-Para implementacao, a formula foi interpretada como:
+Para calculo financeiro oficial, usar a formula implementada em `gold_ressarcimento_prodist`:
 
 ```sql
-VRC * (realizado_fic / 730) * KEI
+COMP_FIC_BRUTA_PRODIST =
+    (FIC_BASE_COMPENSACAO / META_FIC) * META_DIC * VRC / 730 * KEI1_CONTINUIDADE
 ```
 
-Essa interpretacao precisa ser confirmada contra o PRODIST Modulo 8 vigente antes de fechamento oficial.
+Depois aplicar piso e teto:
+
+```sql
+COMP_FIC_PRODIST =
+    LEAST(18 * VRC, GREATEST(0.01, COMP_FIC_BRUTA_PRODIST))
+```
+
+Quando nao houver violacao de `META_FIC`, a compensacao fica `0`.
 
 ## Indicadores de DICRI e DISE
 
@@ -192,9 +232,34 @@ A tabela `gold_continuidade_uc` tambem possui:
 | `DIC_DICRI` | `META_DICRI` |
 | `DIC_ISE` | `META_DISE` |
 
-Ponto pendente: confirmar no PRODIST Modulo 8 se DICRI e DISE devem gerar compensacao financeira com formula propria, fator proprio ou se entram apenas como informacao/controle. Ate essa validacao, a proposta de `COMP_GERAL` deve considerar somente `DIC`, `FIC` e `DMIC`.
+Na tabela `gold_ressarcimento_prodist`, `DICRI` e `DISE` usam coeficientes proprios:
 
-## SQL conceitual
+| Indicador | Coeficiente |
+| --- | --- |
+| `DICRI` | `KEI2_DICRI` |
+| `DISE` | `KEI3_DISE` |
+
+`COMP_GERAL_CONTINUIDADE_PRODIST` considera o maior valor entre `DIC`, `FIC` e `DMIC`.
+
+`COMP_TOTAL_PRODIST` soma:
+
+```text
+COMP_GERAL_CONTINUIDADE_PRODIST + COMP_DICRI_PRODIST + COMP_DISE_PRODIST
+```
+
+Observacao: `DICRI` e `DISE` ainda permanecem com status parcial quando agregados por UC, conforme documentado em `docs/10_prodist_modulo8.md`.
+
+## SQL conceitual legado
+
+O bloco abaixo registra a primeira proposta conceitual de cálculo em `gold_continuidade_uc`.
+
+Para cálculo financeiro PRODIST, usar a tabela atual:
+
+```text
+gold_ressarcimento_prodist
+```
+
+com os campos `*_PRODIST`, piso `R$ 0,01`, teto `18 * VRC`, fórmula FIC PRODIST e coeficientes `KEI1`, `KEI2` e `KEI3`.
 
 ```sql
 SELECT
@@ -241,14 +306,12 @@ LEFT JOIN gold_metas_uc m
   ON CAST(m.ISN_UC AS VARCHAR) = c.UC
 ```
 
-## Informacoes pendentes para implementar com seguranca
+## Pendencias remanescentes
 
-Antes de codificar como regra oficial, validar:
+Itens ainda recomendados para evolucao e auditoria:
 
-1. Formula vigente exata de compensacao no PRODIST Modulo 8.
-2. Se o divisor `730` e fixo para todos os meses ou se deve variar por horas do periodo de apuracao.
-3. Se `FIC` usa a mesma estrutura `realizado / 730`.
-4. Se a compensacao deve considerar somente o excedente `(realizado - meta)` ou o valor realizado total.
-5. Se `DICRI` e `DISE` geram compensacao financeira ou apenas controle.
-6. Se existe teto, minimo, arredondamento, tributacao ou regra de acumulo por indicador.
-7. Se deve usar `VRC` vigente no mes de apuracao ou valor atual de cadastro.
+1. Validar a matriz completa de equivalencia entre codigos IQS e itens do PRODIST.
+2. Confirmar se o `VRC` extraido representa o valor vigente correto para o mes de apuracao.
+3. Evoluir `DICRI` e `DISE` para granularidade por evento, quando necessario.
+4. Validar regras de arredondamento e apresentacao financeira final.
+5. Controlar efetivacao em fatura fora do escopo atual do MIDWAY.
