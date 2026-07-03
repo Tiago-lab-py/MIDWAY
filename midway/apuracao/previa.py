@@ -1023,8 +1023,30 @@ def criar_gold_continuidade_uc(con):
     if "gold_vrc" not in tabelas:
         raise RuntimeError("Tabela gold_vrc nao encontrada. Execute run.bat vrc.")
 
+    colunas_gold_apuracao_uc = {
+        linha[0].upper()
+        for linha in con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'main'
+              AND table_name = 'gold_apuracao_uc'
+            """
+        ).fetchall()
+    }
+
+    def coluna_ou_default(nome_coluna: str, default_sql: str) -> str:
+        if nome_coluna.upper() in colunas_gold_apuracao_uc:
+            return f"a.{nome_coluna}"
+        return default_sql
+
+    sigla_tiqs_dic_sql = coluna_ou_default("SIGLA_TIQS_DIC", "'DIC_'")
+    sigla_reid_dic_sql = coluna_ou_default("SIGLA_REID_DIC", "NULL")
+    sigla_tiqs_fic_sql = coluna_ou_default("SIGLA_TIQS_FIC", "'FIC_'")
+    sigla_reid_fic_sql = coluna_ou_default("SIGLA_REID_FIC", "NULL")
+
     con.execute(
-        """
+        f"""
         CREATE OR REPLACE TABLE gold_continuidade_uc AS
         WITH uc_faturada AS (
             SELECT DISTINCT
@@ -1127,6 +1149,10 @@ def criar_gold_continuidade_uc(con):
                 CAST(a.NUM_UC_UCI AS VARCHAR) AS UC,
                 TRIM(CAST(a.TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) AS TIPO_PROTOC_JUSTIF_UCI,
                 TRY_CAST(a.DURACAO_HORA AS DOUBLE) AS DURACAO_HORA,
+                COALESCE(NULLIF(TRIM(CAST({sigla_tiqs_dic_sql} AS VARCHAR)), ''), 'DIC_') AS SIGLA_TIQS_DIC,
+                NULLIF(TRIM(CAST({sigla_reid_dic_sql} AS VARCHAR)), '') AS SIGLA_REID_DIC,
+                COALESCE(NULLIF(TRIM(CAST({sigla_tiqs_fic_sql} AS VARCHAR)), ''), 'FIC_') AS SIGLA_TIQS_FIC,
+                NULLIF(TRIM(CAST({sigla_reid_fic_sql} AS VARCHAR)), '') AS SIGLA_REID_FIC,
                 CASE
                     WHEN u.UC IS NOT NULL
                     THEN 1 ELSE 0
@@ -1171,9 +1197,15 @@ def criar_gold_continuidade_uc(con):
         agregado AS (
             SELECT
                 UC,
+                STRING_AGG(DISTINCT COALESCE(SIGLA_TIQS_DIC, 'DIC_'), '; ') AS SIGLAS_TIQS_DIC,
+                STRING_AGG(DISTINCT COALESCE(SIGLA_REID_DIC, 'SEM_REGRA'), '; ') AS SIGLAS_REID_DIC,
+                STRING_AGG(DISTINCT COALESCE(SIGLA_TIQS_FIC, 'FIC_'), '; ') AS SIGLAS_TIQS_FIC,
+                STRING_AGG(DISTINCT COALESCE(SIGLA_REID_FIC, 'SEM_REGRA'), '; ') AS SIGLAS_REID_FIC,
                 SUM(
                     CASE
                         WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
+                         AND SUBSTR(COALESCE(SIGLA_TIQS_DIC, 'DIC_'), 1, 4) = 'DIC_'
+                         AND SIGLA_REID_DIC IS NULL
                          AND INTERRUPCAO_LONGA = 1
                          AND INTERRUPCAO_CONTABILIZAVEL = 1
                          AND EXCLUI_COMPENSACAO_COMP52 = 0
@@ -1184,6 +1216,8 @@ def criar_gold_continuidade_uc(con):
                 SUM(
                     CASE
                         WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
+                         AND SUBSTR(COALESCE(SIGLA_TIQS_FIC, 'FIC_'), 1, 4) = 'FIC_'
+                         AND SIGLA_REID_FIC IS NULL
                          AND INTERRUPCAO_LONGA = 1
                          AND INTERRUPCAO_CONTABILIZAVEL = 1
                          AND EXCLUI_COMPENSACAO_COMP52 = 0
@@ -1194,6 +1228,8 @@ def criar_gold_continuidade_uc(con):
                 MAX(
                     CASE
                         WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
+                         AND SUBSTR(COALESCE(SIGLA_TIQS_DIC, 'DIC_'), 1, 4) = 'DIC_'
+                         AND SIGLA_REID_DIC IS NULL
                          AND INTERRUPCAO_LONGA = 1
                          AND INTERRUPCAO_CONTABILIZAVEL = 1
                          AND EXCLUI_COMPENSACAO_COMP52 = 0
@@ -1204,6 +1240,44 @@ def criar_gold_continuidade_uc(con):
                 SUM(
                     CASE
                         WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
+                         AND SUBSTR(COALESCE(SIGLA_TIQS_DIC, 'DIC_'), 1, 4) = 'DIC_'
+                         AND COALESCE(SIGLA_REID_DIC, 'X') NOT IN ('DFC','USU','USI','ACI','FM','ERR','DUP','CHP','DFI','PTP')
+                         AND INTERRUPCAO_LONGA = 1
+                         AND INTERRUPCAO_CONTABILIZAVEL = 1
+                         AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
+                        THEN COALESCE(DURACAO_HORA, 0) ELSE 0
+                    END
+                ) AS DIC_BRT,
+                SUM(
+                    CASE
+                        WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
+                         AND SUBSTR(COALESCE(SIGLA_TIQS_FIC, 'FIC_'), 1, 4) = 'FIC_'
+                         AND COALESCE(SIGLA_REID_FIC, 'X') NOT IN ('DFC','USU','USI','ACI','FM','ERR','DUP','CHP','DFI','PTP','MAN')
+                         AND INTERRUPCAO_LONGA = 1
+                         AND INTERRUPCAO_CONTABILIZAVEL = 1
+                         AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
+                        THEN 1 ELSE 0
+                    END
+                ) AS FIC_BRT,
+                MAX(
+                    CASE
+                        WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
+                         AND SUBSTR(COALESCE(SIGLA_TIQS_DIC, 'DIC_'), 1, 4) = 'DIC_'
+                         AND COALESCE(SIGLA_REID_DIC, 'X') NOT IN ('DFC','USU','USI','ACI','FM','ERR','DUP','CHP','DFI','PTP')
+                         AND INTERRUPCAO_LONGA = 1
+                         AND INTERRUPCAO_CONTABILIZAVEL = 1
+                         AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
+                        THEN COALESCE(DURACAO_HORA, 0) ELSE 0
+                    END
+                ) AS DMIC_BRT,
+                SUM(
+                    CASE
+                        WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
+                         AND SUBSTR(COALESCE(SIGLA_TIQS_DIC, 'DIC_'), 1, 4) = 'DIC_'
+                         AND SIGLA_REID_DIC IS NULL
                          AND INTERRUPCAO_LONGA = 1
                          AND INTERRUPCAO_CONTABILIZAVEL = 1
                          AND EXCLUI_COMPENSACAO_ACESSANTE = 0
@@ -1217,6 +1291,8 @@ def criar_gold_continuidade_uc(con):
                 SUM(
                     CASE
                         WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
+                         AND SUBSTR(COALESCE(SIGLA_TIQS_FIC, 'FIC_'), 1, 4) = 'FIC_'
+                         AND SIGLA_REID_FIC IS NULL
                          AND INTERRUPCAO_LONGA = 1
                          AND INTERRUPCAO_CONTABILIZAVEL = 1
                          AND EXCLUI_COMPENSACAO_ACESSANTE = 0
@@ -1230,6 +1306,8 @@ def criar_gold_continuidade_uc(con):
                 MAX(
                     CASE
                         WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
+                         AND SUBSTR(COALESCE(SIGLA_TIQS_DIC, 'DIC_'), 1, 4) = 'DIC_'
+                         AND SIGLA_REID_DIC IS NULL
                          AND INTERRUPCAO_LONGA = 1
                          AND INTERRUPCAO_CONTABILIZAVEL = 1
                          AND EXCLUI_COMPENSACAO_ACESSANTE = 0
@@ -1310,9 +1388,16 @@ def criar_gold_continuidade_uc(con):
         enriquecido AS (
         SELECT
             a.UC,
+            a.SIGLAS_TIQS_DIC,
+            a.SIGLAS_REID_DIC,
+            a.SIGLAS_TIQS_FIC,
+            a.SIGLAS_REID_FIC,
             a.DIC,
             a.FIC,
             a.DMIC,
+            a.DIC_BRT,
+            a.FIC_BRT,
+            a.DMIC_BRT,
             a.DIC_BASE_COMPENSACAO,
             a.FIC_BASE_COMPENSACAO,
             a.DMIC_BASE_COMPENSACAO,

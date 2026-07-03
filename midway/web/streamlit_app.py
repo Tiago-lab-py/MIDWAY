@@ -612,7 +612,37 @@ def show_prodist(db_path: str, sample_limit: int) -> None:
     st.dataframe(pd.DataFrame([totals]), use_container_width=True, hide_index=True)
 
     tem_causa71 = column_exists(db_path, "gold_ressarcimento_prodist", "CAUSA71")
+    tem_dic_brt = column_exists(db_path, "gold_ressarcimento_prodist", "DIC_BRT")
+    tem_siglas_iqs = column_exists(db_path, "gold_ressarcimento_prodist", "SIGLAS_TIQS_DIC")
     causa71_select_sql = "CAUSA71," if tem_causa71 else "'N' AS CAUSA71,"
+    brutos_select_sql = (
+        """
+            DIC_BRT,
+            FIC_BRT,
+            DMIC_BRT,
+"""
+        if tem_dic_brt
+        else """
+            NULL AS DIC_BRT,
+            NULL AS FIC_BRT,
+            NULL AS DMIC_BRT,
+"""
+    )
+    siglas_select_sql = (
+        """
+            SIGLAS_TIQS_DIC,
+            SIGLAS_REID_DIC,
+            SIGLAS_TIQS_FIC,
+            SIGLAS_REID_FIC,
+"""
+        if tem_siglas_iqs
+        else """
+            NULL AS SIGLAS_TIQS_DIC,
+            NULL AS SIGLAS_REID_DIC,
+            NULL AS SIGLAS_TIQS_FIC,
+            NULL AS SIGLAS_REID_FIC,
+"""
+    )
     causa71_sem_excluidos_sql = (
         "          AND COALESCE(CAUSA71, 'N') = 'N'\n" if tem_causa71 else ""
     )
@@ -663,9 +693,11 @@ def show_prodist(db_path: str, sample_limit: int) -> None:
             DIC,
             FIC,
             DMIC,
+            {brutos_select_sql}
             DIC_BASE_COMPENSACAO,
             FIC_BASE_COMPENSACAO,
             DMIC_BASE_COMPENSACAO,
+            {siglas_select_sql}
             META_DIC,
             META_FIC,
             META_DMIC,
