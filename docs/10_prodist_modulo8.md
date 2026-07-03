@@ -106,7 +106,7 @@ Tabela de saida: `gold_continuidade_uc`.
 | Tema | Status | Observacao |
 | --- | --- | --- |
 | Interrupcao longa | Aderente | `gold_apuracao_uc` considera duracao maior ou igual a 3 minutos. |
-| Base unica DEC/FEC x DIC/FIC | Aderente | `DIC/FIC` fecham com `CHI/CI_LIQUIDO` da apuracao. |
+| Base unica DEC/FEC x DIC/FIC | Aderente com regra IQS | `DIC/FIC/DMIC` usam siglas IQS de indicador e regra de expurgo quando disponíveis. |
 | Motivo de tratamento diferenciado | Aderente a regra operacional definida | `NUM_MOTIVO_TRAT_DIF_UCI` deve estar nulo para entrar na base apuravel. |
 | Manobra | Aderente ao objetivo operacional | Registros com `NUM_INTRP_INIC_MANOBRA_UCI` preenchido nao entram novamente na contagem. |
 | `DIC` e `DMIC` | Parcial | A formula base usa `valor_verificado * VRC / 730 * KEI`, mas ainda falta aplicar minimo, teto e validar `VRC`. |
@@ -122,7 +122,7 @@ Tabela de saida: `gold_continuidade_uc`.
 | Teto `18 * VRC` | Pendente | Nao ha limite superior aplicado nos campos `COMP_*`. |
 | Minimo `R$ 0,01` | Pendente | Nao ha piso explicito para compensacoes positivas. |
 | Baixa renda | Pendente | Nao foi validado se o `VRC` extraido ja segue a regra do item 225.1. |
-| Exclusoes do item 178 | Parcial | O sistema depende de `TIPO_PROTOC_JUSTIF_UCI`, `NUM_MOTIVO_TRAT_DIF_UCI` e regras IQS/ADMS. Falta matriz formal de equivalencia entre codigos IQS e alíneas do PRODIST. |
+| Exclusoes do item 178 | Parcial evoluido | O sistema aplica siglas IQS (`SIGLA_TIQS_*`, `SIGLA_REID_*`) quando disponíveis e mantém pendente a matriz formal de equivalência entre códigos IQS e alíneas do PRODIST. |
 | Interrupcao programada em `DMIC` | Pendente | Falta validar se a exclusao especifica do item 179 esta refletida nos codigos de justificativa/tratamento. |
 | Credito em fatura ate 2 meses | Fora do escopo atual | O MIDWAY calcula previa, mas nao controla efetivacao financeira/faturamento. |
 
@@ -254,6 +254,45 @@ Criar uma tabela/documento de equivalencia entre:
 
 Sem essa matriz, a previa pode estar correta operacionalmente, mas nao fica plenamente auditavel contra o texto normativo.
 
+### 7. Filtros IQS para DIC, FIC e DMIC
+
+O MIDWAY aplica, quando os campos existem na base apurável, as siglas do IQS para determinar elegibilidade de `DIC`, `FIC` e `DMIC`.
+
+Campos usados:
+
+```text
+SIGLA_TIQS_DIC
+SIGLA_REID_DIC
+SIGLA_TIQS_FIC
+SIGLA_REID_FIC
+```
+
+Regras líquidas:
+
+```sql
+SUBSTR(COALESCE(SIGLA_TIQS_DIC, 'DIC_'), 1, 4) = 'DIC_'
+AND SIGLA_REID_DIC IS NULL
+```
+
+```sql
+SUBSTR(COALESCE(SIGLA_TIQS_FIC, 'FIC_'), 1, 4) = 'FIC_'
+AND SIGLA_REID_FIC IS NULL
+```
+
+`DMIC` segue a mesma elegibilidade do `DIC`, considerando a maior duração individual elegível.
+
+Regras brutas:
+
+```sql
+COALESCE(SIGLA_REID_DIC, 'X') NOT IN ('DFC','USU','USI','ACI','FM','ERR','DUP','CHP','DFI','PTP')
+```
+
+```sql
+COALESCE(SIGLA_REID_FIC, 'X') NOT IN ('DFC','USU','USI','ACI','FM','ERR','DUP','CHP','DFI','PTP','MAN')
+```
+
+Além disso, eventos com `COD_COMP_INTRP = 52` ou `COD_CAUSA_INTRP = 71` não compõem `DIC`, `FIC`, `DMIC` nem a base de compensação.
+
 ## Status apos implementacao
 
 A tabela `gold_ressarcimento_prodist` foi implementada em `midway.apuracao.previa` e passa a ser gerada no fluxo:
@@ -299,8 +338,10 @@ Status atual:
 [x] Kei2/Kei3 para DICRI/DISE na tabela gold_ressarcimento_prodist
 [x] Piso R$ 0,01
 [x] Teto 18 * VRC
+[x] Filtros IQS por `SIGLA_TIQS_DIC`, `SIGLA_REID_DIC`, `SIGLA_TIQS_FIC` e `SIGLA_REID_FIC`
+[x] Exclusao de `COD_COMP_INTRP = 52` e `COD_CAUSA_INTRP = 71` de `DIC/FIC/DMIC` e compensacao
 [~] Tratamento de DICRI/DISE ainda agregado por UC
-[ ] Matriz de equivalencia dos codigos IQS x item 178
+[~] Matriz de equivalencia dos codigos IQS x item 178 parcialmente coberta pelas siglas IQS
 ```
 
 Recomendacao: usar `gold_ressarcimento_prodist` como base financeira PRODIST para `DIC`, `FIC` e `DMIC`; manter `DICRI/DISE` como parcial ate evoluir o calculo para granularidade por evento.

@@ -62,7 +62,7 @@ Para `COD_CAUSA_INTRP = 71`:
 
 `COMP52` é a coluna principal para identificar a exceção financeira por componente.
 
-`CAUSA71` é a coluna principal para identificar a exceção por causa que retira o evento do DIC e da compensação.
+`CAUSA71` é a coluna principal para identificar a exceção por causa que retira o evento de `DIC`, `FIC`, `DMIC` e da compensação.
 
 `COMP52_CAUSA71` não substitui `COMP52` nem `CAUSA71`. Ela permanece como marcador complementar para análises históricas que combinavam:
 
@@ -81,7 +81,7 @@ COD_CAUSA_INTRP = 71
 Na aba de ressarcimento, a explicação do filtro e dos rankings deve deixar claro que:
 
 - `COD_COMP_INTRP = 52` exclui o evento do DIC/FIC/DMIC e da base financeira;
-- `COD_CAUSA_INTRP = 71` exclui o evento do DIC e da base financeira;
+- `COD_CAUSA_INTRP = 71` exclui o evento do DIC/FIC/DMIC e da base financeira;
 - as comparações devem ser textuais com `TRIM(CAST(... AS VARCHAR))`;
 - `COMP52` identifica a UC com evento enquadrado nessa regra;
 - `CAUSA71` identifica a UC com evento enquadrado na causa 71;

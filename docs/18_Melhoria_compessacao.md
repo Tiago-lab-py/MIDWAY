@@ -2,9 +2,9 @@
 
 ## Objetivo
 
-Registrar a melhoria necessária para alinhar os cálculos do MIDWAY às regras de filtro usadas pelo IQS para `DIC`, `FIC` e `DMIC`.
+Registrar a melhoria implementada para alinhar os cálculos do MIDWAY às regras de filtro usadas pelo IQS para `DIC`, `FIC` e `DMIC`.
 
-A implementação deve incorporar as siglas do IQS oriundas das tabelas de motivo de exclusão, tipo de indicador e regra de expurgo.
+A implementação incorpora as siglas do IQS quando esses campos estão disponíveis na base apurável. Quando os campos ainda não existem no DuckDB processado, o sistema usa comportamento compatível com a regra padrão, assumindo `DIC_` e `FIC_` sem regra de expurgo.
 
 ## Origem da Regra
 
@@ -153,6 +153,21 @@ A camada tratada/apurada deve preservar, quando possível:
 | `DMIC_LIQ_IQS` | Maior duração líquida conforme regra IQS |
 | `DMIC_BRT_IQS` | Maior duração bruta conforme regra IQS |
 
+Na implementação local, os campos agregados na camada de continuidade usam os nomes:
+
+| Campo MIDWAY | Significado |
+| --- | --- |
+| `DIC` | `DIC_LIQ` conforme elegibilidade IQS |
+| `FIC` | `FIC_LIQ` conforme elegibilidade IQS |
+| `DMIC` | `DMIC_LIQ` conforme elegibilidade IQS |
+| `DIC_BRT` | DIC bruto conforme lista de expurgos IQS |
+| `FIC_BRT` | FIC bruto conforme lista de expurgos IQS |
+| `DMIC_BRT` | DMIC bruto conforme lista de expurgos IQS |
+| `SIGLAS_TIQS_DIC` | Siglas DIC encontradas para a UC |
+| `SIGLAS_REID_DIC` | Regras DIC encontradas para a UC |
+| `SIGLAS_TIQS_FIC` | Siglas FIC encontradas para a UC |
+| `SIGLAS_REID_FIC` | Regras FIC encontradas para a UC |
+
 ## Relação com Componente 52 e Causa 71
 
 As regras documentadas em `docs/17_ressarcimento_comp52.md` continuam válidas.
@@ -166,18 +181,24 @@ Portanto:
 
 Essas exclusões devem ser aplicadas em conjunto com as regras de siglas IQS.
 
-## Plano de Implementação
+## Implementação Aplicada
 
-1. Extrair ou materializar as siglas IQS por registro de consumidor afetado.
-2. Preservar `SIGLA_TIQS_DIC`, `SIGLA_REID_DIC`, `SIGLA_TIQS_FIC` e `SIGLA_REID_FIC` na camada apurável.
-3. Criar flags de elegibilidade:
+1. O cálculo verifica se as siglas IQS existem em `gold_apuracao_uc`.
+2. Quando existem, usa `SIGLA_TIQS_DIC`, `SIGLA_REID_DIC`, `SIGLA_TIQS_FIC` e `SIGLA_REID_FIC`.
+3. Quando não existem, usa fallback compatível:
+   - `SIGLA_TIQS_DIC = 'DIC_'`;
+   - `SIGLA_REID_DIC = NULL`;
+   - `SIGLA_TIQS_FIC = 'FIC_'`;
+   - `SIGLA_REID_FIC = NULL`.
+4. Calcula elegibilidade equivalente às flags:
    - `IND_DIC_LIQ_IQS`;
    - `IND_DIC_BRT_IQS`;
    - `IND_FIC_LIQ_IQS`;
    - `IND_FIC_BRT_IQS`.
-4. Calcular `DIC/FIC/DMIC` com base nessas flags.
-5. Aplicar também as exclusões por `COD_COMP_INTRP = 52` e `COD_CAUSA_INTRP = 71`.
-6. Expor os campos no painel Streamlit para conferência.
+5. Calcula `DIC/FIC/DMIC` líquidos com base nessas regras.
+6. Calcula `DIC_BRT`, `FIC_BRT` e `DMIC_BRT` para conferência contra o IQS.
+7. Aplica também as exclusões por `COD_COMP_INTRP = 52` e `COD_CAUSA_INTRP = 71`.
+8. Expõe os campos no painel Streamlit para conferência.
 
 ## Critério de Aceite
 

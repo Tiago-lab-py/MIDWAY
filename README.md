@@ -276,7 +276,9 @@ FIC_BASE_COMPENSACAO
 DMIC_BASE_COMPENSACAO
 ```
 
-Eventos com `COD_COMP_INTRP = 52` e eventos de posto particular (`INDIC_PROPR_POSTO_INTRP = P`) sao excluidos da base financeira de compensacao.
+Eventos com `COD_COMP_INTRP = 52` ou `COD_CAUSA_INTRP = 71` nao compoem `DIC`, `FIC`, `DMIC` nem a base financeira de compensacao.
+
+Eventos de posto particular (`INDIC_PROPR_POSTO_INTRP = P`), chave particular e UC acessante permanecem como filtros da base financeira de compensacao, sem remover a rastreabilidade operacional.
 
 Detalhamento:
 
