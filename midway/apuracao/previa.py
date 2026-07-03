@@ -1096,8 +1096,14 @@ def criar_gold_continuidade_uc(con):
                 ) AS EXCLUI_COMPENSACAO_COMP52,
                 MAX(
                     CASE
+                        WHEN TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)) = '71'
+                        THEN 1 ELSE 0
+                    END
+                ) AS EXCLUI_COMPENSACAO_CAUSA71,
+                MAX(
+                    CASE
                         WHEN TRIM(CAST(COD_COMP_INTRP AS VARCHAR)) = '52'
-                         AND TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)) = '71'
+                          OR TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)) = '71'
                         THEN 1 ELSE 0
                     END
                 ) AS EXCLUI_COMPENSACAO_COMP52_CAUSA71,
@@ -1130,9 +1136,10 @@ def criar_gold_continuidade_uc(con):
                     THEN 1 ELSE 0
                 END AS EXCLUI_COMPENSACAO_UC_ACESSANTE,
                 COALESCE(e.EXCLUI_COMPENSACAO_COMP52, 0) AS EXCLUI_COMPENSACAO_COMP52,
+                COALESCE(e.EXCLUI_COMPENSACAO_CAUSA71, 0) AS EXCLUI_COMPENSACAO_CAUSA71,
                 CASE
                     WHEN TRIM(CAST(a.COD_COMP_INTRP AS VARCHAR)) = '52'
-                     AND TRIM(CAST(a.COD_CAUSA_INTRP AS VARCHAR)) = '71'
+                      OR TRIM(CAST(a.COD_CAUSA_INTRP AS VARCHAR)) = '71'
                     THEN 1 ELSE 0
                 END AS EXCLUI_COMPENSACAO_COMP52_CAUSA71,
                 COALESCE(e.EXCLUI_COMPENSACAO_POSTO_PARTICULAR, 0) AS EXCLUI_COMPENSACAO_POSTO_PARTICULAR,
@@ -1169,6 +1176,8 @@ def criar_gold_continuidade_uc(con):
                         WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
                          AND INTERRUPCAO_LONGA = 1
                          AND INTERRUPCAO_CONTABILIZAVEL = 1
+                         AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
                         THEN COALESCE(DURACAO_HORA, 0) ELSE 0
                     END
                 ) AS DIC,
@@ -1177,6 +1186,8 @@ def criar_gold_continuidade_uc(con):
                         WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
                          AND INTERRUPCAO_LONGA = 1
                          AND INTERRUPCAO_CONTABILIZAVEL = 1
+                         AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
                         THEN 1 ELSE 0
                     END
                 ) AS FIC,
@@ -1185,6 +1196,8 @@ def criar_gold_continuidade_uc(con):
                         WHEN TIPO_PROTOC_JUSTIF_UCI = '0'
                          AND INTERRUPCAO_LONGA = 1
                          AND INTERRUPCAO_CONTABILIZAVEL = 1
+                         AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
                         THEN COALESCE(DURACAO_HORA, 0) ELSE 0
                     END
                 ) AS DMIC,
@@ -1196,6 +1209,7 @@ def criar_gold_continuidade_uc(con):
                          AND EXCLUI_COMPENSACAO_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_UC_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
                          AND EXCLUI_COMPENSACAO_POSTO_PARTICULAR = 0
                         THEN COALESCE(DURACAO_HORA, 0) ELSE 0
                     END
@@ -1208,6 +1222,7 @@ def criar_gold_continuidade_uc(con):
                          AND EXCLUI_COMPENSACAO_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_UC_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
                          AND EXCLUI_COMPENSACAO_POSTO_PARTICULAR = 0
                         THEN 1 ELSE 0
                     END
@@ -1220,6 +1235,7 @@ def criar_gold_continuidade_uc(con):
                          AND EXCLUI_COMPENSACAO_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_UC_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
                          AND EXCLUI_COMPENSACAO_POSTO_PARTICULAR = 0
                         THEN COALESCE(DURACAO_HORA, 0) ELSE 0
                     END
@@ -1227,6 +1243,7 @@ def criar_gold_continuidade_uc(con):
                 MAX(EXCLUI_COMPENSACAO_ACESSANTE) AS TEM_CHAVE_PARTICULAR,
                 MAX(EXCLUI_COMPENSACAO_UC_ACESSANTE) AS TEM_UC_ACESSANTE,
                 MAX(EXCLUI_COMPENSACAO_COMP52) AS TEM_COMP52,
+                MAX(EXCLUI_COMPENSACAO_CAUSA71) AS TEM_CAUSA71,
                 MAX(EXCLUI_COMPENSACAO_COMP52_CAUSA71) AS TEM_COMP52_CAUSA71,
                 MAX(EXCLUI_COMPENSACAO_POSTO_PARTICULAR) AS TEM_POSTO_PARTICULAR,
                 SUM(
@@ -1245,6 +1262,7 @@ def criar_gold_continuidade_uc(con):
                          AND EXCLUI_COMPENSACAO_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_UC_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
                          AND EXCLUI_COMPENSACAO_POSTO_PARTICULAR = 0
                         THEN COALESCE(DURACAO_HORA, 0) ELSE 0
                     END
@@ -1273,6 +1291,7 @@ def criar_gold_continuidade_uc(con):
                          AND EXCLUI_COMPENSACAO_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_UC_ACESSANTE = 0
                          AND EXCLUI_COMPENSACAO_COMP52 = 0
+                         AND EXCLUI_COMPENSACAO_CAUSA71 = 0
                          AND EXCLUI_COMPENSACAO_POSTO_PARTICULAR = 0
                         THEN COALESCE(DURACAO_HORA, 0) ELSE 0
                     END
@@ -1312,6 +1331,11 @@ def criar_gold_continuidade_uc(con):
                 THEN 'S'
                 ELSE 'N'
             END AS COMP52,
+            CASE
+                WHEN COALESCE(a.TEM_CAUSA71, 0) > 0
+                THEN 'S'
+                ELSE 'N'
+            END AS CAUSA71,
             CASE
                 WHEN COALESCE(a.TEM_COMP52_CAUSA71, 0) > 0
                 THEN 'S'
@@ -1737,6 +1761,9 @@ def exportar_gold_continuidade_uc(con):
     ucs_comp52 = con.execute(
         "SELECT COUNT(*) FROM gold_continuidade_uc WHERE COMP52 = 'S'"
     ).fetchone()[0]
+    ucs_causa71 = con.execute(
+        "SELECT COUNT(*) FROM gold_continuidade_uc WHERE CAUSA71 = 'S'"
+    ).fetchone()[0]
     ucs_comp52_causa71 = con.execute(
         "SELECT COUNT(*) FROM gold_continuidade_uc WHERE COMP52_CAUSA71 = 'S'"
     ).fetchone()[0]
@@ -1790,6 +1817,7 @@ def exportar_gold_continuidade_uc(con):
         arquivo.write(f"UCs com CHAVE_PARTICULAR='S': {ucs_chave_particular}\n")
         arquivo.write(f"UCs com UC_ACESSANTE='S' e compensacao zerada: {ucs_acessantes}\n")
         arquivo.write(f"UCs com COMP52='S': {ucs_comp52}\n")
+        arquivo.write(f"UCs com CAUSA71='S': {ucs_causa71}\n")
         arquivo.write(f"UCs com COMP52_CAUSA71='S': {ucs_comp52_causa71}\n")
         arquivo.write(f"UCs com POSTO_PARTICULAR='S': {ucs_posto_particular}\n")
         arquivo.write(f"UCs nao faturadas com indicadores e compensacao zerada: {ucs_nao_faturadas}\n")

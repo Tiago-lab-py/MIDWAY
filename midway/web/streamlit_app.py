@@ -79,6 +79,18 @@ def table_exists(db_path: str, table_name: str) -> bool:
 
 
 @st.cache_data(show_spinner=False)
+def column_exists(db_path: str, table_name: str, column_name: str) -> bool:
+    sql = """
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE lower(table_name) = lower(?)
+          AND lower(column_name) = lower(?)
+    """
+    with duckdb.connect(db_path, read_only=True) as con:
+        return con.execute(sql, [table_name, column_name]).fetchone()[0] > 0
+
+
+@st.cache_data(show_spinner=False)
 def list_tables(db_path: str) -> pd.DataFrame:
     sql = """
         SELECT
@@ -189,6 +201,19 @@ def analytics_overview(db_path: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def analytics_occurrences(db_path: str, min_score: int, limit: int) -> pd.DataFrame:
+    valid_pos_expression = (
+        """
+        MAX(
+            CASE
+                WHEN UPPER(TRIM(CAST(COALESCE(VALID_POS_OPERACAO, 'N') AS VARCHAR))) = 'S'
+                    THEN 'S'
+                ELSE 'N'
+            END
+        )
+        """
+        if column_exists(db_path, "gold_apuracao_uc", "VALID_POS_OPERACAO")
+        else "'N'"
+    )
     sql = f"""
         WITH ocorrencia_apuracao AS (
             SELECT
@@ -208,7 +233,8 @@ def analytics_occurrences(db_path: str, min_score: int, limit: int) -> pd.DataFr
                 SUM(CASE WHEN COALESCE(DURACAO_HORA, 0) < 0 THEN 1 ELSE 0 END) AS QTD_DURACAO_NEGATIVA,
                 SUM(CASE WHEN NULLIF(TRIM(CAST(NUM_INTRP_INIC_MANOBRA_UCI AS VARCHAR)), '') IS NOT NULL THEN 1 ELSE 0 END) AS QTD_MANOBRA,
                 COUNT(DISTINCT TRIM(CAST(COD_TIPO_INTRP AS VARCHAR))) AS QTD_COD_TIPO_INTRP,
-                COUNT(DISTINCT TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR))) AS QTD_TIPO_PROTOC_UCI
+                COUNT(DISTINCT TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR))) AS QTD_TIPO_PROTOC_UCI,
+                {valid_pos_expression} AS VALID_POS_OPERACAO
             FROM gold_apuracao_uc
             WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
             GROUP BY COALESCE(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), 'SEM_OCORRENCIA')
@@ -241,7 +267,7 @@ def analytics_occurrences(db_path: str, min_score: int, limit: int) -> pd.DataFr
             WHERE COALESCE(r.COMP_TOTAL_PRODIST, 0) > 0
             GROUP BY ou.NUM_OCORRENCIA_ADMS
         ),
-        score AS (
+        score_bruto AS (
             SELECT
                 a.*,
                 COALESCE(s.OCORRENCIA_SEM_UC_COMPLETA, 0) AS OCORRENCIA_SEM_UC_COMPLETA,
@@ -259,7 +285,7 @@ def analytics_occurrences(db_path: str, min_score: int, limit: int) -> pd.DataFr
                   + CASE WHEN COALESCE(r.COMP_TOTAL_PRODIST, 0) > 0 THEN 20 ELSE 0 END
                   + LEAST(30, CAST(a.QTD_UCS / 1000 AS INTEGER))
                   + LEAST(30, CAST(a.DIC / 100 AS INTEGER))
-                ) AS SCORE_PRIORIDADE,
+                ) AS SCORE_BRUTO,
                 CONCAT_WS(
                     '; ',
                     CASE WHEN COALESCE(s.OCORRENCIA_SEM_UC_COMPLETA, 0) = 1 THEN 'ocorrencia completa sem UC apuravel' END,
@@ -274,11 +300,37 @@ def analytics_occurrences(db_path: str, min_score: int, limit: int) -> pd.DataFr
               ON s.NUM_OCORRENCIA_ADMS = a.NUM_OCORRENCIA_ADMS
             LEFT JOIN ressarcimento r
               ON r.NUM_OCORRENCIA_ADMS = a.NUM_OCORRENCIA_ADMS
+        ),
+        score AS (
+            SELECT
+                *,
+                LEAST(100, SCORE_BRUTO) AS SCORE_PRIORIDADE,
+                CASE
+                    WHEN LEAST(100, SCORE_BRUTO) <= 29 THEN 'Baixo'
+                    WHEN LEAST(100, SCORE_BRUTO) <= 59 THEN 'Médio'
+                    WHEN LEAST(100, SCORE_BRUTO) <= 79 THEN 'Alto'
+                    ELSE 'Crítico'
+                END AS FAIXA_SCORE,
+                CASE
+                    WHEN VALID_POS_OPERACAO = 'S' AND LEAST(100, SCORE_BRUTO) >= 60
+                        THEN 'Validado pós-operação'
+                    WHEN VALID_POS_OPERACAO = 'S'
+                        THEN 'Validado'
+                    WHEN LEAST(100, SCORE_BRUTO) >= 60
+                        THEN 'Pendente prioritário'
+                    ELSE 'Pendente comum'
+                END AS STATUS_ANALITICO
+            FROM score_bruto
         )
         SELECT *
         FROM score
         WHERE SCORE_PRIORIDADE >= {int(min_score)}
-        ORDER BY SCORE_PRIORIDADE DESC, COMP_TOTAL_PRODIST DESC, DIC DESC, QTD_UCS DESC
+        ORDER BY
+            CASE WHEN VALID_POS_OPERACAO = 'S' THEN 1 ELSE 0 END,
+            SCORE_PRIORIDADE DESC,
+            COMP_TOTAL_PRODIST DESC,
+            DIC DESC,
+            QTD_UCS DESC
         LIMIT {int(limit)}
     """
     return query_df(db_path, sql)
@@ -287,6 +339,11 @@ def analytics_occurrences(db_path: str, min_score: int, limit: int) -> pd.DataFr
 @st.cache_data(show_spinner=False)
 def analytics_occurrence_detail(db_path: str, occurrence_id: str, limit: int) -> pd.DataFrame:
     safe_occurrence = sql_literal_for_streamlit(occurrence_id)
+    valid_pos_column = (
+        "VALID_POS_OPERACAO,"
+        if column_exists(db_path, "gold_apuracao_uc", "VALID_POS_OPERACAO")
+        else "'N' AS VALID_POS_OPERACAO,"
+    )
     sql = f"""
         SELECT
             REGIONAL,
@@ -299,6 +356,7 @@ def analytics_occurrence_detail(db_path: str, occurrence_id: str, limit: int) ->
             TIPO_PROTOC_JUSTIF_UCI,
             COD_CAUSA_INTRP,
             COD_COMP_INTRP,
+            {valid_pos_column}
             DATA_HORA_INIC_INTRP,
             DTHR_INICIO_INTRP_UC,
             DATA_HORA_FIM_INTRP,
@@ -553,6 +611,15 @@ def show_prodist(db_path: str, sample_limit: int) -> None:
     )
     st.dataframe(pd.DataFrame([totals]), use_container_width=True, hide_index=True)
 
+    tem_causa71 = column_exists(db_path, "gold_ressarcimento_prodist", "CAUSA71")
+    causa71_select_sql = "CAUSA71," if tem_causa71 else "'N' AS CAUSA71,"
+    causa71_sem_excluidos_sql = (
+        "          AND COALESCE(CAUSA71, 'N') = 'N'\n" if tem_causa71 else ""
+    )
+    causa71_somente_excluidos_sql = (
+        "             OR COALESCE(CAUSA71, 'N') = 'S'\n" if tem_causa71 else ""
+    )
+
     ranking_filter = st.selectbox(
         "Filtro do ranking de compensações",
         [
@@ -561,13 +628,16 @@ def show_prodist(db_path: str, sample_limit: int) -> None:
             "Somente UCs com eventos excluídos",
         ],
         help=(
-            "Eventos com COD_COMP_INTRP=52, posto particular, chave particular "
-            "ou UC acessante são retirados da base financeira."
+            "COD_COMP_INTRP=52 e COD_CAUSA_INTRP=71 não compõem DIC/FIC/DMIC "
+            "nem a base de compensação. COMP52_CAUSA71 é marcador complementar."
         ),
     )
     if ranking_filter == "Sem eventos excluídos":
         exclusion_filter_sql = """
           AND COALESCE(COMP52, 'N') = 'N'
+"""
+        exclusion_filter_sql += causa71_sem_excluidos_sql
+        exclusion_filter_sql += """
           AND COALESCE(POSTO_PARTICULAR, 'N') = 'N'
           AND COALESCE(CHAVE_PARTICULAR, 'N') = 'N'
           AND COALESCE(UC_ACESSANTE_COMPENSACAO, 'N') = 'N'
@@ -576,6 +646,9 @@ def show_prodist(db_path: str, sample_limit: int) -> None:
         exclusion_filter_sql = """
           AND (
                 COALESCE(COMP52, 'N') = 'S'
+"""
+        exclusion_filter_sql += causa71_somente_excluidos_sql
+        exclusion_filter_sql += """
              OR COALESCE(POSTO_PARTICULAR, 'N') = 'S'
              OR COALESCE(CHAVE_PARTICULAR, 'N') = 'S'
              OR COALESCE(UC_ACESSANTE_COMPENSACAO, 'N') = 'S'
@@ -597,6 +670,7 @@ def show_prodist(db_path: str, sample_limit: int) -> None:
             META_FIC,
             META_DMIC,
             COMP52,
+            {causa71_select_sql}
             POSTO_PARTICULAR,
             CHAVE_PARTICULAR,
             UC_ACESSANTE_COMPENSACAO,
@@ -669,26 +743,89 @@ def show_analytics(db_path: str, sample_limit: int) -> None:
         ]
     )
 
-    left, right = st.columns([1, 2])
+    st.info(
+        "`VALID_POS_OPERACAO = S` indica ocorrência já verificada e aceita pela pós-operação. "
+        "Ela continua visível no ranking, mas deixa de ser tratada como pendência comum."
+    )
+
+    left, middle, right = st.columns([1, 1, 1])
     with left:
         min_score = st.slider(
             "Score mínimo",
             0,
-            200,
+            100,
             40,
             step=5,
             help="Score maior combina risco operacional, sem UC, duração alta e impacto financeiro.",
         )
+    with middle:
+        score_filter = st.selectbox(
+            "Faixa de score",
+            ["Todos", "Baixo", "Médio", "Alto", "Crítico"],
+        )
     with right:
-        st.info(
-            "Critérios de prioridade: ocorrência sem UC, interrupção sem UC, duração >= 24h, "
-            "múltiplos tipos/protocolos, volume de UCs, DIC elevado e compensação estimada."
+        validacao_filter = st.selectbox(
+            "Validação Pós-Operação",
+            ["Todos", "Somente validados", "Somente não validados"],
         )
 
-    ranking_df = analytics_occurrences(db_path, min_score, sample_limit)
+    pendencia_filter = st.radio(
+        "Pendência",
+        ["Todos", "Pendentes", "Validados"],
+        horizontal=True,
+        help="Combina o score analytics com a validação operacional.",
+    )
+
+    ranking_df = analytics_occurrences(db_path, min_score, sample_limit * 5)
     if ranking_df.empty:
         st.success("Nenhuma ocorrência encontrada para o score informado.")
         return
+
+    ranking_df["VALID_POS_OPERACAO"] = ranking_df["VALID_POS_OPERACAO"].fillna("N").astype(str).str.upper()
+
+    if score_filter != "Todos":
+        ranking_df = ranking_df[ranking_df["FAIXA_SCORE"] == score_filter]
+
+    if validacao_filter == "Somente validados":
+        ranking_df = ranking_df[ranking_df["VALID_POS_OPERACAO"] == "S"]
+    elif validacao_filter == "Somente não validados":
+        ranking_df = ranking_df[ranking_df["VALID_POS_OPERACAO"] != "S"]
+
+    if pendencia_filter == "Pendentes":
+        ranking_df = ranking_df[ranking_df["VALID_POS_OPERACAO"] != "S"]
+    elif pendencia_filter == "Validados":
+        ranking_df = ranking_df[ranking_df["VALID_POS_OPERACAO"] == "S"]
+
+    ranking_df = ranking_df.head(sample_limit)
+    if ranking_df.empty:
+        st.success("Nenhuma ocorrência encontrada para os filtros informados.")
+        return
+
+    qtd_validadas = int((ranking_df["VALID_POS_OPERACAO"] == "S").sum())
+    qtd_pendentes = int((ranking_df["VALID_POS_OPERACAO"] != "S").sum())
+    qtd_criticas = int((ranking_df["FAIXA_SCORE"] == "Crítico").sum())
+    qtd_criticas_pendentes = int(
+        ((ranking_df["FAIXA_SCORE"] == "Crítico") & (ranking_df["VALID_POS_OPERACAO"] != "S")).sum()
+    )
+
+    show_metric_cards(
+        [
+            ("Ocorrências exibidas", len(ranking_df), "Após filtros do painel"),
+            ("Validadas pós", qtd_validadas, "VALID_POS_OPERACAO = S"),
+            ("Pendentes", qtd_pendentes, "VALID_POS_OPERACAO diferente de S"),
+            ("Críticas pendentes", qtd_criticas_pendentes, "Score crítico ainda não validado"),
+        ]
+    )
+
+    score_summary = (
+        ranking_df.groupby(["FAIXA_SCORE", "VALID_POS_OPERACAO"], dropna=False)
+        .size()
+        .reset_index(name="QTD_OCORRENCIAS")
+        .sort_values(["FAIXA_SCORE", "VALID_POS_OPERACAO"])
+    )
+    with st.expander("Resumo por faixa de score e validação", expanded=False):
+        st.dataframe(score_summary, use_container_width=True, hide_index=True)
+        st.caption(f"Ocorrências críticas no recorte: {qtd_criticas}.")
 
     st.markdown("#### Ocorrências prioritárias")
     st.dataframe(
@@ -699,8 +836,11 @@ def show_analytics(db_path: str, sample_limit: int) -> None:
             "SCORE_PRIORIDADE": st.column_config.ProgressColumn(
                 "SCORE",
                 min_value=0,
-                max_value=max(200, int(ranking_df["SCORE_PRIORIDADE"].max())),
+                max_value=100,
             ),
+            "FAIXA_SCORE": st.column_config.TextColumn("Faixa"),
+            "VALID_POS_OPERACAO": st.column_config.TextColumn("Validado Pós"),
+            "STATUS_ANALITICO": st.column_config.TextColumn("Status"),
             "COMP_TOTAL_PRODIST": st.column_config.NumberColumn("COMP_TOTAL_PRODIST", format="%.2f"),
             "DIC": st.column_config.NumberColumn("DIC", format="%.3f"),
             "MAX_DURACAO_H": st.column_config.NumberColumn("MAX_DURACAO_H", format="%.3f"),
