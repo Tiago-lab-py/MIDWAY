@@ -41,6 +41,9 @@ midway/apuracao/continuidade.py
 midway/apuracao/ressarcimento.py
 midway/apuracao/exportacoes.py
 midway/apuracao/resumos.py
+midway/apuracao/interrupcao_tratada.py
+midway/apuracao/apuracao_uc.py
+midway/apuracao/apuracao_previa.py
 midway/apuracao/legacy.py
 midway/apuracao/contexto.py
 ```
@@ -98,6 +101,37 @@ Centraliza resumos textuais e anexos:
 - resumo de compensacoes;
 - anexo de compensacao no resumo principal.
 
+### `interrupcao_tratada.py`
+
+Centraliza a criacao da camada:
+
+```text
+gold_interrupcao_tratada
+```
+
+Essa etapa materializa a visao tratada a partir do RAW IQS/ADMS e aplica os ajustes gerados no tratamento, preservando a montagem da camada completa usada na apuracao.
+
+### `apuracao_uc.py`
+
+Centraliza a criacao da base apuravel por UC:
+
+```text
+silver_interrupcao_uc_apuravel
+gold_apuracao_uc
+```
+
+Essa etapa concentra os filtros de elegibilidade para `DIC` e `FIC`, incluindo UC faturada, interrupcao longa, ausencia de manobra contabilizavel e ausencia de motivo de tratamento diferenciado.
+
+### `apuracao_previa.py`
+
+Centraliza a criacao da camada:
+
+```text
+gold_apuracao_previa
+```
+
+Essa etapa agrega a apuracao por interrupcao e calcula `DEC` e `FEC` brutos e liquidos a partir de `gold_apuracao_uc`.
+
 ### `legacy.py`
 
 Isola funcoes obsoletas que foram preservadas por historico, mas nao fazem parte do fluxo oficial atual.
@@ -136,7 +170,7 @@ O arquivo `previa.py` continua sendo o orquestrador da apuracao, mas agora deleg
 Primeira reducao de complexidade:
 
 ```text
-previa.py: 2335 linhas -> aproximadamente 703 linhas
+previa.py: 2335 linhas -> aproximadamente 299 linhas
 ```
 
 Essa reducao e intencionalmente incremental. O objetivo e evitar uma grande reescrita que poderia quebrar o processamento ja validado.
@@ -146,11 +180,12 @@ Essa reducao e intencionalmente incremental. O objetivo e evitar uma grande rees
 ### Fase 1 - Baixo risco
 
 - mover funcoes de validacao auxiliares para modulo proprio;
-- mover criacao de `gold_apuracao_previa` para modulo dedicado.
+- mover compatibilidade gold e anexo RAW para modulo de infraestrutura.
 
 ### Fase 2 - Medio risco
 
 - separar SQL longo de continuidade e ressarcimento em arquivos `.sql`;
+- separar SQL longo de interrupcao tratada e apuracao UC em arquivos `.sql`;
 - criar testes unitarios de schema SQL para cada modulo.
 
 ### Fase 3 - Alto impacto
