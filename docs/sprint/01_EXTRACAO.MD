@@ -7,7 +7,7 @@ Data prevista: `2026-07-03`
 Validar o MIDWAY no computador da empresa, com foco em:
 
 - preparar ambiente local;
-- clonar a versao `6.0.0`;
+- clonar a versao `6.0.1`;
 - configurar acesso Oracle/IQS;
 - executar e conferir as extracoes ADMS e IQS;
 - gerar base processada inicial;
@@ -149,7 +149,7 @@ run.bat
 
 Checklist:
 
-- `run.bat versao` retorna `6.0.0`.
+- `run.bat versao` retorna `6.0.1`.
 - `run.bat` lista comandos.
 - `.env` existe e nao esta no Git.
 - `data/` sera criada localmente.

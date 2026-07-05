@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.0.1 - 2026-07-05
+
+Versao incremental com melhorias de analytics e apoio operacional.
+
+- Analise diaria de impacto por conjunto eletrico.
+- Verificacao de dia critico por conjunto com meta sintetica.
+- Simulacao de ISE por janela regional.
+- Documentacao das novas analises operacionais.
+- Contratos de dados atualizados para as novas tabelas gold.
+
 ## 6.0.0 - 2026-07-02
 
 Versao inicial versionada do MIDWAY.
