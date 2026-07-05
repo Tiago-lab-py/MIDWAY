@@ -41,6 +41,8 @@ midway/apuracao/continuidade.py
 midway/apuracao/ressarcimento.py
 midway/apuracao/exportacoes.py
 midway/apuracao/resumos.py
+midway/apuracao/legacy.py
+midway/apuracao/contexto.py
 ```
 
 ### `duckdb_utils.py`
@@ -96,6 +98,29 @@ Centraliza resumos textuais e anexos:
 - resumo de compensacoes;
 - anexo de compensacao no resumo principal.
 
+### `legacy.py`
+
+Isola funcoes obsoletas que foram preservadas por historico, mas nao fazem parte do fluxo oficial atual.
+
+Funcoes movidas:
+
+- `_obsoleto_criar_gold_apuracao_uc_v1`;
+- `_obsoleto_apuracao_previa_v1`;
+- `_obsoleto_criar_gold_apuracao_uc_v2`.
+
+### `contexto.py`
+
+Centraliza a configuracao derivada do ambiente:
+
+- `ANOMES`;
+- `TOTAL_CONSUMIDORES`;
+- diretórios `data`, `export`, `marts`;
+- caminhos DuckDB `raw` e `processed`;
+- `DATA_ARQ`;
+- `TIMESTAMP_ARQ`.
+
+O `previa.py` ainda expõe constantes antigas por compatibilidade, mas elas passam a vir do `CONTEXTO`.
+
 ## Compatibilidade
 
 O fluxo operacional continua o mesmo:
@@ -111,7 +136,7 @@ O arquivo `previa.py` continua sendo o orquestrador da apuracao, mas agora deleg
 Primeira reducao de complexidade:
 
 ```text
-previa.py: 2335 linhas -> aproximadamente 978 linhas
+previa.py: 2335 linhas -> aproximadamente 703 linhas
 ```
 
 Essa reducao e intencionalmente incremental. O objetivo e evitar uma grande reescrita que poderia quebrar o processamento ja validado.
@@ -120,8 +145,8 @@ Essa reducao e intencionalmente incremental. O objetivo e evitar uma grande rees
 
 ### Fase 1 - Baixo risco
 
-- criar dataclass de contexto para `ANOMES`, paths e timestamp.
-- mover funcoes obsoletas para `midway/apuracao/legacy.py`.
+- mover funcoes de validacao auxiliares para modulo proprio;
+- mover criacao de `gold_apuracao_previa` para modulo dedicado.
 
 ### Fase 2 - Medio risco
 

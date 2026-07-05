@@ -11,6 +11,8 @@ Versao de consolidacao tecnica do MIDWAY.
 - Extrai a criacao de `gold_ressarcimento_prodist` para `midway/apuracao/ressarcimento.py`.
 - Extrai exportacoes de BDO, continuidade e ressarcimento para `midway/apuracao/exportacoes.py`.
 - Extrai resumos e anexos de compensacao para `midway/apuracao/resumos.py`.
+- Move funcoes obsoletas para `midway/apuracao/legacy.py`.
+- Centraliza `ANOMES`, paths e timestamp em `midway/apuracao/contexto.py`.
 - Mantem compatibilidade operacional com `run.bat apuracao_parcial`.
 - Preserva as regras de negocio existentes, reduzindo risco de quebra durante evolucoes futuras.
 
