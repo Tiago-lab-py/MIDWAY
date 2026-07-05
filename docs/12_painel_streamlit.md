@@ -108,31 +108,6 @@ Inclui:
 - total estimado;
 - ranking das maiores compensacoes.
 
-### Conjunto Diario
-
-Mostra a tabela:
-
-```text
-gold_impacto_conjunto_dia
-```
-
-Objetivo: identificar quais ocorrencias do dia mais consomem a meta `DEC/FEC` de cada conjunto eletrico.
-
-Inclui:
-
-- filtro por dia;
-- filtro por conjunto;
-- filtro por percentual minimo de meta consumida;
-- ranking de ocorrencias por `PCT_META_MAX_CONSUMIDA`;
-- resumo por conjunto no dia;
-- download do ranking.
-
-Detalhamento:
-
-```text
-docs/19_impacto_conjunto_dia.md
-```
-
 ### Arquivos
 
 Lista arquivos de `data/marts` por competencia e permite pre-visualizar apenas as primeiras linhas de CSVs.
@@ -158,7 +133,16 @@ Operacoes de escrita como `CREATE`, `DROP`, `INSERT`, `UPDATE`, `DELETE`, `COPY`
 
 Pagina voltada para orientar a verificacao manual pela pos-operacao.
 
-Ela cria um ranking estatistico de ocorrencias provaveis para auditoria usando:
+A pagina e organizada em abas:
+
+- `Ranking Ocorrencias`;
+- `Conjunto Diario`;
+- `Dia Critico`;
+- `Simulacao ISE`.
+
+### Aba Ranking Ocorrencias
+
+Cria um ranking estatistico de ocorrencias provaveis para auditoria usando:
 
 - ocorrencia completa sem UC apuravel;
 - interrupcoes sem UC apuravel;
@@ -180,6 +164,102 @@ Saidas exibidas:
 - download do detalhe da ocorrencia.
 
 O score e uma priorizacao operacional para triagem; nao altera dados e nao substitui avaliacao tecnica.
+
+### Aba Conjunto Diario
+
+Mostra a tabela:
+
+```text
+gold_impacto_conjunto_dia
+```
+
+Objetivo: identificar quais ocorrencias do dia mais consomem a meta `DEC/FEC` de cada conjunto eletrico.
+
+Inclui:
+
+- filtro por dia;
+- filtro por conjunto;
+- filtro por percentual minimo de meta consumida;
+- ranking de ocorrencias por `PCT_META_MAX_CONSUMIDA`;
+- resumo por conjunto no dia;
+- download do ranking.
+
+Detalhamento:
+
+```text
+docs/19_impacto_conjunto_dia.md
+```
+
+### Aba Dia Critico
+
+Cria uma verificacao diaria por conjunto usando ocorrencias com duracao acima de um limite ajustavel no painel.
+
+Como a base atual nao possui servicos/equipes, o painel usa a duracao da ocorrencia como aproximacao de provavel atendimento:
+
+```text
+MAX_DURACAO_H >= limite selecionado
+```
+
+O limite padrao e `1 hora`, ajustavel por slider.
+
+A comparacao usa a tabela:
+
+```text
+gold_meta_dia_critico_conjunto
+```
+
+Enquanto nao houver meta real por conjunto, a referencia e sintetica:
+
+```text
+META_DIA_CRITICO_SINTETICA = 1.5 * MAX(META_DICRI) das UCs urbanas do conjunto
+```
+
+Inclui:
+
+- filtro por dia;
+- filtro por conjunto;
+- slider de duracao minima;
+- comparativo contra meta sintetica ou real;
+- lista das ocorrencias consideradas;
+- download do comparativo.
+
+Detalhamento:
+
+```text
+docs/20_dia_critico_conjunto.md
+```
+
+### Aba Simulacao ISE
+
+Permite simular uma janela de tempestade por regional para avaliar o expurgo de DIC/FIC normal e a transferencia para `DISE`.
+
+Entradas:
+
+- regional ou regionais afetadas;
+- data/hora de inicio da janela ISE;
+- data/hora final da janela ISE;
+- `TIPO_PROTOC_JUSTIF_UCI` simulado: `5` ou `6`;
+- sobreposicao minima em minutos.
+
+A tela calcula dois cenarios:
+
+- `janela`: expurga somente as horas sobrepostas entre a interrupcao e a janela ISE;
+- `registro inteiro`: expurga o `CHI_LIQUIDO` completo do registro UC atingido pela janela.
+
+Saidas:
+
+- resumo por regional;
+- impacto simulado por UC contra `META_DISE`;
+- registros UC atingidos pela janela;
+- download dos resultados.
+
+A simulacao nao altera dados e nao gera arquivo oficial para IQS.
+
+Detalhamento:
+
+```text
+docs/21_simulacao_ise.md
+```
 
 ## Fluxo recomendado
 
