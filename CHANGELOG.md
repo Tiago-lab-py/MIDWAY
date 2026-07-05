@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.1.0 - 2026-07-05
+
+Versao de consolidacao tecnica do MIDWAY.
+
+- Inicia a refatoracao de `midway/apuracao/previa.py` em modulos menores.
+- Extrai utilitarios DuckDB/CSV para `midway/apuracao/duckdb_utils.py`.
+- Extrai rotinas de impacto por conjunto e dia critico para `midway/apuracao/conjunto.py`.
+- Mantem compatibilidade operacional com `run.bat apuracao_parcial`.
+- Preserva as regras de negocio existentes, reduzindo risco de quebra durante evolucoes futuras.
+
 ## 6.0.1 - 2026-07-05
 
 Versao incremental com melhorias de analytics e apoio operacional.

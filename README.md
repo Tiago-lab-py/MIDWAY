@@ -1,6 +1,6 @@
 # MIDWAY - Tratamento IQS ADMS
 
-Versao atual: `6.0.1`
+Versao atual: `6.1.0`
 
 O MIDWAY e uma ferramenta local de ETL e pre-apuracao para tratar registros de interrupcao do ADMS antes da carga no IQS.
 

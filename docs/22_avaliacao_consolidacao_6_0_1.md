@@ -113,6 +113,8 @@ Como o README publico e minimo, a avaliacao deve ser conservadora:
 
 Recomendacao: tratar a consolidacao como uma linha `6.1.x`.
 
+Status em `2026-07-05`: a linha `6.1.0` foi iniciada com a refatoracao segura de `midway/apuracao/previa.py`, extraindo utilitarios e rotinas de conjunto/dia critico para modulos menores.
+
 ### 6.1.0 - Consolidacao Operacional
 
 Objetivo: manter o motor DuckDB local e absorver os melhores conceitos do `analise_ocorrencia`.
