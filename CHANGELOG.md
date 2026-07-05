@@ -7,6 +7,8 @@ Versao de consolidacao tecnica do MIDWAY.
 - Inicia a refatoracao de `midway/apuracao/previa.py` em modulos menores.
 - Extrai utilitarios DuckDB/CSV para `midway/apuracao/duckdb_utils.py`.
 - Extrai rotinas de impacto por conjunto e dia critico para `midway/apuracao/conjunto.py`.
+- Extrai a criacao de `gold_continuidade_uc` para `midway/apuracao/continuidade.py`.
+- Extrai a criacao de `gold_ressarcimento_prodist` para `midway/apuracao/ressarcimento.py`.
 - Mantem compatibilidade operacional com `run.bat apuracao_parcial`.
 - Preserva as regras de negocio existentes, reduzindo risco de quebra durante evolucoes futuras.
 

@@ -37,6 +37,8 @@ Foram criados os modulos:
 ```text
 midway/apuracao/duckdb_utils.py
 midway/apuracao/conjunto.py
+midway/apuracao/continuidade.py
+midway/apuracao/ressarcimento.py
 ```
 
 ### `duckdb_utils.py`
@@ -56,6 +58,26 @@ Centraliza rotinas ligadas a conjunto eletrico:
 - `exportar_gold_impacto_conjunto_dia`;
 - `exportar_gold_meta_dia_critico_conjunto`.
 
+### `continuidade.py`
+
+Centraliza a criacao da camada:
+
+```text
+gold_continuidade_uc
+```
+
+Essa etapa agrega os indicadores individuais por UC e preserva as regras de filtros para `DIC`, `FIC`, `DMIC`, `DICRI`, `DISE` e bases de compensacao.
+
+### `ressarcimento.py`
+
+Centraliza a criacao da camada:
+
+```text
+gold_ressarcimento_prodist
+```
+
+Essa etapa calcula a previa PRODIST a partir de `gold_continuidade_uc`, mantendo as regras de piso, teto, `KEI1`, `KEI2`, `KEI3`, `COMP52`, `CAUSA71` e demais exclusoes ja implementadas.
+
 ## Compatibilidade
 
 O fluxo operacional continua o mesmo:
@@ -71,7 +93,7 @@ O arquivo `previa.py` continua sendo o orquestrador da apuracao, mas agora deleg
 Primeira reducao de complexidade:
 
 ```text
-previa.py: 2335 linhas -> aproximadamente 2050 linhas
+previa.py: 2335 linhas -> aproximadamente 1334 linhas
 ```
 
 Essa reducao e intencionalmente incremental. O objetivo e evitar uma grande reescrita que poderia quebrar o processamento ja validado.
@@ -86,8 +108,7 @@ Essa reducao e intencionalmente incremental. O objetivo e evitar uma grande rees
 
 ### Fase 2 - Medio risco
 
-- mover `criar_gold_continuidade_uc` para `midway/apuracao/continuidade.py`;
-- mover `criar_gold_ressarcimento_prodist` para `midway/apuracao/ressarcimento.py`;
+- separar SQL longo de continuidade e ressarcimento em arquivos `.sql`;
 - criar testes unitarios de schema SQL para cada modulo.
 
 ### Fase 3 - Alto impacto
