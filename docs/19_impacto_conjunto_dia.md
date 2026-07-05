@@ -107,6 +107,12 @@ Essa ocorrência consumiu 0,5% da meta DEC do conjunto.
 
 ## Painel Streamlit
 
+No Streamlit, a análise fica em:
+
+```text
+Analytics Pós-Operação > Conjunto Diário
+```
+
 A aba **Conjunto Diário** mostra:
 
 - filtro por dia;

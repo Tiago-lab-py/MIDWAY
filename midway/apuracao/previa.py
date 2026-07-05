@@ -1851,6 +1851,48 @@ def criar_gold_impacto_conjunto_dia(con):
     )
 
 
+def criar_gold_meta_dia_critico_conjunto(con):
+    print("Criando gold_meta_dia_critico_conjunto...")
+
+    if not tabela_local_existe(con, "gold_metas_uc"):
+        raise RuntimeError("Tabela gold_metas_uc nao encontrada.")
+
+    con.execute(
+        """
+        CREATE OR REPLACE TABLE gold_meta_dia_critico_conjunto AS
+        WITH metas_urbanas AS (
+            SELECT
+                TRIM(CAST(COD_CONJUNTO_ANEEL AS VARCHAR)) AS COD_CONJUNTO_ANEEL,
+                TRIM(CAST(ISN_UC AS VARCHAR)) AS UC,
+                TRY_CAST(META_DICRI AS DOUBLE) AS META_DICRI
+            FROM gold_metas_uc
+            WHERE NULLIF(TRIM(CAST(COD_CONJUNTO_ANEEL AS VARCHAR)), '') IS NOT NULL
+              AND NULLIF(TRIM(CAST(ISN_UC AS VARCHAR)), '') IS NOT NULL
+              AND UPPER(TRIM(CAST(URB_RUR AS VARCHAR))) = 'U'
+        ),
+        conjunto AS (
+            SELECT
+                COD_CONJUNTO_ANEEL,
+                COUNT(DISTINCT UC) AS QTD_UCS_URBANAS,
+                MAX(META_DICRI) AS META_DICRI_UC_URBANA_REFERENCIA
+            FROM metas_urbanas
+            GROUP BY COD_CONJUNTO_ANEEL
+        )
+        SELECT
+            COD_CONJUNTO_ANEEL,
+            QTD_UCS_URBANAS,
+            META_DICRI_UC_URBANA_REFERENCIA,
+            1.5 AS FATOR_META_DIA_CRITICO_SINTETICA,
+            META_DICRI_UC_URBANA_REFERENCIA * 1.5 AS META_DIA_CRITICO_SINTETICA,
+            CAST(NULL AS DOUBLE) AS META_DIA_CRITICO_REAL,
+            'SINTETICA_1_5_META_DICRI_UC_URBANA' AS TIPO_META_DIA_CRITICO,
+            'S' AS PENDENCIA_META_REAL
+        FROM conjunto
+        WHERE COALESCE(META_DICRI_UC_URBANA_REFERENCIA, 0) > 0
+        """
+    )
+
+
 def exportar_gold_impacto_conjunto_dia(con):
     if not tabela_local_existe(con, "gold_impacto_conjunto_dia"):
         raise RuntimeError("Tabela gold_impacto_conjunto_dia nao encontrada.")
@@ -1907,6 +1949,59 @@ def exportar_gold_impacto_conjunto_dia(con):
 
     print(f"gold_impacto_conjunto_dia criada. Registros: {resumo[0]:,}")
     print(f"Conferencia impacto conjunto/dia: {caminho_csv}")
+
+
+def exportar_gold_meta_dia_critico_conjunto(con):
+    if not tabela_local_existe(con, "gold_meta_dia_critico_conjunto"):
+        raise RuntimeError("Tabela gold_meta_dia_critico_conjunto nao encontrada.")
+
+    caminho_csv = MARTS_DIR / f"Gold_Meta_Dia_Critico_Conjunto_{ANOMES}_{TIMESTAMP_ARQ}.CSV"
+    caminho_resumo = MARTS_DIR / f"Gold_Meta_Dia_Critico_Conjunto_{ANOMES}_{TIMESTAMP_ARQ}_RESUMO.TXT"
+
+    con.execute(
+        f"""
+        COPY (
+            SELECT *
+            FROM gold_meta_dia_critico_conjunto
+            ORDER BY COD_CONJUNTO_ANEEL
+        )
+        TO {sql_literal(caminho_csv.as_posix())}
+        WITH (
+            HEADER TRUE,
+            DELIMITER '|',
+            NULL ''
+        )
+        """
+    )
+    normalizar_linhas_unix(caminho_csv)
+
+    resumo = con.execute(
+        """
+        SELECT
+            COUNT(*) AS CONJUNTOS,
+            SUM(QTD_UCS_URBANAS) AS UCS_URBANAS,
+            MIN(META_DIA_CRITICO_SINTETICA) AS MENOR_META_SINTETICA,
+            MAX(META_DIA_CRITICO_SINTETICA) AS MAIOR_META_SINTETICA,
+            SUM(CASE WHEN META_DIA_CRITICO_REAL IS NULL THEN 1 ELSE 0 END) AS METAS_REAIS_PENDENTES
+        FROM gold_meta_dia_critico_conjunto
+        """
+    ).fetchone()
+
+    with caminho_resumo.open("w", encoding="utf-8", newline="\n") as arquivo:
+        arquivo.write("GOLD META DIA CRITICO CONJUNTO\n")
+        arquivo.write(f"ANOMES: {ANOMES}\n")
+        arquivo.write(f"DuckDB processado: {PROCESSED_DUCKDB_PATH}\n")
+        arquivo.write("Criterio sintetico: 1.5 * MAX(META_DICRI) das UCs urbanas do conjunto\n")
+        arquivo.write("Pendencia: substituir por meta real de dia critico por conjunto quando disponivel\n")
+        arquivo.write(f"Conjuntos: {resumo[0]}\n")
+        arquivo.write(f"UCs urbanas: {resumo[1]}\n")
+        arquivo.write(f"Menor meta sintetica: {resumo[2]}\n")
+        arquivo.write(f"Maior meta sintetica: {resumo[3]}\n")
+        arquivo.write(f"Metas reais pendentes: {resumo[4]}\n")
+        arquivo.write(f"Arquivo: {caminho_csv}\n")
+
+    print(f"gold_meta_dia_critico_conjunto criada. Registros: {resumo[0]:,}")
+    print(f"Conferencia meta dia critico/conjunto: {caminho_csv}")
 
 
 def exportar_gold_ressarcimento_prodist(con):
@@ -2227,9 +2322,11 @@ def criar_gold_apuracao_uc(con):
     criar_gold_continuidade_uc(con)
     criar_gold_ressarcimento_prodist(con)
     criar_gold_impacto_conjunto_dia(con)
+    criar_gold_meta_dia_critico_conjunto(con)
     exportar_gold_continuidade_uc(con)
     exportar_gold_ressarcimento_prodist(con)
     exportar_gold_impacto_conjunto_dia(con)
+    exportar_gold_meta_dia_critico_conjunto(con)
     anexar_compensacao_resumo_principal(con)
     return resultado
 
