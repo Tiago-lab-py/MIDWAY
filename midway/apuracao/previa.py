@@ -11,6 +11,16 @@ from midway.apuracao.auditoria_sem_uc import (
     criar_gold_ocorrencia_sem_uc,
     exportar_auditoria_interrupcao_sem_uc,
 )
+from midway.apuracao.exportacoes import (
+    exportar_bdo_interrupcao as _exportar_bdo_interrupcao,
+    exportar_gold_continuidade_uc as _exportar_gold_continuidade_uc,
+    exportar_gold_ressarcimento_prodist as _exportar_gold_ressarcimento_prodist,
+)
+from midway.apuracao.resumos import (
+    anexar_compensacao_resumo_principal as _anexar_compensacao_resumo_principal,
+    gerar_resumo as _gerar_resumo,
+    obter_resumo_compensacao as _obter_resumo_compensacao,
+)
 from midway.apuracao.continuidade import criar_gold_continuidade_uc
 from midway.apuracao.ressarcimento import criar_gold_ressarcimento_prodist
 from midway.apuracao.conjunto import (
@@ -348,136 +358,8 @@ def criar_gold_apuracao_previa(con):
     )
 
 
-def exportar_bdo_interrupcao(con):
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    caminho_csv = EXPORT_DIR / f"BDO_interupcao_{DATA_ARQ}.csv"
-
-    if caminho_csv.exists():
-        try:
-            caminho_csv.unlink()
-        except PermissionError:
-            caminho_csv = EXPORT_DIR / f"BDO_interupcao_{DATA_ARQ}_{TIMESTAMP_ARQ}.csv"
-            print(
-                "Arquivo BDO do dia esta bloqueado pelo Windows; "
-                f"exportando arquivo alternativo: {caminho_csv}"
-            )
-
-    con.execute(
-        f"""
-        COPY (
-            SELECT *
-            FROM gold_apuracao_previa
-            ORDER BY
-                REGIONAL,
-                DATA_HORA_INIC_INTRP,
-                NUM_OCORRENCIA_ADMS,
-                NUM_SEQ_INTRP
-        )
-        TO {sql_literal(caminho_csv.as_posix())}
-        WITH (
-            HEADER TRUE,
-            DELIMITER '|',
-            NULL ''
-        )
-        """
-    )
-
-    normalizar_linhas_unix(caminho_csv)
-    return caminho_csv
 
 
-def gerar_resumo(con, caminho_csv):
-    MARTS_DIR.mkdir(parents=True, exist_ok=True)
-    caminho_resumo = MARTS_DIR / f"Apuracao_Previa_{TIMESTAMP_ARQ}_RESUMO.TXT"
-    fonte_consumidores = (
-        "gold_consumidores"
-        if tabela_gold_consumidores_existe(con)
-        else "TOTAL_CONSUMIDORES do .env"
-    )
-
-    qtd_gold = con.execute("SELECT COUNT(*) FROM gold_interrupcao_tratada").fetchone()[0]
-    qtd_uc = con.execute("SELECT COUNT(*) FROM gold_apuracao_uc").fetchone()[0]
-    qtd_bdo = con.execute("SELECT COUNT(*) FROM gold_apuracao_previa").fetchone()[0]
-    diag_gold = con.execute(
-        """
-        SELECT
-            SUM(CASE WHEN INTERRUPCAO_LONGA = 'SIM' THEN 1 ELSE 0 END) AS QTD_LONGA,
-            SUM(CASE WHEN INTERRUPCAO_CONTABILIZAVEL = 'SIM' THEN 1 ELSE 0 END) AS QTD_CONTABILIZAVEL,
-            SUM(CASE WHEN INTERRUPCAO_LONGA = 'SIM'
-                      AND INTERRUPCAO_CONTABILIZAVEL = 'SIM'
-                     THEN 1 ELSE 0 END) AS QTD_ENTRA_CI_CHI,
-            MIN(DURACAO_HORA) AS MIN_DURACAO_HORA,
-            MAX(DURACAO_HORA) AS MAX_DURACAO_HORA
-        FROM gold_apuracao_uc
-        """
-    ).fetchone()
-    ci_bruto_total, chi_bruto_total, ci_liquido_total, chi_liquido_total = con.execute(
-        """
-        SELECT
-            COALESCE(SUM(CI_BRUTO), 0) AS CI_BRUTO_TOTAL,
-            COALESCE(SUM(CHI_BRUTO), 0) AS CHI_BRUTO_TOTAL,
-            COALESCE(SUM(CI_LIQUIDO), 0) AS CI_LIQUIDO_TOTAL,
-            COALESCE(SUM(CHI_LIQUIDO), 0) AS CHI_LIQUIDO_TOTAL
-        FROM gold_apuracao_previa
-        """
-    ).fetchone()
-
-    if tabela_gold_consumidores_existe(con):
-        total_consumidores_global = con.execute(
-            """
-            SELECT UC_FATURADA
-            FROM gold_consumidores
-            WHERE REGIONAL_TOTAL = 'COPEL'
-            LIMIT 1
-            """
-        ).fetchone()
-        total_consumidores_global = (
-            total_consumidores_global[0] if total_consumidores_global else None
-        )
-    else:
-        total_consumidores_global = con.execute(
-            "SELECT MAX(TOTAL_CONSUMIDORES) FROM gold_apuracao_previa"
-        ).fetchone()[0]
-
-    if total_consumidores_global:
-        dec_bruto_total = chi_bruto_total / total_consumidores_global
-        fec_bruto_total = ci_bruto_total / total_consumidores_global
-        dec_liquido_total = chi_liquido_total / total_consumidores_global
-        fec_liquido_total = ci_liquido_total / total_consumidores_global
-    else:
-        dec_bruto_total = None
-        fec_bruto_total = None
-        dec_liquido_total = None
-        fec_liquido_total = None
-
-    with caminho_resumo.open("w", encoding="utf-8", newline="\n") as resumo:
-        resumo.write("APURACAO PREVIA IQS\n")
-        resumo.write(f"ANOMES: {ANOMES}\n")
-        resumo.write(f"DuckDB processado: {PROCESSED_DUCKDB_PATH}\n")
-        resumo.write(f"Tabela gold: gold_interrupcao_tratada\n")
-        resumo.write(f"Registros gold ESTADO_INTRP=4: {qtd_gold}\n")
-        resumo.write(f"Registros UC apuraveis: {qtd_uc}\n")
-        resumo.write(f"Registros BDO exportados: {qtd_bdo}\n")
-        resumo.write(f"UCs com interrupcao longa: {diag_gold[0]}\n")
-        resumo.write(f"UCs contabilizaveis sem manobra: {diag_gold[1]}\n")
-        resumo.write(f"UCs que entram em CI/CHI: {diag_gold[2]}\n")
-        resumo.write(f"Duracao hora minima: {diag_gold[3]}\n")
-        resumo.write(f"Duracao hora maxima: {diag_gold[4]}\n")
-        resumo.write(f"CI bruto total: {ci_bruto_total}\n")
-        resumo.write(f"CHI bruto total: {chi_bruto_total}\n")
-        resumo.write(f"CI liquido total: {ci_liquido_total}\n")
-        resumo.write(f"CHI liquido total: {chi_liquido_total}\n")
-        resumo.write(f"Fonte total consumidores: {fonte_consumidores}\n")
-        resumo.write(f"Total consumidores: {total_consumidores_global}\n")
-        resumo.write(f"DEC bruto total: {dec_bruto_total}\n")
-        resumo.write(f"FEC bruto total: {fec_bruto_total}\n")
-        resumo.write(f"DEC liquido total: {dec_liquido_total}\n")
-        resumo.write(f"FEC liquido total: {fec_liquido_total}\n")
-        resumo.write(f"Arquivo BDO: {caminho_csv}\n")
-        resumo.write("Separador: |\n")
-        resumo.write("Terminador de linha: UNIX LF\n")
-
-    return caminho_resumo
 
 
 def _obsoleto_apuracao_previa_v1():
@@ -947,6 +829,59 @@ def criar_gold_interrupcao_tratada(con):
     )
 
 
+
+
+def exportar_bdo_interrupcao(con):
+    return _exportar_bdo_interrupcao(
+        con,
+        export_dir=EXPORT_DIR,
+        data_arq=DATA_ARQ,
+        timestamp=TIMESTAMP_ARQ,
+    )
+
+
+def gerar_resumo(con, caminho_csv):
+    return _gerar_resumo(
+        con,
+        caminho_csv,
+        marts_dir=MARTS_DIR,
+        timestamp=TIMESTAMP_ARQ,
+        anomes=ANOMES,
+        processed_duckdb_path=PROCESSED_DUCKDB_PATH,
+        tabela_gold_consumidores_existe=tabela_gold_consumidores_existe,
+    )
+
+
+def exportar_gold_ressarcimento_prodist(con):
+    return _exportar_gold_ressarcimento_prodist(
+        con,
+        marts_dir=MARTS_DIR,
+        anomes=ANOMES,
+        timestamp=TIMESTAMP_ARQ,
+    )
+
+
+def exportar_gold_continuidade_uc(con):
+    return _exportar_gold_continuidade_uc(
+        con,
+        marts_dir=MARTS_DIR,
+        anomes=ANOMES,
+        timestamp=TIMESTAMP_ARQ,
+    )
+
+
+def obter_resumo_compensacao(con):
+    return _obter_resumo_compensacao(con)
+
+
+def anexar_compensacao_resumo_principal(con):
+    return _anexar_compensacao_resumo_principal(
+        con,
+        export_dir=EXPORT_DIR,
+        anomes=ANOMES,
+        obter_resumo_compensacao=obter_resumo_compensacao,
+    )
+
 def apuracao_previa():
     if not PROCESSED_DUCKDB_PATH.exists():
         raise RuntimeError(f"DuckDB processado nao encontrado: {PROCESSED_DUCKDB_PATH}")
@@ -1003,303 +938,12 @@ def exportar_gold_meta_dia_critico_conjunto(con):
     )
 
 
-def exportar_gold_ressarcimento_prodist(con):
-    import os
-    from datetime import datetime
-    from pathlib import Path
-
-    if not tabela_local_existe(con, "gold_ressarcimento_prodist"):
-        raise RuntimeError("Tabela gold_ressarcimento_prodist nao encontrada.")
-
-    marts_dir = globals().get("MARTS_DIR", Path("data") / "marts")
-    anomes = globals().get("ANOMES", os.getenv("ANOMES", "202606"))
-    timestamp = globals().get("TIMESTAMP_ARQ", datetime.now().strftime("%Y%m%d%H%M%S"))
-
-    marts_dir.mkdir(parents=True, exist_ok=True)
-    caminho_csv = marts_dir / f"Gold_Ressarcimento_PRODIST_{anomes}_{timestamp}.CSV"
-    caminho_resumo = marts_dir / f"Gold_Ressarcimento_PRODIST_{anomes}_{timestamp}_RESUMO.TXT"
-
-    con.execute(
-        f"""
-        COPY (
-            SELECT *
-            FROM gold_ressarcimento_prodist
-            ORDER BY UC
-        )
-        TO '{caminho_csv.as_posix()}'
-        WITH (
-            HEADER TRUE,
-            DELIMITER '|'
-        )
-        """
-    )
-
-    resumo = con.execute(
-        """
-        SELECT
-            COUNT(*) AS REGISTROS,
-            SUM(CASE WHEN COMP_TOTAL_PRODIST > 0 THEN 1 ELSE 0 END) AS UCS_COM_COMPENSACAO,
-            COALESCE(SUM(COMP_DIC_PRODIST), 0) AS TOTAL_COMP_DIC_PRODIST,
-            COALESCE(SUM(COMP_FIC_PRODIST), 0) AS TOTAL_COMP_FIC_PRODIST,
-            COALESCE(SUM(COMP_DMIC_PRODIST), 0) AS TOTAL_COMP_DMIC_PRODIST,
-            COALESCE(SUM(COMP_GERAL_CONTINUIDADE_PRODIST), 0) AS TOTAL_COMP_GERAL_CONTINUIDADE_PRODIST,
-            COALESCE(SUM(COMP_DICRI_PRODIST), 0) AS TOTAL_COMP_DICRI_PRODIST,
-            COALESCE(SUM(COMP_DISE_PRODIST), 0) AS TOTAL_COMP_DISE_PRODIST,
-            COALESCE(SUM(COMP_TOTAL_PRODIST), 0) AS TOTAL_COMP_TOTAL_PRODIST,
-            SUM(CASE WHEN STATUS_CALCULO_PRODIST = 'PARCIAL_AGREGADO_POR_UC' THEN 1 ELSE 0 END) AS UCS_DICRI_DISE_AGREGADO
-        FROM gold_ressarcimento_prodist
-        """
-    ).fetchone()
-
-    with caminho_resumo.open("w", encoding="utf-8", newline="\n") as arquivo:
-        arquivo.write("GOLD RESSARCIMENTO PRODIST MODULO 8\n")
-        arquivo.write(f"ANOMES: {anomes}\n")
-        arquivo.write("Tabela: gold_ressarcimento_prodist\n")
-        arquivo.write(f"Registros: {resumo[0]}\n")
-        arquivo.write(f"UCs com compensacao: {resumo[1]}\n")
-        arquivo.write(f"Total COMP_DIC_PRODIST: {resumo[2]}\n")
-        arquivo.write(f"Total COMP_FIC_PRODIST: {resumo[3]}\n")
-        arquivo.write(f"Total COMP_DMIC_PRODIST: {resumo[4]}\n")
-        arquivo.write(f"Total COMP_GERAL_CONTINUIDADE_PRODIST: {resumo[5]}\n")
-        arquivo.write(f"Total COMP_DICRI_PRODIST: {resumo[6]}\n")
-        arquivo.write(f"Total COMP_DISE_PRODIST: {resumo[7]}\n")
-        arquivo.write(f"Total COMP_TOTAL_PRODIST: {resumo[8]}\n")
-        arquivo.write(f"UCs com DICRI/DISE agregado por UC: {resumo[9]}\n")
-        arquivo.write("Observacao: DICRI/DISE ainda devem evoluir para calculo por evento.\n")
-        arquivo.write(f"CSV: {caminho_csv}\n")
-
-    print(f"gold_ressarcimento_prodist criada. Registros: {resumo[0]:,}")
-    print(f"Conferencia ressarcimento PRODIST: {caminho_csv}")
-    return caminho_csv
 
 
-def exportar_gold_continuidade_uc(con):
-    import os
-    from datetime import datetime
-    from pathlib import Path
-
-    marts_dir = globals().get("MARTS_DIR", Path("data") / "marts")
-    anomes = globals().get("ANOMES", os.getenv("ANOMES", "202606"))
-    timestamp = globals().get("TIMESTAMP_ARQ", datetime.now().strftime("%Y%m%d%H%M%S"))
-
-    marts_dir.mkdir(parents=True, exist_ok=True)
-    caminho_csv = marts_dir / f"Gold_Continuidade_UC_{anomes}_{timestamp}.CSV"
-    caminho_resumo = marts_dir / f"Gold_Continuidade_UC_{anomes}_{timestamp}_RESUMO.TXT"
-
-    con.execute(
-        f"""
-        COPY (
-            SELECT *
-            FROM gold_continuidade_uc
-            ORDER BY UC
-        )
-        TO '{caminho_csv.as_posix()}'
-        WITH (
-            HEADER TRUE,
-            DELIMITER '|'
-        )
-        """
-    )
-
-    total = con.execute("SELECT COUNT(*) FROM gold_continuidade_uc").fetchone()[0]
-    faturadas = con.execute(
-        "SELECT COUNT(*) FROM gold_continuidade_uc WHERE FATURADA = 'S'"
-    ).fetchone()[0]
-    ultrapassou_dic = con.execute(
-        'SELECT COUNT(*) FROM gold_continuidade_uc WHERE "%_ULTRAPASSOU_META_DIC" > 0'
-    ).fetchone()[0]
-    ultrapassou_fic = con.execute(
-        'SELECT COUNT(*) FROM gold_continuidade_uc WHERE "%_ULTRAPASSOU_META_FIC" > 0'
-    ).fetchone()[0]
-    ultrapassou_dmic = con.execute(
-        'SELECT COUNT(*) FROM gold_continuidade_uc WHERE "%_ULTRAPASSOU_META_DMIC" > 0'
-    ).fetchone()[0]
-    ultrapassou_dicri = con.execute(
-        'SELECT COUNT(*) FROM gold_continuidade_uc WHERE "%_ULTRAPASSOU_META_DICRI" > 0'
-    ).fetchone()[0]
-    ultrapassou_dise = con.execute(
-        'SELECT COUNT(*) FROM gold_continuidade_uc WHERE "%_ULTRAPASSOU_META_DISE" > 0'
-    ).fetchone()[0]
-    ucs_base_comp_reduzida = con.execute(
-        """
-        SELECT COUNT(*)
-        FROM gold_continuidade_uc
-        WHERE COALESCE(DIC, 0) <> COALESCE(DIC_BASE_COMPENSACAO, 0)
-           OR COALESCE(FIC, 0) <> COALESCE(FIC_BASE_COMPENSACAO, 0)
-           OR COALESCE(DMIC, 0) <> COALESCE(DMIC_BASE_COMPENSACAO, 0)
-           OR COALESCE(DIC_DICRI, 0) <> COALESCE(DICRI_BASE_COMPENSACAO, 0)
-           OR COALESCE(DIC_ISE, 0) <> COALESCE(DISE_BASE_COMPENSACAO, 0)
-        """
-    ).fetchone()[0]
-    ucs_chave_particular = con.execute(
-        "SELECT COUNT(*) FROM gold_continuidade_uc WHERE CHAVE_PARTICULAR = 'S'"
-    ).fetchone()[0]
-    ucs_acessantes = con.execute(
-        "SELECT COUNT(*) FROM gold_continuidade_uc WHERE UC_ACESSANTE_COMPENSACAO = 'S'"
-    ).fetchone()[0]
-    ucs_comp52 = con.execute(
-        "SELECT COUNT(*) FROM gold_continuidade_uc WHERE COMP52 = 'S'"
-    ).fetchone()[0]
-    ucs_causa71 = con.execute(
-        "SELECT COUNT(*) FROM gold_continuidade_uc WHERE CAUSA71 = 'S'"
-    ).fetchone()[0]
-    ucs_comp52_causa71 = con.execute(
-        "SELECT COUNT(*) FROM gold_continuidade_uc WHERE COMP52_CAUSA71 = 'S'"
-    ).fetchone()[0]
-    ucs_posto_particular = con.execute(
-        "SELECT COUNT(*) FROM gold_continuidade_uc WHERE POSTO_PARTICULAR = 'S'"
-    ).fetchone()[0]
-    ucs_nao_faturadas = con.execute(
-        """
-        SELECT COUNT(*)
-        FROM gold_continuidade_uc
-        WHERE FATURADA <> 'S'
-          AND (
-                COALESCE(DIC, 0) > 0
-             OR COALESCE(FIC, 0) > 0
-             OR COALESCE(DMIC, 0) > 0
-             OR COALESCE(DIC_DICRI, 0) > 0
-             OR COALESCE(DIC_ISE, 0) > 0
-          )
-        """
-    ).fetchone()[0]
-    soma_comp_dic = con.execute(
-        "SELECT COALESCE(SUM(COMP_DIC), 0) FROM gold_continuidade_uc"
-    ).fetchone()[0]
-    soma_comp_fic = con.execute(
-        "SELECT COALESCE(SUM(COMP_FIC), 0) FROM gold_continuidade_uc"
-    ).fetchone()[0]
-    soma_comp_dmic = con.execute(
-        "SELECT COALESCE(SUM(COMP_DMIC), 0) FROM gold_continuidade_uc"
-    ).fetchone()[0]
-    soma_comp_dicri = con.execute(
-        "SELECT COALESCE(SUM(COMP_DICRI), 0) FROM gold_continuidade_uc"
-    ).fetchone()[0]
-    soma_comp_dise = con.execute(
-        "SELECT COALESCE(SUM(COMP_DISE), 0) FROM gold_continuidade_uc"
-    ).fetchone()[0]
-    soma_comp_geral = con.execute(
-        "SELECT COALESCE(SUM(COMP_GERAL), 0) FROM gold_continuidade_uc"
-    ).fetchone()[0]
-
-    with caminho_resumo.open("w", encoding="utf-8", newline="\n") as arquivo:
-        arquivo.write("GOLD CONTINUIDADE UC\n")
-        arquivo.write(f"ANOMES: {anomes}\n")
-        arquivo.write("Tabela: gold_continuidade_uc\n")
-        arquivo.write(f"Registros: {total}\n")
-        arquivo.write(f"UCs faturadas: {faturadas}\n")
-        arquivo.write(f"UCs ultrapassou META_DIC: {ultrapassou_dic}\n")
-        arquivo.write(f"UCs ultrapassou META_FIC: {ultrapassou_fic}\n")
-        arquivo.write(f"UCs ultrapassou META_DMIC: {ultrapassou_dmic}\n")
-        arquivo.write(f"UCs ultrapassou META_DICRI: {ultrapassou_dicri}\n")
-        arquivo.write(f"UCs ultrapassou META_DISE: {ultrapassou_dise}\n")
-        arquivo.write(f"UCs com CHAVE_PARTICULAR='S': {ucs_chave_particular}\n")
-        arquivo.write(f"UCs com UC_ACESSANTE='S' e compensacao zerada: {ucs_acessantes}\n")
-        arquivo.write(f"UCs com COMP52='S': {ucs_comp52}\n")
-        arquivo.write(f"UCs com CAUSA71='S': {ucs_causa71}\n")
-        arquivo.write(f"UCs com COMP52_CAUSA71='S': {ucs_comp52_causa71}\n")
-        arquivo.write(f"UCs com POSTO_PARTICULAR='S': {ucs_posto_particular}\n")
-        arquivo.write(f"UCs nao faturadas com indicadores e compensacao zerada: {ucs_nao_faturadas}\n")
-        arquivo.write(f"UCs com base de compensacao reduzida por filtros de compensacao: {ucs_base_comp_reduzida}\n")
-        arquivo.write(f"Soma COMP_DIC: {soma_comp_dic}\n")
-        arquivo.write(f"Soma COMP_FIC: {soma_comp_fic}\n")
-        arquivo.write(f"Soma COMP_DMIC: {soma_comp_dmic}\n")
-        arquivo.write(f"Soma COMP_DICRI: {soma_comp_dicri}\n")
-        arquivo.write(f"Soma COMP_DISE: {soma_comp_dise}\n")
-        arquivo.write(f"Soma COMP_GERAL: {soma_comp_geral}\n")
-        arquivo.write(f"CSV: {caminho_csv}\n")
-
-    print(f"gold_continuidade_uc criada. Registros: {total:,}")
-    print(f"Conferencia continuidade UC: {caminho_csv}")
-
-    return caminho_csv
 
 
-def obter_resumo_compensacao(con):
-    tabelas = {
-        linha[0]
-        for linha in con.execute(
-            """
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = 'main'
-            """
-        ).fetchall()
-    }
-
-    if "gold_continuidade_uc" not in tabelas:
-        return {
-            "COMP_DIC": 0,
-            "COMP_FIC": 0,
-            "COMP_DMIC": 0,
-            "COMP_DICRI": 0,
-            "COMP_DISE": 0,
-            "COMP_GERAL": 0,
-        }
-
-    linha = con.execute(
-        """
-        SELECT
-            COALESCE(SUM(COMP_DIC), 0) AS COMP_DIC,
-            COALESCE(SUM(COMP_FIC), 0) AS COMP_FIC,
-            COALESCE(SUM(COMP_DMIC), 0) AS COMP_DMIC,
-            COALESCE(SUM(COMP_DICRI), 0) AS COMP_DICRI,
-            COALESCE(SUM(COMP_DISE), 0) AS COMP_DISE,
-            COALESCE(SUM(COMP_GERAL), 0) AS COMP_GERAL
-        FROM gold_continuidade_uc
-        """
-    ).fetchone()
-
-    return {
-        "COMP_DIC": linha[0],
-        "COMP_FIC": linha[1],
-        "COMP_DMIC": linha[2],
-        "COMP_DICRI": linha[3],
-        "COMP_DISE": linha[4],
-        "COMP_GERAL": linha[5],
-    }
 
 
-def anexar_compensacao_resumo_principal(con):
-    import os
-    from datetime import datetime
-    from pathlib import Path
-
-    export_dir = globals().get("EXPORT_DIR", Path("data") / "export")
-    anomes = globals().get("ANOMES", os.getenv("ANOMES", "202606"))
-
-    arquivos = sorted(
-        export_dir.glob(f"Apuracao_Previa_{anomes}*_RESUMO.TXT"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-
-    if not arquivos:
-        arquivos = sorted(
-            export_dir.glob("Apuracao_Previa_*_RESUMO.TXT"),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
-
-    if not arquivos:
-        return None
-
-    caminho_resumo = arquivos[0]
-    conteudo = caminho_resumo.read_text(encoding="utf-8")
-    if "COMP_GERAL total:" in conteudo:
-        return caminho_resumo
-
-    resumo_compensacao = obter_resumo_compensacao(con)
-    with caminho_resumo.open("a", encoding="utf-8", newline="\n") as arquivo:
-        arquivo.write(f"COMP_DIC total: {resumo_compensacao['COMP_DIC']}\n")
-        arquivo.write(f"COMP_FIC total: {resumo_compensacao['COMP_FIC']}\n")
-        arquivo.write(f"COMP_DMIC total: {resumo_compensacao['COMP_DMIC']}\n")
-        arquivo.write(f"COMP_DICRI total: {resumo_compensacao['COMP_DICRI']}\n")
-        arquivo.write(f"COMP_DISE total: {resumo_compensacao['COMP_DISE']}\n")
-        arquivo.write(f"COMP_GERAL total: {resumo_compensacao['COMP_GERAL']}\n")
-
-    print(f"Resumo principal atualizado com compensacoes: {caminho_resumo}")
-    return caminho_resumo
 
 
 _criar_gold_apuracao_uc_original = criar_gold_apuracao_uc_base

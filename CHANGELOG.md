@@ -9,6 +9,8 @@ Versao de consolidacao tecnica do MIDWAY.
 - Extrai rotinas de impacto por conjunto e dia critico para `midway/apuracao/conjunto.py`.
 - Extrai a criacao de `gold_continuidade_uc` para `midway/apuracao/continuidade.py`.
 - Extrai a criacao de `gold_ressarcimento_prodist` para `midway/apuracao/ressarcimento.py`.
+- Extrai exportacoes de BDO, continuidade e ressarcimento para `midway/apuracao/exportacoes.py`.
+- Extrai resumos e anexos de compensacao para `midway/apuracao/resumos.py`.
 - Mantem compatibilidade operacional com `run.bat apuracao_parcial`.
 - Preserva as regras de negocio existentes, reduzindo risco de quebra durante evolucoes futuras.
 

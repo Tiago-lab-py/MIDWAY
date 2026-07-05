@@ -39,6 +39,8 @@ midway/apuracao/duckdb_utils.py
 midway/apuracao/conjunto.py
 midway/apuracao/continuidade.py
 midway/apuracao/ressarcimento.py
+midway/apuracao/exportacoes.py
+midway/apuracao/resumos.py
 ```
 
 ### `duckdb_utils.py`
@@ -78,6 +80,22 @@ gold_ressarcimento_prodist
 
 Essa etapa calcula a previa PRODIST a partir de `gold_continuidade_uc`, mantendo as regras de piso, teto, `KEI1`, `KEI2`, `KEI3`, `COMP52`, `CAUSA71` e demais exclusoes ja implementadas.
 
+### `exportacoes.py`
+
+Centraliza exportacoes operacionais e arquivos de conferencia:
+
+- BDO de apuracao previa;
+- conferencia `gold_continuidade_uc`;
+- conferencia `gold_ressarcimento_prodist`.
+
+### `resumos.py`
+
+Centraliza resumos textuais e anexos:
+
+- resumo principal da apuracao previa;
+- resumo de compensacoes;
+- anexo de compensacao no resumo principal.
+
 ## Compatibilidade
 
 O fluxo operacional continua o mesmo:
@@ -93,7 +111,7 @@ O arquivo `previa.py` continua sendo o orquestrador da apuracao, mas agora deleg
 Primeira reducao de complexidade:
 
 ```text
-previa.py: 2335 linhas -> aproximadamente 1334 linhas
+previa.py: 2335 linhas -> aproximadamente 978 linhas
 ```
 
 Essa reducao e intencionalmente incremental. O objetivo e evitar uma grande reescrita que poderia quebrar o processamento ja validado.
@@ -102,9 +120,8 @@ Essa reducao e intencionalmente incremental. O objetivo e evitar uma grande rees
 
 ### Fase 1 - Baixo risco
 
-- mover exportacoes de continuidade e ressarcimento para `midway/apuracao/exportacoes.py`;
-- mover resumo de compensacao para `midway/apuracao/resumos.py`;
 - criar dataclass de contexto para `ANOMES`, paths e timestamp.
+- mover funcoes obsoletas para `midway/apuracao/legacy.py`.
 
 ### Fase 2 - Medio risco
 
