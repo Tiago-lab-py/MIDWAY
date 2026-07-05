@@ -21,6 +21,7 @@ class TestContratosTabelas(unittest.TestCase):
             "gold_apuracao_previa",
             "gold_continuidade_uc",
             "gold_ressarcimento_prodist",
+            "gold_impacto_conjunto_dia",
             "gold_interrupcao_sem_uc",
             "gold_ocorrencia_sem_uc",
         ]
@@ -34,6 +35,7 @@ class TestContratosTabelas(unittest.TestCase):
             "NUM_UC_UCI",
             "NUM_SEQ_INTRP",
             "COD_TIPO_INTRP",
+            "COD_CONJTO_ELET_ANEEL_INTRP",
             "TIPO_PROTOC_JUSTIF_UCI",
             "NUM_MOTIVO_TRAT_DIF_UCI",
             "DTHR_INICIO_INTRP_UC",
@@ -66,6 +68,27 @@ class TestContratosTabelas(unittest.TestCase):
         for coluna in colunas:
             with self.subTest(coluna=coluna):
                 self.assertTrue(coluna_existe(self.con, "gold_ressarcimento_prodist", coluna))
+
+    def test_colunas_obrigatorias_impacto_conjunto_dia(self):
+        colunas = [
+            "DATA_OCORRENCIA",
+            "COD_CONJUNTO_ANEEL",
+            "NUM_OCORRENCIA_ADMS",
+            "QTD_UCS_AFETADAS",
+            "TOTAL_UCS_CONJUNTO",
+            "DIC_IMPACTO",
+            "FIC_IMPACTO",
+            "DEC_IMPACTO_CONJUNTO",
+            "FEC_IMPACTO_CONJUNTO",
+            "META_DEC_CONJUNTO",
+            "META_FEC_CONJUNTO",
+            "PCT_META_DEC_CONSUMIDA",
+            "PCT_META_FEC_CONSUMIDA",
+            "PCT_META_MAX_CONSUMIDA",
+        ]
+        for coluna in colunas:
+            with self.subTest(coluna=coluna):
+                self.assertTrue(coluna_existe(self.con, "gold_impacto_conjunto_dia", coluna))
 
     def test_colunas_obrigatorias_ocorrencia_sem_uc(self):
         colunas = [

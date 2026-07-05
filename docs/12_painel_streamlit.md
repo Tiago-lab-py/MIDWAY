@@ -108,6 +108,31 @@ Inclui:
 - total estimado;
 - ranking das maiores compensacoes.
 
+### Conjunto Diario
+
+Mostra a tabela:
+
+```text
+gold_impacto_conjunto_dia
+```
+
+Objetivo: identificar quais ocorrencias do dia mais consomem a meta `DEC/FEC` de cada conjunto eletrico.
+
+Inclui:
+
+- filtro por dia;
+- filtro por conjunto;
+- filtro por percentual minimo de meta consumida;
+- ranking de ocorrencias por `PCT_META_MAX_CONSUMIDA`;
+- resumo por conjunto no dia;
+- download do ranking.
+
+Detalhamento:
+
+```text
+docs/19_impacto_conjunto_dia.md
+```
+
 ### Arquivos
 
 Lista arquivos de `data/marts` por competencia e permite pre-visualizar apenas as primeiras linhas de CSVs.
