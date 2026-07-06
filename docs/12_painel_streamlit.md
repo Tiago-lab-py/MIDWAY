@@ -65,6 +65,15 @@ Paginas disponiveis:
 - `06 Executivo`;
 - `07 SQL`.
 
+## Pagina Executivo
+
+Resume a leitura gerencial:
+
+- cards de ocorrencias, UCs, DIC/FIC e compensacao estimada;
+- grafico de barras interativo comparando `DEC` e `FEC` da COPEL com um conjunto selecionado;
+- graficos de pizza para `DEC` e `FEC`, separando `Provavel apurado` e `Deve ser tratado`;
+- rankings de conjuntos e dias criticos provaveis.
+
 ## Pagina Conferencia ETL
 
 Agrupa as abas de conferencia do fluxo de dados, arquivos e consultas.

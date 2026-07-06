@@ -18,6 +18,7 @@ Versao de consolidacao tecnica do MIDWAY.
 - Centraliza `ANOMES`, paths e timestamp em `midway/apuracao/contexto.py`.
 - Reorganiza o painel Streamlit em `home.py`, `pages/` e `library/`.
 - Adiciona paginas iniciais de validacao pos-operacao e dashboard executivo.
+- Adiciona graficos executivos interativos de DEC/FEC COPEL, conjunto selecionado e participacao provavel/tratar.
 - Documenta a arquitetura operacional alvo em `docs/24_consolidacao_operacional_6_1_0.md`.
 - Mantem compatibilidade operacional com `run.bat apuracao_parcial`.
 - Preserva as regras de negocio existentes, reduzindo risco de quebra durante evolucoes futuras.
