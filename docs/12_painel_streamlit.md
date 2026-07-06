@@ -34,15 +34,36 @@ run.bat painel
 Alternativa direta:
 
 ```bat
-python -m streamlit run midway\web\streamlit_app.py
+python -m streamlit run midway\web\home.py
 ```
 
 ## Paginas disponiveis
 
-O painel agora possui selecao de pagina no menu lateral:
+O painel usa a estrutura multipage nativa do Streamlit:
 
-- `Conferencia ETL`;
-- `Analytics Pos-Operacao`.
+```text
+midway/web/home.py
+midway/web/library/
+midway/web/pages/01_Conferencia_ETL.py
+midway/web/pages/02_Analytics_Pos_Operacao.py
+midway/web/pages/03_Dia_Critico.py
+midway/web/pages/04_Simulacao_ISE.py
+midway/web/pages/05_Validacao_Pos_Operacao.py
+midway/web/pages/06_Executivo.py
+midway/web/pages/07_SQL.py
+```
+
+A pasta `library/` guarda as funcoes, consultas DuckDB e componentes reutilizaveis. A pasta `pages/` fica apenas com os arquivos de pagina do Streamlit.
+
+Paginas disponiveis:
+
+- `01 Conferencia ETL`;
+- `02 Analytics Pos-Operacao`;
+- `03 Dia Critico`;
+- `04 Simulacao ISE`;
+- `05 Validacao Pos-Operacao`;
+- `06 Executivo`;
+- `07 SQL`.
 
 ## Pagina Conferencia ETL
 

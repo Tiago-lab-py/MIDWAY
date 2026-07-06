@@ -17,7 +17,7 @@ if /I "%~1"=="versao" (
 
 if /I "%~1"=="painel" (
     echo Abrindo painel Streamlit...
-    "%PYTHON_EXE%" -m streamlit run "%SCRIPT_DIR%midway\web\streamlit_app.py"
+    "%PYTHON_EXE%" -m streamlit run "%SCRIPT_DIR%midway\web\home.py"
     if errorlevel 1 goto erro
     goto fim
 )

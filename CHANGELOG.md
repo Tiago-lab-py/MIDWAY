@@ -16,6 +16,9 @@ Versao de consolidacao tecnica do MIDWAY.
 - Extrai a criacao de `gold_apuracao_previa` para `midway/apuracao/apuracao_previa.py`.
 - Move funcoes obsoletas para `midway/apuracao/legacy.py`.
 - Centraliza `ANOMES`, paths e timestamp em `midway/apuracao/contexto.py`.
+- Reorganiza o painel Streamlit em `home.py`, `pages/` e `library/`.
+- Adiciona paginas iniciais de validacao pos-operacao e dashboard executivo.
+- Documenta a arquitetura operacional alvo em `docs/24_consolidacao_operacional_6_1_0.md`.
 - Mantem compatibilidade operacional com `run.bat apuracao_parcial`.
 - Preserva as regras de negocio existentes, reduzindo risco de quebra durante evolucoes futuras.
 

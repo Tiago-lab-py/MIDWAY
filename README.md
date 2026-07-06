@@ -43,7 +43,10 @@ midway/          pacote Python principal
   apuracao/      apuracao previa e camadas gold
   auditoria/     auditorias e exportacoes auxiliares
   export/        exportacao CSV IQS
-  web/           painel Streamlit
+  web/           painel Streamlit multipage
+    home.py      orquestrador do painel
+    pages/       paginas Streamlit
+    library/     funcoes, consultas e componentes reutilizaveis
 tools/           utilitarios locais
 tests/           testes automatizados dos dados tratados
 docs/            documentacao tecnica e historico de decisoes
@@ -296,8 +299,13 @@ run.bat painel
 
 Paginas disponiveis:
 
-- `Conferencia ETL`;
-- `Analytics Pos-Operacao`.
+- `01 Conferencia ETL`;
+- `02 Analytics Pos-Operacao`;
+- `03 Dia Critico`;
+- `04 Simulacao ISE`;
+- `05 Validacao Pos-Operacao`;
+- `06 Executivo`;
+- `07 SQL`.
 
 Recursos:
 

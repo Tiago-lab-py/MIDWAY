@@ -124,7 +124,25 @@ D:\MIDWAY
 
     web/
       __init__.py
+      home.py
       streamlit_app.py
+      library/
+        shared.py
+        conferencia_etl.py
+        analytics_pos_operacao.py
+        dia_critico.py
+        simulacao_ise.py
+        validacao_pos_operacao.py
+        executivo.py
+        page_sql.py
+      pages/
+        01_Conferencia_ETL.py
+        02_Analytics_Pos_Operacao.py
+        03_Dia_Critico.py
+        04_Simulacao_ISE.py
+        05_Validacao_Pos_Operacao.py
+        06_Executivo.py
+        07_SQL.py
 
   scripts/
     legacy/
@@ -293,7 +311,7 @@ Nao mover dados grandes sem necessidade.
 | `auditar_ajuste_inicio_manobra.py` | `midway/auditoria/ajuste_inicio_manobra.py` |
 | `auditar_duplicidade_tipo_intrp.py` | `midway/auditoria/duplicidade_tipo_intrp.py` |
 | `controle_execucao.py` | `midway/controle_execucao.py` |
-| `app_streamlit.py` | `midway/web/streamlit_app.py` |
+| `app_streamlit.py` | `midway/web/home.py` |
 | `verificação compensações.ipynb` | `notebooks/verificacao_compensacoes.ipynb` |
 | `*.bat`, exceto `run.bat` | `scripts/legacy/` |
 
@@ -332,7 +350,7 @@ Fase 2 executada em `2026-07-02`:
   - `auditar_duplicidade_tipo_intrp.py` -> `midway/auditoria/duplicidade_tipo_intrp.py`.
 - movidos para outros pacotes:
   - `exportar.py` -> `midway/export/csv_iqs.py`;
-  - `app_streamlit.py` -> `midway/web/streamlit_app.py`;
+  - `app_streamlit.py` -> `midway/web/home.py`;
   - `controle_execucao.py` -> `midway/controle_execucao.py`;
   - `iqs_raw_utils.py` -> `midway/transform/iqs_raw_utils.py`;
   - `normalizar_csv_unix.py` -> `midway/transform/normalizar_csv_unix.py`;
