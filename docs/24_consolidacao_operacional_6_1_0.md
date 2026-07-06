@@ -151,8 +151,9 @@ Primeira entrega implantada:
 - UCs apuraveis;
 - DIC/FIC liquido;
 - compensacao estimada;
-- grafico interativo de barras comparando `DEC` e `FEC` da COPEL com conjunto selecionado;
-- graficos interativos de pizza separando `DEC` e `FEC` em `Provavel apurado` e `Deve ser tratado`;
+- grafico interativo de `DEC` e `FEC` da COPEL em visao diaria, acumulada diaria ou mensal;
+- grafico interativo de `DEC` e `FEC` por conjunto, com opcao de todos os conjuntos ou conjunto selecionado;
+- graficos interativos de pizza separando `DEC`, `FEC` e compensacao financeira estimada em `Provavel apurado` e `Deve ser tratado`;
 - top conjuntos por impacto diario;
 - dias criticos provaveis.
 
@@ -162,6 +163,8 @@ A classificacao executiva dos graficos de pizza usa o score de prioridade:
 score >= 60  -> Deve ser tratado
 score < 60   -> Provavel apurado
 ```
+
+Para compensacao financeira, o painel soma cada UC uma unica vez a partir de `gold_ressarcimento_prodist`. Isso evita inflar o valor quando a mesma UC participa de mais de uma ocorrencia.
 
 ## Marts de Tendencia
 

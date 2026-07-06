@@ -70,9 +70,13 @@ Paginas disponiveis:
 Resume a leitura gerencial:
 
 - cards de ocorrencias, UCs, DIC/FIC e compensacao estimada;
-- grafico de barras interativo comparando `DEC` e `FEC` da COPEL com um conjunto selecionado;
-- graficos de pizza para `DEC` e `FEC`, separando `Provavel apurado` e `Deve ser tratado`;
+- grafico interativo de `DEC` e `FEC` da COPEL separado da visao de conjuntos;
+- visualizacao `Diario`, `Acumulado diario` e `Mensal`;
+- visao de conjuntos com opcao de mostrar todos os conjuntos ou selecionar um conjunto especifico;
+- graficos de pizza para `DEC`, `FEC` e compensacao financeira estimada, separando `Provavel apurado` e `Deve ser tratado`;
 - rankings de conjuntos e dias criticos provaveis.
+
+A compensacao financeira estimada e somada por UC unica a partir de `gold_ressarcimento_prodist`, evitando dupla contagem quando uma mesma UC aparece em mais de uma ocorrencia.
 
 ## Pagina Conferencia ETL
 

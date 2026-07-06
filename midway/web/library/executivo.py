@@ -4,6 +4,8 @@ import altair as alt
 
 from midway.web.library.shared import *
 
+alt.data_transformers.disable_max_rows()
+
 
 def _total_consumidores_copel(db_path: str) -> float:
     if table_exists(db_path, "gold_consumidores"):
@@ -47,40 +49,96 @@ def _conjuntos_disponiveis(db_path: str) -> list[str]:
     return conjuntos_df["COD_CONJUNTO_ANEEL"].astype(str).tolist()
 
 
-def _dec_fec_comparativo(db_path: str, conjunto: str) -> pd.DataFrame:
+def _copel_dec_fec(db_path: str, visualizacao: str) -> pd.DataFrame:
     total_consumidores = _total_consumidores_copel(db_path)
-    copel_df = query_df(
+    if not total_consumidores:
+        return pd.DataFrame(columns=["DATA_REFERENCIA", "INDICADOR", "VALOR"])
+
+    diario_df = query_df(
         db_path,
         """
         SELECT
+            CAST(DATA_HORA_INIC_INTRP AS DATE) AS DATA_REFERENCIA,
             SUM(CHI_LIQUIDO) AS DIC,
             SUM(CI_LIQUIDO) AS FIC
         FROM gold_apuracao_uc
+        GROUP BY 1
+        ORDER BY 1
         """,
     )
-    copel_dic = float(copel_df.iloc[0]["DIC"] or 0)
-    copel_fic = float(copel_df.iloc[0]["FIC"] or 0)
+    if diario_df.empty:
+        return pd.DataFrame(columns=["DATA_REFERENCIA", "INDICADOR", "VALOR"])
 
-    conjunto_df = query_df(
+    diario_df["DEC"] = diario_df["DIC"].fillna(0) / total_consumidores
+    diario_df["FEC"] = diario_df["FIC"].fillna(0) / total_consumidores
+    diario_df = diario_df[["DATA_REFERENCIA", "DEC", "FEC"]]
+
+    if visualizacao == "Acumulado diário":
+        diario_df[["DEC", "FEC"]] = diario_df[["DEC", "FEC"]].cumsum()
+    elif visualizacao == "Mensal":
+        mensal_df = pd.DataFrame(
+            [
+                {
+                    "DATA_REFERENCIA": "Mensal",
+                    "DEC": diario_df["DEC"].sum(),
+                    "FEC": diario_df["FEC"].sum(),
+                }
+            ]
+        )
+        diario_df = mensal_df
+
+    return diario_df.melt(
+        id_vars="DATA_REFERENCIA",
+        value_vars=["DEC", "FEC"],
+        var_name="INDICADOR",
+        value_name="VALOR",
+    )
+
+
+def _conjunto_dec_fec(
+    db_path: str,
+    visualizacao: str,
+    conjunto: str | None = None,
+) -> pd.DataFrame:
+    filtro_conjunto = ""
+    if conjunto:
+        filtro_conjunto = (
+            "WHERE CAST(COD_CONJUNTO_ANEEL AS VARCHAR) = "
+            f"{sql_literal_for_streamlit(conjunto)}"
+        )
+
+    diario_df = query_df(
         db_path,
         f"""
         SELECT
+            DATA_OCORRENCIA AS DATA_REFERENCIA,
+            CAST(COD_CONJUNTO_ANEEL AS VARCHAR) AS COD_CONJUNTO_ANEEL,
             SUM(DEC_IMPACTO_CONJUNTO) AS DEC,
             SUM(FEC_IMPACTO_CONJUNTO) AS FEC
         FROM gold_impacto_conjunto_dia
-        WHERE CAST(COD_CONJUNTO_ANEEL AS VARCHAR) = {sql_literal_for_streamlit(conjunto)}
+        {filtro_conjunto}
+        GROUP BY 1, 2
+        ORDER BY 2, 1
         """,
     )
-    conjunto_dec = float(conjunto_df.iloc[0]["DEC"] or 0)
-    conjunto_fec = float(conjunto_df.iloc[0]["FEC"] or 0)
+    if diario_df.empty:
+        return pd.DataFrame(columns=["DATA_REFERENCIA", "COD_CONJUNTO_ANEEL", "INDICADOR", "VALOR"])
 
-    return pd.DataFrame(
-        [
-            {"ESCOPO": "COPEL", "INDICADOR": "DEC", "VALOR": copel_dic / total_consumidores if total_consumidores else 0},
-            {"ESCOPO": "COPEL", "INDICADOR": "FEC", "VALOR": copel_fic / total_consumidores if total_consumidores else 0},
-            {"ESCOPO": f"Conjunto {conjunto}", "INDICADOR": "DEC", "VALOR": conjunto_dec},
-            {"ESCOPO": f"Conjunto {conjunto}", "INDICADOR": "FEC", "VALOR": conjunto_fec},
-        ]
+    if visualizacao == "Acumulado diário":
+        diario_df = diario_df.sort_values(["COD_CONJUNTO_ANEEL", "DATA_REFERENCIA"])
+        diario_df[["DEC", "FEC"]] = diario_df.groupby("COD_CONJUNTO_ANEEL")[["DEC", "FEC"]].cumsum()
+    elif visualizacao == "Mensal":
+        diario_df = (
+            diario_df.groupby("COD_CONJUNTO_ANEEL", as_index=False)[["DEC", "FEC"]]
+            .sum()
+            .assign(DATA_REFERENCIA="Mensal")
+        )
+
+    return diario_df.melt(
+        id_vars=["DATA_REFERENCIA", "COD_CONJUNTO_ANEEL"],
+        value_vars=["DEC", "FEC"],
+        var_name="INDICADOR",
+        value_name="VALOR",
     )
 
 
@@ -97,33 +155,160 @@ def _participacao_dec_fec_status(db_path: str) -> pd.DataFrame:
     ranking_df["DEC"] = ranking_df["DIC"].fillna(0) / total_consumidores if total_consumidores else 0
     ranking_df["FEC"] = ranking_df["FIC"].fillna(0) / total_consumidores if total_consumidores else 0
 
-    return (
+    indicadores_df = (
         ranking_df.groupby("STATUS_EXECUTIVO", as_index=False)[["DEC", "FEC"]]
         .sum()
         .melt(id_vars="STATUS_EXECUTIVO", var_name="INDICADOR", value_name="VALOR")
     )
+    compensacao_df = _compensacao_unica_por_status(db_path, ranking_df)
+    return pd.concat([indicadores_df, compensacao_df], ignore_index=True)
 
 
-def _bar_chart_dec_fec(df: pd.DataFrame) -> alt.Chart:
+def _compensacao_unica_por_status(db_path: str, ranking_df: pd.DataFrame) -> pd.DataFrame:
+    if not table_exists(db_path, "gold_ressarcimento_prodist"):
+        return pd.DataFrame(columns=["STATUS_EXECUTIVO", "INDICADOR", "VALOR"])
+
+    ocorrencia_score = ranking_df[["NUM_OCORRENCIA_ADMS", "SCORE_PRIORIDADE"]].copy()
+    ocorrencia_score["NUM_OCORRENCIA_ADMS"] = ocorrencia_score["NUM_OCORRENCIA_ADMS"].astype(str)
+
+    ocorrencia_uc = query_df(
+        db_path,
+        """
+        SELECT DISTINCT
+            CAST(NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
+            CAST(NUM_UC_UCI AS VARCHAR) AS UC
+        FROM gold_apuracao_uc
+        WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+          AND NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') IS NOT NULL
+        """,
+    )
+    compensacao_uc = query_df(
+        db_path,
+        """
+        SELECT
+            CAST(UC AS VARCHAR) AS UC,
+            COMP_TOTAL_PRODIST
+        FROM gold_ressarcimento_prodist
+        WHERE COALESCE(COMP_TOTAL_PRODIST, 0) > 0
+        """,
+    )
+    if ocorrencia_uc.empty or compensacao_uc.empty:
+        return pd.DataFrame(columns=["STATUS_EXECUTIVO", "INDICADOR", "VALOR"])
+
+    uc_score = (
+        ocorrencia_uc.merge(ocorrencia_score, on="NUM_OCORRENCIA_ADMS", how="left")
+        .groupby("UC", as_index=False)["SCORE_PRIORIDADE"]
+        .max()
+    )
+    compensacao_status = compensacao_uc.merge(uc_score, on="UC", how="left")
+    compensacao_status["SCORE_PRIORIDADE"] = compensacao_status["SCORE_PRIORIDADE"].fillna(0)
+    compensacao_status["STATUS_EXECUTIVO"] = compensacao_status["SCORE_PRIORIDADE"].apply(
+        lambda score: "Deve ser tratado" if float(score or 0) >= 60 else "Provável apurado"
+    )
+
+    return (
+        compensacao_status.groupby("STATUS_EXECUTIVO", as_index=False)["COMP_TOTAL_PRODIST"]
+        .sum()
+        .rename(columns={"COMP_TOTAL_PRODIST": "VALOR"})
+        .assign(INDICADOR="COMPENSACAO")
+    )
+
+
+def _chart_copel_dec_fec(df: pd.DataFrame, visualizacao: str) -> alt.Chart:
+    if visualizacao == "Mensal":
+        return (
+            alt.Chart(df)
+            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+            .encode(
+                x=alt.X("INDICADOR:N", title="Indicador"),
+                y=alt.Y("VALOR:Q", title="Valor apurado"),
+                color=alt.Color("INDICADOR:N", title="Indicador"),
+                tooltip=[
+                    alt.Tooltip("INDICADOR:N", title="Indicador"),
+                    alt.Tooltip("VALOR:Q", title="Valor", format=".6f"),
+                ],
+            )
+            .properties(height=320)
+        )
+
     return (
         alt.Chart(df)
-        .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+        .mark_line(point=True)
         .encode(
-            x=alt.X("ESCOPO:N", title="Escopo"),
-            xOffset=alt.XOffset("INDICADOR:N"),
+            x=alt.X("DATA_REFERENCIA:T", title="Dia"),
             y=alt.Y("VALOR:Q", title="Valor apurado"),
             color=alt.Color("INDICADOR:N", title="Indicador"),
             tooltip=[
-                alt.Tooltip("ESCOPO:N", title="Escopo"),
+                alt.Tooltip("DATA_REFERENCIA:T", title="Dia"),
                 alt.Tooltip("INDICADOR:N", title="Indicador"),
                 alt.Tooltip("VALOR:Q", title="Valor", format=".6f"),
             ],
         )
         .properties(height=320)
+        .interactive()
     )
 
 
-def _pie_chart(df: pd.DataFrame, indicador: str) -> alt.Chart:
+def _chart_conjunto_dec_fec(df: pd.DataFrame, visualizacao: str, todos: bool) -> alt.Chart:
+    if visualizacao == "Mensal":
+        chart = (
+            alt.Chart(df)
+            .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+            .encode(
+                x=alt.X("COD_CONJUNTO_ANEEL:N", title="Conjunto", sort="-y"),
+                xOffset=alt.XOffset("INDICADOR:N"),
+                y=alt.Y("VALOR:Q", title="Valor apurado"),
+                color=alt.Color("INDICADOR:N", title="Indicador"),
+                tooltip=[
+                    alt.Tooltip("COD_CONJUNTO_ANEEL:N", title="Conjunto"),
+                    alt.Tooltip("INDICADOR:N", title="Indicador"),
+                    alt.Tooltip("VALOR:Q", title="Valor", format=".6f"),
+                ],
+            )
+            .properties(height=360)
+        )
+        return chart.interactive()
+
+    if todos:
+        return (
+            alt.Chart(df)
+            .mark_line(point=False)
+            .encode(
+                x=alt.X("DATA_REFERENCIA:T", title="Dia"),
+                y=alt.Y("VALOR:Q", title="Valor apurado"),
+                color=alt.Color("COD_CONJUNTO_ANEEL:N", title="Conjunto"),
+                tooltip=[
+                    alt.Tooltip("DATA_REFERENCIA:T", title="Dia"),
+                    alt.Tooltip("COD_CONJUNTO_ANEEL:N", title="Conjunto"),
+                    alt.Tooltip("INDICADOR:N", title="Indicador"),
+                    alt.Tooltip("VALOR:Q", title="Valor", format=".6f"),
+                ],
+            )
+            .properties(width=420, height=300)
+            .facet(column=alt.Column("INDICADOR:N", title=None))
+            .resolve_scale(y="independent")
+        )
+
+    return (
+        alt.Chart(df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("DATA_REFERENCIA:T", title="Dia"),
+            y=alt.Y("VALOR:Q", title="Valor apurado"),
+            color=alt.Color("INDICADOR:N", title="Indicador"),
+            tooltip=[
+                alt.Tooltip("DATA_REFERENCIA:T", title="Dia"),
+                alt.Tooltip("COD_CONJUNTO_ANEEL:N", title="Conjunto"),
+                alt.Tooltip("INDICADOR:N", title="Indicador"),
+                alt.Tooltip("VALOR:Q", title="Valor", format=".6f"),
+            ],
+        )
+        .properties(height=320)
+        .interactive()
+    )
+
+
+def _pie_chart(df: pd.DataFrame, indicador: str, titulo: str, formato: str = ".6f") -> alt.Chart:
     chart_df = df[df["INDICADOR"] == indicador].copy()
     return (
         alt.Chart(chart_df)
@@ -133,10 +318,10 @@ def _pie_chart(df: pd.DataFrame, indicador: str) -> alt.Chart:
             color=alt.Color("STATUS_EXECUTIVO:N", title="Status"),
             tooltip=[
                 alt.Tooltip("STATUS_EXECUTIVO:N", title="Status"),
-                alt.Tooltip("VALOR:Q", title=indicador, format=".6f"),
+                alt.Tooltip("VALOR:Q", title=titulo, format=formato),
             ],
         )
-        .properties(height=300)
+        .properties(height=300, title=titulo)
     )
 
 
@@ -163,17 +348,69 @@ def show_executivo(db_path: str, sample_limit: int) -> None:
     if require_table(db_path, "gold_apuracao_uc") and table_exists(
         db_path, "gold_impacto_conjunto_dia"
     ):
-        st.markdown("### DEC/FEC executivo")
+        st.markdown("### DEC/FEC COPEL")
+        st.caption("Visão consolidada da COPEL, com opção diária, acumulada diária ou mensal.")
+
+        visualizacao_copel = st.radio(
+            "Visualização COPEL",
+            ["Diário", "Acumulado diário", "Mensal"],
+            horizontal=True,
+            key="executivo_visualizacao_copel",
+        )
+        copel_df = _copel_dec_fec(db_path, visualizacao_copel)
+        if copel_df.empty:
+            st.info("Nenhum dado disponível para DEC/FEC COPEL.")
+        else:
+            st.altair_chart(
+                _chart_copel_dec_fec(copel_df, visualizacao_copel),
+                use_container_width=True,
+            )
+
+        st.markdown("### DEC/FEC por conjuntos")
         st.caption(
-            "Compara o DEC/FEC acumulado da COPEL com o conjunto selecionado. "
-            "O conjunto sugerido inicialmente é o de maior impacto em DIC."
+            "Mostra todos os conjuntos ou um conjunto selecionado. "
+            "No diário, mostra dia a dia; no acumulado diário, acumula os dias do mês; "
+            "no mensal, consolida o mês."
         )
 
         conjuntos = _conjuntos_disponiveis(db_path)
         if conjuntos:
-            selected_conjunto = st.selectbox("Conjunto elétrico", conjuntos)
-            dec_fec_df = _dec_fec_comparativo(db_path, selected_conjunto)
-            st.altair_chart(_bar_chart_dec_fec(dec_fec_df), use_container_width=True)
+            left, middle = st.columns([1, 1])
+            with left:
+                visualizacao_conjunto = st.radio(
+                    "Visualização conjuntos",
+                    ["Diário", "Acumulado diário", "Mensal"],
+                    horizontal=True,
+                    key="executivo_visualizacao_conjunto",
+                )
+            with middle:
+                modo_conjunto = st.radio(
+                    "Conjuntos",
+                    ["Todos os conjuntos", "Selecionar um conjunto"],
+                    horizontal=True,
+                    key="executivo_modo_conjunto",
+                )
+
+            selected_conjunto = None
+            if modo_conjunto == "Selecionar um conjunto":
+                selected_conjunto = st.selectbox("Conjunto elétrico", conjuntos)
+
+            conjunto_df = _conjunto_dec_fec(
+                db_path,
+                visualizacao_conjunto,
+                selected_conjunto,
+            )
+            if conjunto_df.empty:
+                st.info("Nenhum dado disponível para os filtros de conjunto.")
+            else:
+                st.altair_chart(
+                    _chart_conjunto_dec_fec(
+                        conjunto_df,
+                        visualizacao_conjunto,
+                        todos=selected_conjunto is None,
+                    ),
+                    use_container_width=True,
+                )
 
             status_df = _participacao_dec_fec_status(db_path)
             if not status_df.empty:
@@ -182,11 +419,21 @@ def show_executivo(db_path: str, sample_limit: int) -> None:
                     "Classificação executiva: ocorrências com score de prioridade maior ou igual a 60 "
                     "entram como `Deve ser tratado`; as demais ficam como `Provável apurado`."
                 )
-                left, right = st.columns(2)
+                left, middle, right = st.columns(3)
                 with left:
-                    st.altair_chart(_pie_chart(status_df, "DEC"), use_container_width=True)
+                    st.altair_chart(_pie_chart(status_df, "DEC", "DEC"), use_container_width=True)
+                with middle:
+                    st.altair_chart(_pie_chart(status_df, "FEC", "FEC"), use_container_width=True)
                 with right:
-                    st.altair_chart(_pie_chart(status_df, "FEC"), use_container_width=True)
+                    st.altair_chart(
+                        _pie_chart(
+                            status_df,
+                            "COMPENSACAO",
+                            "Compensação estimada",
+                            ",.2f",
+                        ),
+                        use_container_width=True,
+                    )
         else:
             st.info("Nenhum conjunto disponível em `gold_impacto_conjunto_dia`.")
 
