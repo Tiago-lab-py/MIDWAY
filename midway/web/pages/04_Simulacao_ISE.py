@@ -1,9 +1,12 @@
-from __future__ import annotations
+import streamlit as st
+from dotenv import load_dotenv
 
-from midway.web.library.shared import configure_page, render_header, render_sidebar
-from midway.web.library.simulacao_ise import show_ise_simulation
+from midway.web.library.ise_janela_component import mostrar_simulacao_ise_por_janela
 
-configure_page("MIDWAY - Simulação ISE")
-render_header("04 Simulação ISE")
-_, db_path, sample_limit, _ = render_sidebar()
-show_ise_simulation(str(db_path), sample_limit)
+
+load_dotenv()
+
+st.title("Simulação ISE")
+st.caption("Simulação por janelas específicas, com regional, período e cálculo sob demanda.")
+
+mostrar_simulacao_ise_por_janela()
