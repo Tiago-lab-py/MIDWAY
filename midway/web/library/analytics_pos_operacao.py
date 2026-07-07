@@ -3,6 +3,60 @@ from __future__ import annotations
 from midway.web.library.shared import *
 
 
+@st.cache_data(show_spinner=False)
+def comp_total_prodist_por_ocorrencia(db_path: str):
+    with duckdb.connect(db_path, read_only=True) as con:
+        return con.execute(
+            """
+            WITH ocorrencia_uc AS (
+                SELECT DISTINCT
+                    NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') AS NUM_OCORRENCIA_ADMS,
+                    NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') AS UC
+                FROM gold_apuracao_uc
+                WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+                  AND NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') IS NOT NULL
+            ),
+            ressarcimento_uc AS (
+                SELECT
+                    NULLIF(TRIM(CAST(UC AS VARCHAR)), '') AS UC,
+                    COALESCE(TRY_CAST(COMP_TOTAL_PRODIST AS DOUBLE), 0) AS COMP_TOTAL_PRODIST
+                FROM gold_ressarcimento_prodist
+                WHERE NULLIF(TRIM(CAST(UC AS VARCHAR)), '') IS NOT NULL
+            )
+            SELECT
+                o.NUM_OCORRENCIA_ADMS,
+                SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS COMP_TOTAL_PRODIST_CORRIGIDO
+            FROM ocorrencia_uc o
+            LEFT JOIN ressarcimento_uc r
+              ON r.UC = o.UC
+            GROUP BY o.NUM_OCORRENCIA_ADMS
+            """
+        ).fetchdf()
+
+
+def corrigir_comp_total_prodist_ocorrencia(ranking_df, db_path: str):
+    if ranking_df.empty or "NUM_OCORRENCIA_ADMS" not in ranking_df.columns:
+        return ranking_df
+
+    comp_df = comp_total_prodist_por_ocorrencia(db_path)
+    if comp_df.empty:
+        return ranking_df
+
+    corrigido = ranking_df.merge(
+        comp_df,
+        on="NUM_OCORRENCIA_ADMS",
+        how="left",
+    )
+
+    if "COMP_TOTAL_PRODIST" in corrigido.columns:
+        corrigido["COMP_TOTAL_PRODIST"] = corrigido["COMP_TOTAL_PRODIST_CORRIGIDO"].fillna(0)
+    elif "↓ COMP_TOTAL_PRODIST" in corrigido.columns:
+        corrigido["↓ COMP_TOTAL_PRODIST"] = corrigido["COMP_TOTAL_PRODIST_CORRIGIDO"].fillna(0)
+
+    corrigido = corrigido.drop(columns=["COMP_TOTAL_PRODIST_CORRIGIDO"], errors="ignore")
+    return corrigido
+
+
 def show_conjunto_diario(db_path: str, sample_limit: int) -> None:
     st.subheader("Impacto Diário por Conjunto")
     st.caption(
@@ -227,6 +281,7 @@ def show_analytics(db_path: str, sample_limit: int) -> None:
     )
 
     ranking_df = analytics_occurrences(db_path, min_score, sample_limit * 5)
+    ranking_df = corrigir_comp_total_prodist_ocorrencia(ranking_df, db_path)
     if ranking_df.empty:
         st.success("Nenhuma ocorrência encontrada para o score informado.")
         return

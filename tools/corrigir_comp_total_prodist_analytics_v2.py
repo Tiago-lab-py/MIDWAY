@@ -1,0 +1,139 @@
+from pathlib import Path
+
+
+MARCADOR_INICIO = "# >>> MIDWAY PATCH COMP_TOTAL_PRODIST ANALYTICS"
+MARCADOR_FIM = "# <<< MIDWAY PATCH COMP_TOTAL_PRODIST ANALYTICS"
+
+NOVO_BLOCO = r'''
+# >>> MIDWAY PATCH COMP_TOTAL_PRODIST ANALYTICS
+import duckdb as _midway_analytics_duckdb
+
+
+def _midway_comp_total_prodist_por_ocorrencia(db_path: str) -> dict[str, float]:
+    """Calcula COMP_TOTAL_PRODIST por ocorrencia sem duplicar UC."""
+    with _midway_analytics_duckdb.connect(db_path, read_only=True) as con:
+        rows = con.execute(
+            """
+            WITH ocorrencia_uc AS (
+                SELECT DISTINCT
+                    NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') AS NUM_OCORRENCIA_ADMS,
+                    NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') AS UC
+                FROM gold_apuracao_uc
+                WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+                  AND NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') IS NOT NULL
+            ),
+            ressarcimento_uc AS (
+                SELECT
+                    NULLIF(TRIM(CAST(UC AS VARCHAR)), '') AS UC,
+                    COALESCE(TRY_CAST(COMP_TOTAL_PRODIST AS DOUBLE), 0) AS COMP_TOTAL_PRODIST
+                FROM gold_ressarcimento_prodist
+                WHERE NULLIF(TRIM(CAST(UC AS VARCHAR)), '') IS NOT NULL
+            )
+            SELECT
+                o.NUM_OCORRENCIA_ADMS,
+                SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS COMP_TOTAL_PRODIST
+            FROM ocorrencia_uc o
+            LEFT JOIN ressarcimento_uc r
+              ON r.UC = o.UC
+            GROUP BY o.NUM_OCORRENCIA_ADMS
+            """
+        ).fetchall()
+
+    return {str(ocorrencia): float(valor or 0) for ocorrencia, valor in rows}
+
+
+def _midway_corrigir_comp_total_prodist_df(df, db_path: str):
+    if df is None or df.empty or "NUM_OCORRENCIA_ADMS" not in df.columns:
+        return df
+
+    coluna_comp = None
+    for candidata in ("COMP_TOTAL_PRODIST", "↓ COMP_TOTAL_PRODIST", "COMP_ESTIMADA"):
+        if candidata in df.columns:
+            coluna_comp = candidata
+            break
+
+    if coluna_comp is None:
+        return df
+
+    mapa = _midway_comp_total_prodist_por_ocorrencia(db_path)
+    df[coluna_comp] = df["NUM_OCORRENCIA_ADMS"].astype(str).map(mapa).fillna(0.0)
+    return df
+# <<< MIDWAY PATCH COMP_TOTAL_PRODIST ANALYTICS
+'''
+
+
+def encontrar_pagina() -> Path:
+    candidatos = [
+        Path("midway") / "web" / "pages" / "02_Analytics_Pos_Operacao.py",
+        Path("pages") / "02_Analytics_Pos_Operacao.py",
+        Path("02_Analytics_Pos_Operacao.py"),
+    ]
+    for candidato in candidatos:
+        if candidato.exists():
+            return candidato
+    raise FileNotFoundError(
+        "Nao encontrei 02_Analytics_Pos_Operacao.py. Execute na raiz do projeto D:\\MIDWAY_novo."
+    )
+
+
+def remover_bloco_antigo(texto: str) -> str:
+    if MARCADOR_INICIO not in texto:
+        return texto
+    inicio = texto.index(MARCADOR_INICIO)
+    fim = texto.index(MARCADOR_FIM, inicio) + len(MARCADOR_FIM)
+    return texto[:inicio].rstrip() + "\n\n" + texto[fim:].lstrip()
+
+
+def inserir_bloco_antes_do_uso(texto: str) -> str:
+    for marcador in ("def show_analytics", "def analytics_occurrences", "@st.cache_data"):
+        if marcador in texto:
+            pos = texto.index(marcador)
+            return texto[:pos].rstrip() + "\n\n" + NOVO_BLOCO + "\n\n" + texto[pos:].lstrip()
+    return NOVO_BLOCO + "\n\n" + texto.lstrip()
+
+
+def inserir_chamada_correcao(texto: str) -> str:
+    chamadas = [
+        (
+            "ranking_df = analytics_occurrences(db_path, min_score, sample_limit * 5)",
+            "ranking_df = analytics_occurrences(db_path, min_score, sample_limit * 5)\n"
+            "    ranking_df = _midway_corrigir_comp_total_prodist_df(ranking_df, db_path)",
+        ),
+        (
+            "ranking_df = analytics_occurrences(str(db_path), min_score, sample_limit * 5)",
+            "ranking_df = analytics_occurrences(str(db_path), min_score, sample_limit * 5)\n"
+            "    ranking_df = _midway_corrigir_comp_total_prodist_df(ranking_df, str(db_path))",
+        ),
+    ]
+
+    for alvo, chamada in chamadas:
+        if chamada in texto:
+            return texto
+        if alvo in texto:
+            return texto.replace(alvo, chamada, 1)
+
+    raise RuntimeError(
+        "Nao encontrei ranking_df = analytics_occurrences(...). "
+        "Procure essa linha e chame _midway_corrigir_comp_total_prodist_df logo depois."
+    )
+
+
+def main() -> None:
+    pagina = encontrar_pagina()
+    texto = pagina.read_text(encoding="utf-8")
+
+    backup = pagina.with_suffix(".py.bak_comp_total_prodist_v2")
+    backup.write_text(texto, encoding="utf-8", newline="\n")
+
+    atualizado = remover_bloco_antigo(texto)
+    atualizado = inserir_bloco_antes_do_uso(atualizado)
+    atualizado = inserir_chamada_correcao(atualizado)
+    pagina.write_text(atualizado, encoding="utf-8", newline="\n")
+
+    print(f"Analytics atualizado: {pagina}")
+    print(f"Backup criado: {backup}")
+    print("COMP_TOTAL_PRODIST agora e recalculado por UC distinta da ocorrencia.")
+
+
+if __name__ == "__main__":
+    main()
