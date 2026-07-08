@@ -456,3 +456,35 @@ Nao versionar:
 - logs e caches locais.
 
 Essas regras estao em `.gitignore`.
+
+## Processo de restração para inicio de mes
+cd /d D:\MIDWAY_novo
+
+set ANOMES=202606
+set REEXTRAIR=1
+set REPROCESSAR=1
+set REEXTRAIR_VRC=1
+set REEXTRAIR_METAS_UC=1
+
+run.bat extract
+run.bat tratamento
+run.bat consumidores
+run.bat uc_fatura
+run.bat vrc
+run.bat metas_uc
+run.bat apuracao_parcial
+run.bat exportacoes_auxiliares
+run.bat validar_dados
+
+## Processo de restração para ao longo do mes
+cd /d D:\MIDWAY_novo
+
+set ANOMES=202606
+set REEXTRAIR=1
+set REPROCESSAR=1
+
+run.bat extract
+run.bat tratamento
+run.bat apuracao_parcial
+run.bat exportacoes_auxiliares
+run.bat validar_dados
