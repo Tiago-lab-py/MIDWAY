@@ -15,12 +15,18 @@ PASTAS_EXPORTACOES_AUXILIARES = [
 ]
 
 FORMATOS_ENTRADA = [
+    "%Y-%m-%d %H:%M:%S.%f",
     "%Y-%m-%d %H:%M:%S",
     "%Y-%m-%d %H:%M",
     "%Y-%m-%d",
+    "%m/%d/%Y %H:%M:%S.%f",
     "%m/%d/%Y %H:%M:%S",
     "%m/%d/%Y %H:%M",
     "%m/%d/%Y",
+    "%d/%m/%Y %H:%M:%S.%f",
+    "%d/%m/%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M",
+    "%d/%m/%Y",
 ]
 
 HINTS_COLUNA_DATA = [
@@ -30,10 +36,19 @@ HINTS_COLUNA_DATA = [
     "DTA_",
 ]
 
+COLUNAS_INTEIRAS = {
+    "NUM_INTRP_INIC_MANOBRA_UCI",
+    "NUM_GEO_CHV_INTRP",
+}
+
 
 def coluna_de_data(nome_coluna: str) -> bool:
     nome = nome_coluna.upper()
     return any(hint in nome for hint in HINTS_COLUNA_DATA)
+
+
+def coluna_inteira(nome_coluna: str) -> bool:
+    return nome_coluna.upper() in COLUNAS_INTEIRAS
 
 
 def detectar_delimitador(caminho: Path) -> str:
@@ -62,6 +77,23 @@ def converter_data(valor: str) -> str:
     return valor
 
 
+def converter_inteiro(valor: str) -> str:
+    valor = (valor or "").strip()
+    if not valor:
+        return valor
+
+    try:
+        numero = float(valor.replace(",", "."))
+    except ValueError:
+        return valor
+
+    inteiro = round(numero)
+    if abs(numero - inteiro) > 0.000000001:
+        return valor
+
+    return str(inteiro)
+
+
 def normalizar_csv(caminho: Path) -> bool:
     delimitador = detectar_delimitador(caminho)
     texto = caminho.read_text(encoding="utf-8-sig", errors="ignore")
@@ -77,7 +109,9 @@ def normalizar_csv(caminho: Path) -> bool:
         return False
 
     colunas_data = [col for col in reader.fieldnames if coluna_de_data(col)]
-    if not colunas_data:
+    colunas_inteiras = [col for col in reader.fieldnames if coluna_inteira(col)]
+
+    if not colunas_data and not colunas_inteiras:
         return False
 
     alterou = False
@@ -85,6 +119,13 @@ def normalizar_csv(caminho: Path) -> bool:
         for coluna in colunas_data:
             original = linha.get(coluna, "")
             convertido = converter_data(original)
+            if convertido != original:
+                linha[coluna] = convertido
+                alterou = True
+
+        for coluna in colunas_inteiras:
+            original = linha.get(coluna, "")
+            convertido = converter_inteiro(original)
             if convertido != original:
                 linha[coluna] = convertido
                 alterou = True
@@ -133,10 +174,10 @@ def main():
     arquivos = normalizar_datas_exportacoes_auxiliares()
 
     if not arquivos:
-        print("Nenhum CSV auxiliar precisou de normalizacao de data.")
+        print("Nenhum CSV auxiliar precisou de normalizacao de data/inteiro.")
         return
 
-    print("Datas normalizadas para DD/MM/AAAA nos CSVs auxiliares:")
+    print("Datas e inteiros normalizados nos CSVs auxiliares:")
     for caminho in arquivos:
         print(f"- {caminho}")
 
