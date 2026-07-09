@@ -339,6 +339,149 @@ def criar_silver_reclamacoes(con):
     con.execute("CREATE INDEX IF NOT EXISTS idx_silver_dbguo_reclamacoes_ocorrencia ON silver_dbguo_reclamacoes(NUM_OCORRENCIA_ADMS)")
 
 
+def criar_gold_reclamacoes(con):
+    if not table_exists(con, "silver_dbguo_reclamacoes"):
+        raise RuntimeError("Tabela silver_dbguo_reclamacoes nao encontrada.")
+
+    apuracao_cols = table_columns(con, "gold_apuracao_uc")
+    valid_pos_col = first_existing(apuracao_cols, ["VALID_POS_OPERACAO"])
+    valid_pos_expr = (
+        "MAX(CASE WHEN UPPER(TRIM(CAST(VALID_POS_OPERACAO AS VARCHAR))) = 'S' THEN 'S' ELSE 'N' END)"
+        if valid_pos_col
+        else "'N'"
+    )
+
+    if table_exists(con, "gold_ressarcimento_prodist"):
+        ressarcimento_cte = """
+            SELECT
+                NULLIF(TRIM(CAST(UC AS VARCHAR)), '') AS UC,
+                COALESCE(TRY_CAST(COMP_TOTAL_PRODIST AS DOUBLE), 0) AS COMP_TOTAL_PRODIST_UC
+            FROM gold_ressarcimento_prodist
+            WHERE NULLIF(TRIM(CAST(UC AS VARCHAR)), '') IS NOT NULL
+        """
+    else:
+        ressarcimento_cte = """
+            SELECT
+                CAST(NULL AS VARCHAR) AS UC,
+                CAST(0 AS DOUBLE) AS COMP_TOTAL_PRODIST_UC
+            WHERE FALSE
+        """
+
+    con.execute(
+        f"""
+        CREATE OR REPLACE TABLE gold_reclamacao_uc_vinculada AS
+        WITH status_ocorrencia AS (
+            SELECT
+                NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') AS NUM_OCORRENCIA_ADMS,
+                {valid_pos_expr} AS VALID_POS_OPERACAO,
+                COUNT(DISTINCT NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '')) AS UCS_APURAVEIS_OCORRENCIA,
+                SUM(COALESCE(TRY_CAST(CI_LIQUIDO AS DOUBLE), 0)) AS FIC_OCORRENCIA,
+                SUM(COALESCE(TRY_CAST(CHI_LIQUIDO AS DOUBLE), 0)) AS DIC_OCORRENCIA
+            FROM gold_apuracao_uc
+            WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+            GROUP BY NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '')
+        ),
+        ressarcimento_uc AS (
+            {ressarcimento_cte}
+        )
+        SELECT
+            s.ID_RECLAMACAO,
+            s.UC,
+            CAST(s.DTHR_RECLAMACAO AS DATE) AS DATA_RECLAMACAO,
+            s.DTHR_RECLAMACAO,
+            s.NUM_OCORRENCIA_ADMS,
+            s.NUM_SEQ_INTRP,
+            s.NUM_INTRP_UCI,
+            s.NUM_POSTO_UCI,
+            s.CONJUNTO,
+            s.ALIM_INTRP,
+            s.NUM_OPER_CHV_INTRP,
+            s.NUM_GEO_CHV_INTRP,
+            s.TIPO_PROTOC_JUSTIF_UCI,
+            s.COD_CAUSA_INTRP,
+            s.COD_COMP_INTRP,
+            s.INICIO_INTERRUPCAO_UC,
+            s.FIM_INTERRUPCAO,
+            s.DURACAO_HORA,
+            s.CI_LIQUIDO,
+            s.CHI_LIQUIDO,
+            s.DISTANCIA_MINUTOS,
+            s.POSICAO_RECLAMACAO,
+            s.SCORE_VINCULO_RECLAMACAO,
+            s.CLASSIFICACAO_VINCULO_RECLAMACAO,
+            CASE
+                WHEN s.CLASSIFICACAO_VINCULO_RECLAMACAO <> 'SEM_OCORRENCIA_PROVAVEL' THEN 'S'
+                ELSE 'N'
+            END AS TEM_OCORRENCIA_PROVAVEL,
+            COALESCE(o.VALID_POS_OPERACAO, 'N') AS VALID_POS_OPERACAO,
+            COALESCE(o.UCS_APURAVEIS_OCORRENCIA, 0) AS UCS_APURAVEIS_OCORRENCIA,
+            COALESCE(o.FIC_OCORRENCIA, 0) AS FIC_OCORRENCIA,
+            COALESCE(o.DIC_OCORRENCIA, 0) AS DIC_OCORRENCIA,
+            COALESCE(r.COMP_TOTAL_PRODIST_UC, 0) AS COMP_TOTAL_PRODIST_UC,
+            CASE
+                WHEN COALESCE(o.VALID_POS_OPERACAO, 'N') = 'S' THEN 'OCORRENCIA_VALIDADA_POS'
+                WHEN s.CLASSIFICACAO_VINCULO_RECLAMACAO = 'SEM_OCORRENCIA_PROVAVEL' THEN 'RECLAMACAO_SEM_OCORRENCIA_PROVAVEL'
+                WHEN s.SCORE_VINCULO_RECLAMACAO >= 80 THEN 'VINCULO_FORTE'
+                WHEN s.SCORE_VINCULO_RECLAMACAO >= 60 THEN 'VINCULO_PROVAVEL'
+                WHEN s.SCORE_VINCULO_RECLAMACAO >= 50 THEN 'VINCULO_FRACO'
+                ELSE 'RECLAMACAO_SEM_OCORRENCIA_PROVAVEL'
+            END AS STATUS_AVALIACAO_RECLAMACAO
+        FROM silver_dbguo_reclamacoes s
+        LEFT JOIN status_ocorrencia o
+          ON o.NUM_OCORRENCIA_ADMS = s.NUM_OCORRENCIA_ADMS
+        LEFT JOIN ressarcimento_uc r
+          ON r.UC = s.UC
+        """
+    )
+
+    con.execute(
+        """
+        CREATE OR REPLACE TABLE gold_reclamacao_uc_resumo AS
+        SELECT
+            UC,
+            MIN(DATA_RECLAMACAO) AS PRIMEIRA_DATA_RECLAMACAO,
+            MAX(DATA_RECLAMACAO) AS ULTIMA_DATA_RECLAMACAO,
+            COUNT(*) AS QTD_RECLAMACOES,
+            COUNT(DISTINCT ID_RECLAMACAO) AS QTD_RECLAMACOES_DISTINTAS,
+            COUNT(DISTINCT NUM_OCORRENCIA_ADMS) FILTER (WHERE TEM_OCORRENCIA_PROVAVEL = 'S') AS QTD_OCORRENCIAS_PROVAVEIS,
+            SUM(CASE WHEN TEM_OCORRENCIA_PROVAVEL = 'S' THEN 1 ELSE 0 END) AS QTD_COM_OCORRENCIA_PROVAVEL,
+            SUM(CASE WHEN TEM_OCORRENCIA_PROVAVEL = 'N' THEN 1 ELSE 0 END) AS QTD_SEM_OCORRENCIA_PROVAVEL,
+            SUM(CASE WHEN VALID_POS_OPERACAO = 'S' THEN 1 ELSE 0 END) AS QTD_RECLAMACOES_OCORRENCIA_VALIDADA_POS,
+            MAX(SCORE_VINCULO_RECLAMACAO) AS MAX_SCORE_VINCULO_RECLAMACAO,
+            MIN(DISTANCIA_MINUTOS) AS MENOR_DISTANCIA_MINUTOS,
+            SUM(COALESCE(COMP_TOTAL_PRODIST_UC, 0)) AS SOMA_COMP_TOTAL_PRODIST_UC_REFERENCIA
+        FROM gold_reclamacao_uc_vinculada
+        GROUP BY UC
+        """
+    )
+
+    con.execute(
+        """
+        CREATE OR REPLACE TABLE gold_reclamacao_ocorrencia_resumo AS
+        SELECT
+            NUM_OCORRENCIA_ADMS,
+            MIN(DATA_RECLAMACAO) AS PRIMEIRA_DATA_RECLAMACAO,
+            MAX(DATA_RECLAMACAO) AS ULTIMA_DATA_RECLAMACAO,
+            COUNT(*) AS QTD_RECLAMACOES,
+            COUNT(DISTINCT UC) AS QTD_UCS_RECLAMANTES,
+            MAX(UCS_APURAVEIS_OCORRENCIA) AS UCS_APURAVEIS_OCORRENCIA,
+            MAX(FIC_OCORRENCIA) AS FIC_OCORRENCIA,
+            MAX(DIC_OCORRENCIA) AS DIC_OCORRENCIA,
+            MAX(VALID_POS_OPERACAO) AS VALID_POS_OPERACAO,
+            MAX(SCORE_VINCULO_RECLAMACAO) AS MAX_SCORE_VINCULO_RECLAMACAO,
+            MIN(DISTANCIA_MINUTOS) AS MENOR_DISTANCIA_MINUTOS
+        FROM gold_reclamacao_uc_vinculada
+        WHERE TEM_OCORRENCIA_PROVAVEL = 'S'
+          AND NUM_OCORRENCIA_ADMS IS NOT NULL
+        GROUP BY NUM_OCORRENCIA_ADMS
+        """
+    )
+
+    con.execute("CREATE INDEX IF NOT EXISTS idx_gold_reclamacao_uc_vinculada_uc ON gold_reclamacao_uc_vinculada(UC)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_gold_reclamacao_uc_vinculada_ocorrencia ON gold_reclamacao_uc_vinculada(NUM_OCORRENCIA_ADMS)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_gold_reclamacao_uc_resumo_uc ON gold_reclamacao_uc_resumo(UC)")
+
+
 def exportar_resumo(con):
     MARTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -355,16 +498,37 @@ def exportar_resumo(con):
         """
     ).fetchone()
 
+    gold_row = con.execute(
+        """
+        SELECT
+            COUNT(*) AS TOTAL_GOLD,
+            COUNT(DISTINCT UC) AS UCS_GOLD,
+            SUM(CASE WHEN TEM_OCORRENCIA_PROVAVEL = 'S' THEN 1 ELSE 0 END) AS COM_OCORRENCIA_PROVAVEL,
+            SUM(CASE WHEN VALID_POS_OPERACAO = 'S' THEN 1 ELSE 0 END) AS OCORRENCIA_VALIDADA_POS
+        FROM gold_reclamacao_uc_vinculada
+        """
+    ).fetchone()
+
     with resumo_path.open("w", encoding="utf-8", newline="\n") as arquivo:
-        arquivo.write("SILVER DBGUO RECLAMACOES\n")
+        arquivo.write("SILVER/GOLD DBGUO RECLAMACOES\n")
         arquivo.write(f"ANOMES: {ANOMES}\n")
-        arquivo.write("Tabela: silver_dbguo_reclamacoes\n")
-        arquivo.write(f"Total: {row[0]}\n")
-        arquivo.write(f"UCs: {row[1]}\n")
-        arquivo.write(f"Ocorrencias: {row[2]}\n")
-        arquivo.write(f"Com vinculo: {row[3]}\n")
+        arquivo.write("Tabela silver: silver_dbguo_reclamacoes\n")
+        arquivo.write("Tabela gold detalhe: gold_reclamacao_uc_vinculada\n")
+        arquivo.write("Tabela gold UC: gold_reclamacao_uc_resumo\n")
+        arquivo.write("Tabela gold ocorrencia: gold_reclamacao_ocorrencia_resumo\n")
+        arquivo.write(f"Total silver: {row[0]}\n")
+        arquivo.write(f"UCs silver: {row[1]}\n")
+        arquivo.write(f"Ocorrencias silver: {row[2]}\n")
+        arquivo.write(f"Com vinculo silver: {row[3]}\n")
+        arquivo.write(f"Total gold: {gold_row[0]}\n")
+        arquivo.write(f"UCs gold: {gold_row[1]}\n")
+        arquivo.write(f"Com ocorrencia provavel gold: {gold_row[2]}\n")
+        arquivo.write(f"Ocorrencia validada pos gold: {gold_row[3]}\n")
 
     print("silver_dbguo_reclamacoes criada.")
+    print("gold_reclamacao_uc_vinculada criada.")
+    print("gold_reclamacao_uc_resumo criada.")
+    print("gold_reclamacao_ocorrencia_resumo criada.")
     print(f"Resumo: {resumo_path}")
 
 
@@ -375,6 +539,7 @@ def main():
     con = duckdb.connect(str(PROCESSED_DUCKDB_PATH))
     try:
         criar_silver_reclamacoes(con)
+        criar_gold_reclamacoes(con)
         exportar_resumo(con)
     finally:
         con.close()
