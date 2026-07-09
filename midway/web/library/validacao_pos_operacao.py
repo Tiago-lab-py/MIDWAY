@@ -7,7 +7,7 @@ def show_validacao_pos_operacao(db_path: str, sample_limit: int) -> None:
     st.subheader("Validação Pós-Operação")
     st.caption(
         "Concentra os registros candidatos à decisão da pós-operação. "
-        "A persistência local das decisões em DuckDB é a próxima etapa da 6.1.0."
+        "A linha 6.2.0 também adiciona apoio à leitura de reclamações DBGUO por ocorrência."
     )
 
     if not require_table(db_path, "gold_apuracao_uc"):

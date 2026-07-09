@@ -1,5 +1,20 @@
 # Changelog
 
+## 6.2.0 - 2026-07-09
+
+Versao de integracao IQS/DBGUO e endurecimento das exportacoes operacionais.
+
+- Padroniza os CSVs de exportacao IQS com separador `|`, fim de linha UNIX/LF e codificacao ISO-8859-1 transliterada.
+- Garante o layout obrigatorio de exportacao IQS para sobreposicao total por UC, sobreposicao parcial por UC e interrupcao sem UC.
+- Adiciona utilitario comum de exportacao em `midway/export/iqs_csv.py` para evitar divergencia entre arquivos gerados.
+- Centraliza a extracao DBGUO em `run.bat extrair_dbguo_reclamacoes` e remove BATs soltos obsoletos.
+- Mantem a materializacao de reclamacoes DBGUO em `run.bat dbguo_reclamacoes`.
+- Limita a extracao e a materializacao DBGUO ao mes de apuracao com margem operacional de dois dias antes/depois.
+- Enriquece a analise de reclamacoes com causa provavel, tipo textual, aderencia com causa/componente IQS e previa operacional por reclamacao.
+- Adiciona ranking de ocorrencias com reclamacoes no painel Streamlit.
+- Versiona os dicionarios em `data/input` para evitar falhas por ausencia de `causa.csv`, `componente.csv` e listas auxiliares.
+- Atualiza a documentacao tecnica das exportacoes IQS, extracao DBGUO e avaliacao de reclamacoes.
+
 ## 6.1.0 - 2026-07-05
 
 Versao de consolidacao tecnica do MIDWAY.

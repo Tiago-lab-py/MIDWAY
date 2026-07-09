@@ -1,6 +1,6 @@
 # MIDWAY - Tratamento IQS ADMS
 
-Versao atual: `6.1.0`
+Versao atual: `6.2.0`
 
 O MIDWAY e uma ferramenta local de ETL e pre-apuracao para tratar registros de interrupcao do ADMS antes da carga no IQS.
 
@@ -14,7 +14,7 @@ O objetivo e criar uma camada intermediaria mais consistente para:
 - gerar CSVs de retorno no layout aceito pelo IQS;
 - apoiar auditoria da pos-operacao com metricas, amostras e painel Streamlit.
 
-> Dados operacionais ficam em `data/` e nao devem ser versionados no Git.
+> Dados operacionais ficam em `data/` e nao devem ser versionados no Git, exceto `data/input`, que guarda dicionarios e listas auxiliares pequenas usadas pelo codigo.
 
 ## Fluxo Oficial
 
@@ -53,7 +53,7 @@ docs/            documentacao tecnica e historico de decisoes
 SQL/             consultas Oracle de apoio
 scripts/legacy/  atalhos antigos preservados por historico
 notebooks/       verificacoes exploratorias
-data/            dados locais nao versionados
+data/            dados locais; somente data/input e versionado
 ```
 
 ## Requisitos
@@ -136,6 +136,8 @@ run.bat painel
 | `run.bat exportar` | Regenera CSVs finais sem refazer tratamento |
 | `run.bat exportacoes_auxiliares` | Gera exportacoes separadas de sobreposicao e sem UC |
 | `run.bat sincronizar_iqs_raw` | Sincroniza `data/raw/iqs_raw_<ANOMES>.duckdb` para o processed |
+| `run.bat extrair_dbguo_reclamacoes` | Extrai reclamacoes DBGUO para `data/raw` |
+| `run.bat dbguo_reclamacoes` | Materializa silver/gold de reclamacoes DBGUO |
 | `run.bat vrc` | Extrai VRC IQS sob demanda |
 | `run.bat metas_uc` | Extrai metas UC IQS sob demanda |
 
@@ -156,7 +158,7 @@ data/
   marts/       auditorias, metricas e conferencias
   export/      CSVs finais e auxiliares
   control/     locks e arquivos .done.json
-  input/       aceites manuais
+  input/       dicionarios versionados e aceites manuais
   logs/        logs de execucao
   temp/        temporarios DuckDB
 ```
@@ -446,11 +448,20 @@ Consultar:
 run.bat versao
 ```
 
+## Destaques da 6.2.0
+
+- Exportacoes IQS em layout padrao: `|`, UNIX/LF e ISO-8859-1 transliterado.
+- Exportador separado para sobreposicao total por UC, parcial por UC e interrupcao sem UC.
+- Reclamacoes DBGUO com janela do mes de apuracao `+-2 dias`.
+- Analise de reclamacoes com causa provavel, aderencia IQS e ranking por ocorrencia.
+- `data/input` versionado para distribuir `causa.csv`, `componente.csv` e listas auxiliares.
+- Comandos DBGUO consolidados no `run.bat`.
+
 ## Observacao de Seguranca
 
 Nao versionar:
 
-- `data/`;
+- `data/`, exceto `data/input`;
 - `.env`;
 - bases `.duckdb`;
 - logs e caches locais.
