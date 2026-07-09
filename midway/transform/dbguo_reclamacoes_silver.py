@@ -22,11 +22,21 @@ RAW_SCHEMA = "dbguo_raw"
 RAW_TABLE = "raw_dbguo_reclamacoes"
 
 
-def database_name(schema: str) -> str:
-    return "memory" if schema == "main" else schema
-
-
 def table_exists(con, table_name: str, schema: str = "main") -> bool:
+    if schema == "main":
+        return (
+            con.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'main'
+                  AND table_name = ?
+                """,
+                [table_name],
+            ).fetchone()[0]
+            > 0
+        )
+
     return (
         con.execute(
             """
@@ -36,13 +46,28 @@ def table_exists(con, table_name: str, schema: str = "main") -> bool:
               AND schema_name = 'main'
               AND table_name = ?
             """,
-            [database_name(schema), table_name],
+            [schema, table_name],
         ).fetchone()[0]
         > 0
     )
 
 
 def table_columns(con, table_name: str, schema: str = "main") -> list[str]:
+    if schema == "main":
+        return [
+            row[0]
+            for row in con.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'main'
+                  AND table_name = ?
+                ORDER BY ordinal_position
+                """,
+                [table_name],
+            ).fetchall()
+        ]
+
     return [
         row[0]
         for row in con.execute(
@@ -54,12 +79,25 @@ def table_columns(con, table_name: str, schema: str = "main") -> list[str]:
               AND table_name = ?
             ORDER BY column_index
             """,
-            [database_name(schema), table_name],
+            [schema, table_name],
         ).fetchall()
     ]
 
 
 def listar_tabelas(con, schema: str = "main") -> list[str]:
+    if schema == "main":
+        return [
+            row[0]
+            for row in con.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'main'
+                ORDER BY table_name
+                """
+            ).fetchall()
+        ]
+
     return [
         row[0]
         for row in con.execute(
@@ -70,7 +108,7 @@ def listar_tabelas(con, schema: str = "main") -> list[str]:
               AND schema_name = 'main'
             ORDER BY table_name
             """,
-            [database_name(schema)],
+            [schema],
         ).fetchall()
     ]
 
