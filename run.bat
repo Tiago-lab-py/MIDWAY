@@ -121,6 +121,13 @@ if /I "%~1"=="apuracao_parcial" (
     goto fim
 )
 
+if /I "%~1"=="dbguo_reclamacoes" (
+    echo Materializando silver e gold de reclamacoes DBGUO...
+    "%PYTHON_EXE%" -m midway.transform.dbguo_reclamacoes_silver
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="testar_dados" (
     echo Executando testes automatizados dos dados tratados...
     "%PYTHON_EXE%" -m unittest discover -s "%SCRIPT_DIR%tests" -p "test_*.py"
@@ -292,6 +299,7 @@ echo   run.bat metas_uc                     Extrai metas UC IQS sob demanda para
 echo   run.bat reextrair_metas_uc           Reextrai metas UC IQS com REEXTRAIR_METAS_UC=1
 echo   run.bat sincronizar_iqs_raw          Sincroniza data\raw\iqs_raw_^<ANOMES^>.duckdb para o processed
 echo   run.bat apuracao_parcial             Gera camada gold e BDO de apuracao previa
+echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclamacoes DBGUO
 echo   run.bat testar_dados                 Executa testes automatizados dos dados tratados
 echo   run.bat validar_dados                Executa testes e metricas de qualidade
 echo   run.bat metricas_qualidade           Gera metricas estatisticas de qualidade
@@ -310,6 +318,7 @@ echo   set REPROCESSAR=1
 echo   run.bat tratamento
 echo   run.bat exportacoes_auxiliares
 echo   run.bat apuracao_parcial
+echo   run.bat dbguo_reclamacoes
 goto fim
 
 :erro
