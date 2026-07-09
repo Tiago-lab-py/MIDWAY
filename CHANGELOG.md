@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.2.1 - 2026-07-09
+
+Versao incremental com frontend de qualidade de interrupcoes.
+
+- Adiciona pagina Streamlit `09 Qualidade de Interrupções`.
+- Cruza interrupcoes IQS/ADMS, reclamacoes DBGUO e servicos ADMS no painel.
+- Usa `data/raw/adms_servicos_raw_<ANOMES>.duckdb` como fonte complementar de servicos.
+- Classifica interrupcoes por evidencias de improcedencia, atendimento por outra ocorrencia, multiplos servicos e reclamacoes fortes.
+- Corrige DIC/FIC da pagina de qualidade para usar `gold_apuracao_uc` como fonte de `CI_LIQUIDO` e `CHI_LIQUIDO`.
+- Atualiza README, home e documentacao da avaliacao de qualidade.
+
 ## 6.2.0 - 2026-07-09
 
 Versao de integracao IQS/DBGUO e endurecimento das exportacoes operacionais.

@@ -174,6 +174,37 @@ Na primeira entrega, a classificação deve ser tratada como triagem:
 - exibir evidências no painel;
 - permitir validação do analista antes de qualquer ajuste de exportação IQS.
 
+## Frontend
+
+A primeira visualização operacional está na página:
+
+```text
+09 Qualidade de Interrupções
+```
+
+Ela usa:
+
+```text
+data/processed/iqs_adms_processed_<ANOMES>.duckdb
+data/raw/adms_servicos_raw_<ANOMES>.duckdb
+```
+
+E monta dinamicamente:
+
+- cartões de cobertura de serviços, reclamações e causas `22`/`85`;
+- ranking de interrupções para revisão;
+- resumo por classificação;
+- distribuição dos serviços por causa/componente/estado.
+
+O ranking prioriza evidências complementares:
+
+- serviço associado à interrupção;
+- reclamação vinculada à ocorrência;
+- causa de serviço `22`;
+- causa de serviço `85`;
+- divergência entre causa/componente IQS e serviço;
+- múltiplos serviços na mesma interrupção.
+
 ## Comandos
 
 Extrair serviços:

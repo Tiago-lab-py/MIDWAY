@@ -11,7 +11,7 @@ def main() -> None:
 
     st.markdown(
         """
-        ### Consolidação Operacional 6.2.0
+        ### Consolidação Operacional 6.2.1
 
         Use o menu lateral do Streamlit para navegar pelas páginas do MIDWAY.
 
@@ -22,9 +22,11 @@ def main() -> None:
         - **05 Validação Pós-Operação**: visão inicial para decisões operacionais.
         - **06 Executivo**: resumo gerencial de impacto e compensação estimada.
         - **07 SQL**: catálogo e consulta somente leitura no DuckDB processado.
+        - **08 Avaliação de UC**: consulta por UC, outliers e reclamações.
+        - **09 Qualidade de Interrupções**: cruza interrupção, reclamação e serviço ADMS.
 
-        Destaques da 6.2.0: exportação IQS padronizada, análise DBGUO de reclamações
-        por ocorrência e dicionários `data/input` versionados.
+        Destaques da 6.2.1: exportação IQS padronizada, análise DBGUO de reclamações
+        por ocorrência, serviços ADMS e dicionários `data/input` versionados.
         """
     )
 

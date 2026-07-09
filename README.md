@@ -1,6 +1,6 @@
 # MIDWAY - Tratamento IQS ADMS
 
-Versao atual: `6.2.0`
+Versao atual: `6.2.1`
 
 O MIDWAY e uma ferramenta local de ETL e pre-apuracao para tratar registros de interrupcao do ADMS antes da carga no IQS.
 
@@ -450,13 +450,15 @@ Consultar:
 run.bat versao
 ```
 
-## Destaques da 6.2.0
+## Destaques da 6.2.1
 
 - Exportacoes IQS em layout padrao: `|`, UNIX/LF e ISO-8859-1 transliterado.
 - Exportador separado para sobreposicao total por UC, parcial por UC e interrupcao sem UC.
 - Reclamacoes DBGUO com janela do mes de apuracao `+-2 dias`.
 - Analise de reclamacoes com causa provavel, aderencia IQS e ranking por ocorrencia.
 - Extrator RAW de servicos ADMS para apoiar causa/componente e improcedencia.
+- Página `09 Qualidade de Interrupções` no Streamlit para cruzar interrupções, reclamações e serviços.
+- DIC/FIC da qualidade de interrupções calculado pela `gold_apuracao_uc`.
 - `data/input` versionado para distribuir `causa.csv`, `componente.csv` e listas auxiliares.
 - Comandos DBGUO consolidados no `run.bat`.
 
