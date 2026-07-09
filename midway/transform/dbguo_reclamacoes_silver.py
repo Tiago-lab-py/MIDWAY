@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -12,12 +12,33 @@ load_dotenv()
 
 ANOMES = os.getenv("ANOMES", "202606")
 BASE_DIR = Path("data")
+INPUT_DIR = BASE_DIR / "input"
 RAW_DUCKDB_PATH = BASE_DIR / "raw" / f"dbguo_raw_{ANOMES}.duckdb"
 PROCESSED_DUCKDB_PATH = BASE_DIR / "processed" / f"iqs_adms_processed_{ANOMES}.duckdb"
 MARTS_DIR = BASE_DIR / "marts"
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M%S")
 RAW_SCHEMA = "dbguo_raw"
 RAW_TABLE = "raw_dbguo_reclamacoes"
+CAUSA_CSV_PATH = Path(os.getenv("IQS_CAUSA_CSV", str(INPUT_DIR / "causa.csv")))
+COMPONENTE_CSV_PATH = Path(os.getenv("IQS_COMPONENTE_CSV", str(INPUT_DIR / "componente.csv")))
+
+
+def sql_literal(valor) -> str:
+    return "'" + str(valor).replace("\\", "/").replace("'", "''") + "'"
+
+
+def janela_reclamacoes_anomes() -> tuple[str, str]:
+    ano = int(ANOMES[:4])
+    mes = int(ANOMES[4:6])
+    inicio = datetime(ano, mes, 1)
+    if mes == 12:
+        proximo_mes = datetime(ano + 1, 1, 1)
+    else:
+        proximo_mes = datetime(ano, mes + 1, 1)
+
+    inicio_janela = inicio - timedelta(days=2)
+    fim_janela = proximo_mes + timedelta(days=2)
+    return inicio_janela.strftime("%Y-%m-%d %H:%M:%S"), fim_janela.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def table_exists(con, table_name: str, schema: str = "main") -> bool:
@@ -111,8 +132,51 @@ def attach_dbguo_raw(con) -> str:
     return RAW_SCHEMA
 
 
+def criar_referencias_iqs(con):
+    if CAUSA_CSV_PATH.exists():
+        con.execute(
+            f"""
+            CREATE OR REPLACE TABLE ref_iqs_causa AS
+            SELECT DISTINCT
+                NULLIF(TRIM(CAST(COD_CAUSA AS VARCHAR)), '') AS COD_CAUSA,
+                NULLIF(TRIM(CAST(DESC_CAUSA AS VARCHAR)), '') AS DESC_CAUSA
+            FROM read_csv_auto({sql_literal(CAUSA_CSV_PATH.as_posix())}, header = true, all_varchar = true)
+            WHERE NULLIF(TRIM(CAST(COD_CAUSA AS VARCHAR)), '') IS NOT NULL
+            """
+        )
+    else:
+        con.execute(
+            """
+            CREATE OR REPLACE TABLE ref_iqs_causa AS
+            SELECT CAST(NULL AS VARCHAR) AS COD_CAUSA, CAST(NULL AS VARCHAR) AS DESC_CAUSA
+            WHERE FALSE
+            """
+        )
+
+    if COMPONENTE_CSV_PATH.exists():
+        con.execute(
+            f"""
+            CREATE OR REPLACE TABLE ref_iqs_componente AS
+            SELECT DISTINCT
+                NULLIF(TRIM(CAST(COD_COMP AS VARCHAR)), '') AS COD_COMP,
+                NULLIF(TRIM(CAST(DESC_COMP AS VARCHAR)), '') AS DESC_COMP
+            FROM read_csv_auto({sql_literal(COMPONENTE_CSV_PATH.as_posix())}, header = true, all_varchar = true)
+            WHERE NULLIF(TRIM(CAST(COD_COMP AS VARCHAR)), '') IS NOT NULL
+            """
+        )
+    else:
+        con.execute(
+            """
+            CREATE OR REPLACE TABLE ref_iqs_componente AS
+            SELECT CAST(NULL AS VARCHAR) AS COD_COMP, CAST(NULL AS VARCHAR) AS DESC_COMP
+            WHERE FALSE
+            """
+        )
+
+
 def criar_silver_reclamacoes(con):
     raw_schema = attach_dbguo_raw(con)
+    inicio_janela_reclamacoes, fim_janela_reclamacoes = janela_reclamacoes_anomes()
 
     if not table_exists(con, RAW_TABLE, raw_schema):
         tabelas = listar_tabelas(con, raw_schema)
@@ -145,6 +209,14 @@ def criar_silver_reclamacoes(con):
         raw_cols,
         ["ID_RECLAMACAO", "NUM_RECLAMACAO", "PROTOCOLO", "NUM_PROTOCOLO", "ID", "PID"],
     )
+    col_reclamacao = first_existing(
+        raw_cols,
+        ["RECLAMACAO", "DESC_RECLAMACAO", "DESCRICAO_RECLAMACAO", "TEXTO_RECLAMACAO"],
+    )
+    col_retorno = first_existing(
+        raw_cols,
+        ["INFORMACAO_RETORNO", "INFO_RETORNO", "RETORNO", "DESCRICAO_RETORNO"],
+    )
 
     if not col_uc:
         raise RuntimeError(f"Nao encontrei coluna de UC no raw DBGUO. Colunas: {raw_cols}")
@@ -155,6 +227,16 @@ def criar_silver_reclamacoes(con):
         f'NULLIF(TRIM(CAST(r."{col_id}" AS VARCHAR)), \'\')'
         if col_id
         else "CAST(ROW_NUMBER() OVER () AS VARCHAR)"
+    )
+    reclamacao_expr = (
+        f'NULLIF(TRIM(CAST(r."{col_reclamacao}" AS VARCHAR)), \'\')'
+        if col_reclamacao
+        else "CAST(NULL AS VARCHAR)"
+    )
+    retorno_expr = (
+        f'NULLIF(TRIM(CAST(r."{col_retorno}" AS VARCHAR)), \'\')'
+        if col_retorno
+        else "CAST(NULL AS VARCHAR)"
     )
 
     apuracao_cols = table_columns(con, "gold_apuracao_uc")
@@ -170,8 +252,48 @@ def criar_silver_reclamacoes(con):
             SELECT
                 {id_expr} AS ID_RECLAMACAO,
                 NULLIF(TRIM(CAST(r."{col_uc}" AS VARCHAR)), '') AS UC,
-                TRY_CAST(r."{col_data}" AS TIMESTAMP) AS DTHR_RECLAMACAO
+                TRY_CAST(r."{col_data}" AS TIMESTAMP) AS DTHR_RECLAMACAO,
+                {reclamacao_expr} AS TEXTO_RECLAMACAO,
+                {retorno_expr} AS TEXTO_RETORNO
             FROM {raw_schema}.{RAW_TABLE} r
+            WHERE TRY_CAST(r."{col_data}" AS TIMESTAMP) >= TIMESTAMP '{inicio_janela_reclamacoes}'
+              AND TRY_CAST(r."{col_data}" AS TIMESTAMP) < TIMESTAMP '{fim_janela_reclamacoes}'
+        ),
+        reclamacoes_classificadas AS (
+            SELECT
+                *,
+                CASE
+                    WHEN UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%OSCIL%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%PISC%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%TENSAO%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%TENSÃO%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%MEIA FASE%'
+                        THEN 'OSCILACAO_TENSAO'
+                    WHEN UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%FALTA DE ENERGIA%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%FALTA ENERGIA%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%SEM ENERGIA%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%CHAVE CAIDA%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%DESLIG%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%APAG%'
+                        THEN 'FALTA_ENERGIA'
+                    WHEN UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%QUEIMA%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%DANO%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%EQUIPAMENTO%'
+                        THEN 'DANO_EQUIPAMENTO'
+                    WHEN UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%ARVORE%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%ÁRVORE%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%PODA%'
+                        THEN 'VEGETACAO_REDE'
+                    WHEN UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%POSTE%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%CABO%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%FIO%'
+                      OR UPPER(COALESCE(TEXTO_RECLAMACAO, '') || ' ' || COALESCE(TEXTO_RETORNO, '')) LIKE '%TRANSFORMADOR%'
+                        THEN 'REDE_EQUIPAMENTO'
+                    WHEN TEXTO_RECLAMACAO IS NULL AND TEXTO_RETORNO IS NULL
+                        THEN 'SEM_TEXTO'
+                    ELSE 'OUTROS'
+                END AS TIPO_RECLAMACAO_PROVAVEL
+            FROM reclamacoes
         ),
         eventos AS (
             SELECT
@@ -201,6 +323,9 @@ def criar_silver_reclamacoes(con):
             r.ID_RECLAMACAO,
             r.UC,
             r.DTHR_RECLAMACAO,
+            r.TEXTO_RECLAMACAO,
+            r.TEXTO_RETORNO,
+            r.TIPO_RECLAMACAO_PROVAVEL,
             e.NUM_OCORRENCIA_ADMS,
             e.NUM_SEQ_INTRP,
             e.NUM_INTRP_UCI,
@@ -242,8 +367,29 @@ def criar_silver_reclamacoes(con):
                 WHEN r.DTHR_RECLAMACAO < e.INICIO_INTERRUPCAO_UC
                  AND DATE_DIFF('minute', r.DTHR_RECLAMACAO, e.INICIO_INTERRUPCAO_UC) BETWEEN 0 AND 120 THEN 50
                 ELSE 0
-            END AS SCORE_VINCULO_RECLAMACAO
-        FROM reclamacoes r
+            END AS SCORE_VINCULO_RECLAMACAO,
+            CASE
+                WHEN e.NUM_SEQ_INTRP IS NULL AND r.TIPO_RECLAMACAO_PROVAVEL = 'FALTA_ENERGIA'
+                    THEN 'FALTA_ENERGIA_SEM_OCORRENCIA_IQS'
+                WHEN e.NUM_SEQ_INTRP IS NULL AND r.TIPO_RECLAMACAO_PROVAVEL = 'OSCILACAO_TENSAO'
+                    THEN 'OSCILACAO_SEM_OCORRENCIA_IQS'
+                WHEN e.NUM_SEQ_INTRP IS NULL
+                    THEN 'SEM_OCORRENCIA_IQS'
+                WHEN r.TIPO_RECLAMACAO_PROVAVEL = 'FALTA_ENERGIA'
+                 AND r.DTHR_RECLAMACAO BETWEEN e.INICIO_INTERRUPCAO_UC AND e.FIM_INTERRUPCAO
+                    THEN 'INTERRUPCAO_CONFIRMADA_DURANTE_RECLAMACAO'
+                WHEN r.TIPO_RECLAMACAO_PROVAVEL = 'FALTA_ENERGIA'
+                 AND r.DTHR_RECLAMACAO > e.FIM_INTERRUPCAO
+                    THEN 'INTERRUPCAO_PROVAVEL_POS_RETORNO'
+                WHEN r.TIPO_RECLAMACAO_PROVAVEL = 'OSCILACAO_TENSAO'
+                    THEN 'OSCILACAO_TENSAO_ASSOCIADA_A_OCORRENCIA'
+                WHEN r.TIPO_RECLAMACAO_PROVAVEL IN ('VEGETACAO_REDE', 'REDE_EQUIPAMENTO', 'DANO_EQUIPAMENTO')
+                    THEN r.TIPO_RECLAMACAO_PROVAVEL || '_COM_OCORRENCIA_PROVAVEL'
+                WHEN e.NUM_SEQ_INTRP IS NOT NULL
+                    THEN 'OCORRENCIA_PROVAVEL_SEM_CAUSA_TEXTUAL_ESPECIFICA'
+                ELSE 'INDEFINIDA'
+            END AS CAUSA_PROVAVEL_RECLAMACAO
+        FROM reclamacoes_classificadas r
         LEFT JOIN eventos e
           ON e.UC = r.UC
          AND r.DTHR_RECLAMACAO >= e.INICIO_INTERRUPCAO_UC - INTERVAL '2 hours'
@@ -331,6 +477,10 @@ def criar_gold_reclamacoes(con):
             s.UC,
             CAST(s.DTHR_RECLAMACAO AS DATE) AS DATA_RECLAMACAO,
             s.DTHR_RECLAMACAO,
+            s.TEXTO_RECLAMACAO,
+            s.TEXTO_RETORNO,
+            s.TIPO_RECLAMACAO_PROVAVEL,
+            s.CAUSA_PROVAVEL_RECLAMACAO,
             s.NUM_OCORRENCIA_ADMS,
             s.NUM_SEQ_INTRP,
             s.NUM_INTRP_UCI,
@@ -371,6 +521,157 @@ def criar_gold_reclamacoes(con):
         """
     )
 
+    con.execute("ALTER TABLE gold_reclamacao_uc_vinculada ADD COLUMN DESC_CAUSA_INTRP VARCHAR")
+    con.execute("ALTER TABLE gold_reclamacao_uc_vinculada ADD COLUMN DESC_COMP_INTRP VARCHAR")
+    con.execute("ALTER TABLE gold_reclamacao_uc_vinculada ADD COLUMN GRUPO_CAUSA_IQS VARCHAR")
+    con.execute("ALTER TABLE gold_reclamacao_uc_vinculada ADD COLUMN GRUPO_COMPONENTE_IQS VARCHAR")
+    con.execute("ALTER TABLE gold_reclamacao_uc_vinculada ADD COLUMN ADERENCIA_RECLAMACAO_CAUSA_IQS VARCHAR")
+    con.execute("ALTER TABLE gold_reclamacao_uc_vinculada ADD COLUMN PREVIA_CAUSA_RECLAMACAO VARCHAR")
+
+    con.execute(
+        """
+        UPDATE gold_reclamacao_uc_vinculada g
+        SET DESC_CAUSA_INTRP = r.DESC_CAUSA
+        FROM ref_iqs_causa r
+        WHERE TRIM(CAST(g.COD_CAUSA_INTRP AS VARCHAR)) = TRIM(CAST(r.COD_CAUSA AS VARCHAR))
+        """
+    )
+    con.execute(
+        """
+        UPDATE gold_reclamacao_uc_vinculada g
+        SET DESC_COMP_INTRP = r.DESC_COMP
+        FROM ref_iqs_componente r
+        WHERE TRIM(CAST(g.COD_COMP_INTRP AS VARCHAR)) = TRIM(CAST(r.COD_COMP AS VARCHAR))
+        """
+    )
+    con.execute(
+        """
+        UPDATE gold_reclamacao_uc_vinculada
+        SET
+            GRUPO_CAUSA_IQS = CASE
+                WHEN DESC_CAUSA_INTRP IS NULL THEN 'SEM_CAUSA_IQS'
+                WHEN UPPER(DESC_CAUSA_INTRP) LIKE '%NAO IDENTIFICADA%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%NÃO IDENTIFICADA%'
+                    THEN 'NAO_IDENTIFICADA'
+                WHEN UPPER(DESC_CAUSA_INTRP) LIKE '%ARVORE%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%ÁRVORE%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%GALHO%'
+                    THEN 'VEGETACAO'
+                WHEN UPPER(DESC_CAUSA_INTRP) LIKE '%TENSAO%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%TENSÃO%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%DESEQUILIBRIO%'
+                    THEN 'TENSAO_OSCILACAO'
+                WHEN UPPER(DESC_CAUSA_INTRP) LIKE '%COMPONENTE%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%FALHA%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%DEFEITO%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%MANUTENCAO CORRETIVA%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%CORROSAO%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%OXIDACAO%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%PONTO QUENTE%'
+                    THEN 'FALHA_COMPONENTE'
+                WHEN UPPER(DESC_CAUSA_INTRP) LIKE '%DESCARGA ATMOSFERICA%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%VENTO%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%VENDAVAL%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%ANIMAIS%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%INSETOS%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%PASSAROS%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%PÁSSAROS%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%OBJETOS ESTRANHOS%'
+                    THEN 'CLIMA_AMBIENTE'
+                WHEN UPPER(DESC_CAUSA_INTRP) LIKE '%ABALROAMENTO%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%TERCEIROS%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%VANDALISMO%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%FURTO%'
+                    THEN 'TERCEIROS'
+                WHEN UPPER(DESC_CAUSA_INTRP) LIKE '%MANOBRA%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%TRANSF. CARGA%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%RETORNO CONFIG%'
+                    THEN 'OPERACAO_REDE'
+                WHEN UPPER(DESC_CAUSA_INTRP) LIKE '%QUEIMADA%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%INCENDIO%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%INCÊNDIO%'
+                    THEN 'QUEIMADA_INCENDIO'
+                WHEN UPPER(DESC_CAUSA_INTRP) LIKE '%INSP./MANUT.%'
+                  OR UPPER(DESC_CAUSA_INTRP) LIKE '%EQUIPE DE EMERG%'
+                    THEN 'INSPECAO_EMERGENCIA'
+                ELSE 'OUTRA_CAUSA_IQS'
+            END,
+            GRUPO_COMPONENTE_IQS = CASE
+                WHEN DESC_COMP_INTRP IS NULL THEN 'SEM_COMPONENTE_IQS'
+                WHEN UPPER(DESC_COMP_INTRP) LIKE '%CHAVE%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%ELO FUSIVEL%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%FUSIVEL%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%ATUACAO DO RA%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%ATUAÇÃO DO RA%'
+                    THEN 'CHAVE_PROTECAO'
+                WHEN UPPER(DESC_COMP_INTRP) LIKE '%CONEC%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%GRAMPO%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%JUMPER%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%TERMINAIS%'
+                    THEN 'CONEXAO'
+                WHEN UPPER(DESC_COMP_INTRP) LIKE '%CONDUTOR%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%CABO%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%RAMAL%'
+                    THEN 'CONDUTOR_RAMAL'
+                WHEN UPPER(DESC_COMP_INTRP) LIKE '%REDE DE DISTRIBUICAO%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%REDE DE DISTRIBUIÇÃO%'
+                    THEN 'REDE_DISTRIBUICAO'
+                WHEN UPPER(DESC_COMP_INTRP) LIKE '%TRANSFORMADOR%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%TRAFO%'
+                    THEN 'TRANSFORMADOR'
+                WHEN UPPER(DESC_COMP_INTRP) LIKE '%POSTE%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%CRUZETA%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%ISOLADOR%'
+                    THEN 'ESTRUTURA_REDE'
+                WHEN UPPER(DESC_COMP_INTRP) LIKE '%MEDICAO%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%MEDIÇÃO%'
+                  OR UPPER(DESC_COMP_INTRP) LIKE '%MEDIDOR%'
+                    THEN 'MEDICAO'
+                ELSE 'OUTRO_COMPONENTE_IQS'
+            END
+        """
+    )
+    con.execute(
+        """
+        UPDATE gold_reclamacao_uc_vinculada
+        SET
+            ADERENCIA_RECLAMACAO_CAUSA_IQS = CASE
+                WHEN TEM_OCORRENCIA_PROVAVEL <> 'S' THEN 'SEM_OCORRENCIA_IQS'
+                WHEN TIPO_RECLAMACAO_PROVAVEL = 'FALTA_ENERGIA'
+                 AND GRUPO_CAUSA_IQS IN ('FALHA_COMPONENTE', 'VEGETACAO', 'TERCEIROS', 'OPERACAO_REDE', 'QUEIMADA_INCENDIO', 'CLIMA_AMBIENTE', 'INSPECAO_EMERGENCIA')
+                    THEN 'ALTA'
+                WHEN TIPO_RECLAMACAO_PROVAVEL = 'OSCILACAO_TENSAO'
+                 AND GRUPO_CAUSA_IQS = 'TENSAO_OSCILACAO'
+                    THEN 'ALTA'
+                WHEN TIPO_RECLAMACAO_PROVAVEL = 'VEGETACAO_REDE'
+                 AND GRUPO_CAUSA_IQS = 'VEGETACAO'
+                    THEN 'ALTA'
+                WHEN TIPO_RECLAMACAO_PROVAVEL IN ('REDE_EQUIPAMENTO', 'DANO_EQUIPAMENTO')
+                 AND (
+                    GRUPO_CAUSA_IQS = 'FALHA_COMPONENTE'
+                    OR GRUPO_COMPONENTE_IQS IN ('CHAVE_PROTECAO', 'CONEXAO', 'CONDUTOR_RAMAL', 'REDE_DISTRIBUICAO', 'TRANSFORMADOR', 'ESTRUTURA_REDE')
+                 )
+                    THEN 'ALTA'
+                WHEN TIPO_RECLAMACAO_PROVAVEL IN ('FALTA_ENERGIA', 'OSCILACAO_TENSAO', 'REDE_EQUIPAMENTO', 'DANO_EQUIPAMENTO', 'VEGETACAO_REDE')
+                    THEN 'MEDIA'
+                WHEN TIPO_RECLAMACAO_PROVAVEL = 'OUTROS' AND TEM_OCORRENCIA_PROVAVEL = 'S'
+                    THEN 'BAIXA'
+                ELSE 'INDEFINIDA'
+            END,
+            PREVIA_CAUSA_RECLAMACAO = CASE
+                WHEN TEM_OCORRENCIA_PROVAVEL <> 'S'
+                    THEN CAUSA_PROVAVEL_RECLAMACAO
+                WHEN TIPO_RECLAMACAO_PROVAVEL = 'FALTA_ENERGIA'
+                    THEN 'FALTA_ENERGIA | ' || COALESCE(GRUPO_CAUSA_IQS, 'SEM_CAUSA_IQS') || ' | ' || COALESCE(GRUPO_COMPONENTE_IQS, 'SEM_COMPONENTE_IQS')
+                WHEN TIPO_RECLAMACAO_PROVAVEL = 'OSCILACAO_TENSAO'
+                    THEN 'OSCILACAO_TENSAO | ' || COALESCE(GRUPO_CAUSA_IQS, 'SEM_CAUSA_IQS') || ' | ' || COALESCE(GRUPO_COMPONENTE_IQS, 'SEM_COMPONENTE_IQS')
+                WHEN TIPO_RECLAMACAO_PROVAVEL IN ('REDE_EQUIPAMENTO', 'DANO_EQUIPAMENTO', 'VEGETACAO_REDE')
+                    THEN TIPO_RECLAMACAO_PROVAVEL || ' | ' || COALESCE(GRUPO_CAUSA_IQS, 'SEM_CAUSA_IQS') || ' | ' || COALESCE(GRUPO_COMPONENTE_IQS, 'SEM_COMPONENTE_IQS')
+                ELSE COALESCE(CAUSA_PROVAVEL_RECLAMACAO, 'OCORRENCIA_PROVAVEL_SEM_CAUSA_TEXTUAL_ESPECIFICA')
+            END
+        """
+    )
+
     con.execute(
         """
         CREATE OR REPLACE TABLE gold_reclamacao_uc_resumo AS
@@ -386,6 +687,9 @@ def criar_gold_reclamacoes(con):
             SUM(CASE WHEN VALID_POS_OPERACAO = 'S' THEN 1 ELSE 0 END) AS QTD_RECLAMACOES_OCORRENCIA_VALIDADA_POS,
             MAX(SCORE_VINCULO_RECLAMACAO) AS MAX_SCORE_VINCULO_RECLAMACAO,
             MIN(DISTANCIA_MINUTOS) AS MENOR_DISTANCIA_MINUTOS,
+            STRING_AGG(DISTINCT TIPO_RECLAMACAO_PROVAVEL, ', ' ORDER BY TIPO_RECLAMACAO_PROVAVEL) AS TIPOS_RECLAMACAO_PROVAVEIS,
+            STRING_AGG(DISTINCT CAUSA_PROVAVEL_RECLAMACAO, ', ' ORDER BY CAUSA_PROVAVEL_RECLAMACAO) AS CAUSAS_PROVAVEIS_RECLAMACAO,
+            STRING_AGG(DISTINCT PREVIA_CAUSA_RECLAMACAO, ', ' ORDER BY PREVIA_CAUSA_RECLAMACAO) AS PREVIAS_CAUSA_RECLAMACAO,
             MAX(COALESCE(COMP_TOTAL_PRODIST_UC, 0)) AS COMP_TOTAL_PRODIST_UC_REFERENCIA
         FROM gold_reclamacao_uc_vinculada
         GROUP BY UC
@@ -406,7 +710,16 @@ def criar_gold_reclamacoes(con):
             MAX(DIC_OCORRENCIA) AS DIC_OCORRENCIA,
             MAX(VALID_POS_OPERACAO) AS VALID_POS_OPERACAO,
             MAX(SCORE_VINCULO_RECLAMACAO) AS MAX_SCORE_VINCULO_RECLAMACAO,
-            MIN(DISTANCIA_MINUTOS) AS MENOR_DISTANCIA_MINUTOS
+            MIN(DISTANCIA_MINUTOS) AS MENOR_DISTANCIA_MINUTOS,
+            STRING_AGG(DISTINCT TIPO_RECLAMACAO_PROVAVEL, ', ' ORDER BY TIPO_RECLAMACAO_PROVAVEL) AS TIPOS_RECLAMACAO_PROVAVEIS,
+            STRING_AGG(DISTINCT CAUSA_PROVAVEL_RECLAMACAO, ', ' ORDER BY CAUSA_PROVAVEL_RECLAMACAO) AS CAUSAS_PROVAVEIS_RECLAMACAO,
+            STRING_AGG(DISTINCT PREVIA_CAUSA_RECLAMACAO, ', ' ORDER BY PREVIA_CAUSA_RECLAMACAO) AS PREVIAS_CAUSA_RECLAMACAO,
+            STRING_AGG(DISTINCT GRUPO_CAUSA_IQS, ', ' ORDER BY GRUPO_CAUSA_IQS) AS GRUPOS_CAUSA_IQS,
+            STRING_AGG(DISTINCT GRUPO_COMPONENTE_IQS, ', ' ORDER BY GRUPO_COMPONENTE_IQS) AS GRUPOS_COMPONENTE_IQS,
+            SUM(CASE WHEN ADERENCIA_RECLAMACAO_CAUSA_IQS = 'ALTA' THEN 1 ELSE 0 END) AS QTD_ADERENCIA_ALTA,
+            SUM(CASE WHEN ADERENCIA_RECLAMACAO_CAUSA_IQS = 'MEDIA' THEN 1 ELSE 0 END) AS QTD_ADERENCIA_MEDIA,
+            SUM(CASE WHEN TIPO_RECLAMACAO_PROVAVEL = 'FALTA_ENERGIA' THEN 1 ELSE 0 END) AS QTD_RECLAMACOES_FALTA_ENERGIA,
+            SUM(CASE WHEN TIPO_RECLAMACAO_PROVAVEL = 'OSCILACAO_TENSAO' THEN 1 ELSE 0 END) AS QTD_RECLAMACOES_OSCILACAO
         FROM gold_reclamacao_uc_vinculada
         WHERE TEM_OCORRENCIA_PROVAVEL = 'S'
           AND NUM_OCORRENCIA_ADMS IS NOT NULL
@@ -473,6 +786,7 @@ def main():
 
     con = duckdb.connect(str(PROCESSED_DUCKDB_PATH))
     try:
+        criar_referencias_iqs(con)
         criar_silver_reclamacoes(con)
         criar_gold_reclamacoes(con)
         exportar_resumo(con)

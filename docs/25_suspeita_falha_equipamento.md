@@ -258,7 +258,7 @@ A tabela deve ser recalculada após:
 
 ```bat
 run.bat apuracao_parcial
-materializar_dbguo_reclamacoes_silver.bat
+run.bat dbguo_reclamacoes
 ```
 
 No futuro, a materialização pode ser integrada ao `run.bat apuracao_parcial`, desde que a base DBGUO já esteja disponível.

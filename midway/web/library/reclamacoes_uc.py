@@ -90,6 +90,46 @@ def reclamacoes_ranking_uc(db_path: str, start_date: date, end_date: date, statu
 
 
 @st.cache_data(show_spinner=False)
+def reclamacoes_ranking_ocorrencia(db_path: str, start_date: date, end_date: date, status: str, min_score: int, sample_limit: int):
+    return query_df(
+        db_path,
+        f"""
+        SELECT
+            NUM_OCORRENCIA_ADMS,
+            COUNT(*) AS QTD_RECLAMACOES,
+            COUNT(DISTINCT UC) AS QTD_UCS_RECLAMANTES,
+            MAX(UCS_APURAVEIS_OCORRENCIA) AS UCS_APURAVEIS_OCORRENCIA,
+            MAX(VALID_POS_OPERACAO) AS VALID_POS_OPERACAO,
+            MAX(SCORE_VINCULO_RECLAMACAO) AS MAX_SCORE_VINCULO,
+            MIN(DISTANCIA_MINUTOS) AS MENOR_DISTANCIA_MINUTOS,
+            STRING_AGG(DISTINCT TIPO_RECLAMACAO_PROVAVEL, ', ' ORDER BY TIPO_RECLAMACAO_PROVAVEL) AS TIPOS_RECLAMACAO_PROVAVEIS,
+            STRING_AGG(DISTINCT CAUSA_PROVAVEL_RECLAMACAO, ', ' ORDER BY CAUSA_PROVAVEL_RECLAMACAO) AS CAUSAS_PROVAVEIS_RECLAMACAO,
+            STRING_AGG(DISTINCT PREVIA_CAUSA_RECLAMACAO, ', ' ORDER BY PREVIA_CAUSA_RECLAMACAO) AS PREVIAS_CAUSA_RECLAMACAO,
+            STRING_AGG(DISTINCT GRUPO_CAUSA_IQS, ', ' ORDER BY GRUPO_CAUSA_IQS) AS GRUPOS_CAUSA_IQS,
+            STRING_AGG(DISTINCT GRUPO_COMPONENTE_IQS, ', ' ORDER BY GRUPO_COMPONENTE_IQS) AS GRUPOS_COMPONENTE_IQS,
+            SUM(CASE WHEN ADERENCIA_RECLAMACAO_CAUSA_IQS = 'ALTA' THEN 1 ELSE 0 END) AS QTD_ADERENCIA_ALTA,
+            SUM(CASE WHEN ADERENCIA_RECLAMACAO_CAUSA_IQS = 'MEDIA' THEN 1 ELSE 0 END) AS QTD_ADERENCIA_MEDIA,
+            MAX(DIC_OCORRENCIA) AS DIC_OCORRENCIA,
+            MAX(FIC_OCORRENCIA) AS FIC_OCORRENCIA
+        FROM gold_reclamacao_uc_vinculada
+        WHERE CAST(DTHR_RECLAMACAO AS DATE) >= DATE '{_fmt_sql_date(start_date)}'
+          AND CAST(DTHR_RECLAMACAO AS DATE) <= DATE '{_fmt_sql_date(end_date)}'
+          AND COALESCE(SCORE_VINCULO_RECLAMACAO, 0) >= {int(min_score)}
+          AND TEM_OCORRENCIA_PROVAVEL = 'S'
+          AND NUM_OCORRENCIA_ADMS IS NOT NULL
+          {_status_filter_sql(status)}
+        GROUP BY NUM_OCORRENCIA_ADMS
+        ORDER BY
+            QTD_RECLAMACOES DESC,
+            QTD_UCS_RECLAMANTES DESC,
+            MAX_SCORE_VINCULO DESC,
+            DIC_OCORRENCIA DESC
+        LIMIT {int(sample_limit)}
+        """,
+    )
+
+
+@st.cache_data(show_spinner=False)
 def reclamacoes_detalhe(db_path: str, start_date: date, end_date: date, status: str, min_score: int, sample_limit: int, uc: str):
     uc_filter = ""
     if uc.strip():
@@ -102,6 +142,14 @@ def reclamacoes_detalhe(db_path: str, start_date: date, end_date: date, status: 
             ID_RECLAMACAO,
             UC,
             DTHR_RECLAMACAO,
+            TIPO_RECLAMACAO_PROVAVEL,
+            CAUSA_PROVAVEL_RECLAMACAO,
+            PREVIA_CAUSA_RECLAMACAO,
+            ADERENCIA_RECLAMACAO_CAUSA_IQS,
+            DESC_CAUSA_INTRP,
+            DESC_COMP_INTRP,
+            GRUPO_CAUSA_IQS,
+            GRUPO_COMPONENTE_IQS,
             STATUS_AVALIACAO_RECLAMACAO,
             CLASSIFICACAO_VINCULO_RECLAMACAO,
             SCORE_VINCULO_RECLAMACAO,
@@ -122,6 +170,8 @@ def reclamacoes_detalhe(db_path: str, start_date: date, end_date: date, status: 
             CHI_LIQUIDO,
             COD_CAUSA_INTRP,
             COD_COMP_INTRP,
+            TEXTO_RECLAMACAO,
+            TEXTO_RETORNO,
             UCS_APURAVEIS_OCORRENCIA,
             FIC_OCORRENCIA,
             DIC_OCORRENCIA,
@@ -151,8 +201,8 @@ def show_reclamacoes_uc(db_path: str, sample_limit: int) -> None:
     required_tables = ["gold_reclamacao_uc_vinculada", "gold_reclamacao_uc_resumo"]
     if not all(require_table(db_path, table_name) for table_name in required_tables):
         st.info(
-            "Execute `materializar_dbguo_reclamacoes_silver.bat` ou `run.bat dbguo_reclamacoes` "
-            "para gerar `gold_reclamacao_uc_vinculada` e `gold_reclamacao_uc_resumo`."
+            "Execute `run.bat dbguo_reclamacoes` para gerar "
+            "`gold_reclamacao_uc_vinculada` e `gold_reclamacao_uc_resumo`."
         )
         return
 
@@ -215,6 +265,35 @@ def show_reclamacoes_uc(db_path: str, sample_limit: int) -> None:
                 "Baixar ranking de UCs",
                 ranking_df.to_csv(index=False, sep=";").encode("utf-8-sig"),
                 file_name="ranking_reclamacoes_uc.csv",
+                mime="text/csv",
+            )
+
+        st.markdown("### Ranking de ocorrências com reclamações")
+        ocorrencia_df = reclamacoes_ranking_ocorrencia(
+            db_path,
+            start_date,
+            end_date,
+            status,
+            min_score,
+            sample_limit,
+        )
+        if ocorrencia_df.empty:
+            st.success("Nenhuma ocorrência encontrada para os filtros informados.")
+        else:
+            st.dataframe(
+                ocorrencia_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "MAX_SCORE_VINCULO": st.column_config.ProgressColumn("Max score", min_value=0, max_value=100),
+                    "DIC_OCORRENCIA": st.column_config.NumberColumn("DIC ocorrência", format="%.3f"),
+                    "FIC_OCORRENCIA": st.column_config.NumberColumn("FIC ocorrência", format="%.3f"),
+                },
+            )
+            st.download_button(
+                "Baixar ranking de ocorrências",
+                ocorrencia_df.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                file_name="ranking_reclamacoes_ocorrencia.csv",
                 mime="text/csv",
             )
 

@@ -13,4 +13,6 @@ SELECT
         ELSE NULLIF(trim(CAST(uc AS TEXT)), '')
     END AS uc
 FROM dop_extracao_demandas_eventos.reclamacoes
-WHERE NULLIF(trim(CAST(uc AS TEXT)), '') IS NOT NULL;
+WHERE NULLIF(trim(CAST(uc AS TEXT)), '') IS NOT NULL
+  AND data_reclamacao >= (to_date(:anomes || '01', 'YYYYMMDD') - interval '2 days')
+  AND data_reclamacao <  (to_date(:anomes || '01', 'YYYYMMDD') + interval '1 month' + interval '2 days');
