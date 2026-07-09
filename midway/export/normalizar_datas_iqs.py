@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import csv
+from datetime import datetime
+from pathlib import Path
+
+
+BASE_DIR = Path("data")
+EXPORT_DIR = BASE_DIR / "export"
+
+PASTAS_EXPORTACOES_AUXILIARES = [
+    EXPORT_DIR / "sobreposicao_total_uc",
+    EXPORT_DIR / "sobreposicao_UC_parcial",
+    EXPORT_DIR / "interrupcao_sem_uc",
+]
+
+FORMATOS_ENTRADA = [
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y %H:%M",
+    "%m/%d/%Y",
+]
+
+HINTS_COLUNA_DATA = [
+    "DATA",
+    "DTHR",
+    "DAT_",
+    "DTA_",
+]
+
+
+def coluna_de_data(nome_coluna: str) -> bool:
+    nome = nome_coluna.upper()
+    return any(hint in nome for hint in HINTS_COLUNA_DATA)
+
+
+def detectar_delimitador(caminho: Path) -> str:
+    texto = caminho.read_text(encoding="utf-8-sig", errors="ignore")[:4096]
+    if "|" in texto:
+        return "|"
+    if ";" in texto:
+        return ";"
+    return ","
+
+
+def converter_data(valor: str) -> str:
+    valor = (valor or "").strip()
+    if not valor:
+        return valor
+
+    for formato in FORMATOS_ENTRADA:
+        try:
+            data = datetime.strptime(valor, formato)
+            if "%H" in formato:
+                return data.strftime("%d/%m/%Y %H:%M:%S")
+            return data.strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+
+    return valor
+
+
+def normalizar_csv(caminho: Path) -> bool:
+    delimitador = detectar_delimitador(caminho)
+    texto = caminho.read_text(encoding="utf-8-sig", errors="ignore")
+
+    linhas_texto = texto.splitlines()
+    if not linhas_texto:
+        return False
+
+    reader = csv.DictReader(linhas_texto, delimiter=delimitador)
+    linhas = list(reader)
+
+    if not reader.fieldnames or not linhas:
+        return False
+
+    colunas_data = [col for col in reader.fieldnames if coluna_de_data(col)]
+    if not colunas_data:
+        return False
+
+    alterou = False
+    for linha in linhas:
+        for coluna in colunas_data:
+            original = linha.get(coluna, "")
+            convertido = converter_data(original)
+            if convertido != original:
+                linha[coluna] = convertido
+                alterou = True
+
+    if not alterou:
+        return False
+
+    with caminho.open("w", encoding="utf-8-sig", newline="") as arquivo:
+        writer = csv.DictWriter(
+            arquivo,
+            fieldnames=reader.fieldnames,
+            delimiter=delimitador,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(linhas)
+
+    return True
+
+
+def normalizar_datas_exportacoes_auxiliares() -> list[Path]:
+    arquivos_alterados = []
+
+    for pasta in PASTAS_EXPORTACOES_AUXILIARES:
+        if not pasta.exists():
+            continue
+
+        for caminho in pasta.glob("*.CSV"):
+            if normalizar_csv(caminho):
+                arquivos_alterados.append(caminho)
+
+        for caminho in pasta.glob("*.csv"):
+            if normalizar_csv(caminho):
+                arquivos_alterados.append(caminho)
+
+    return arquivos_alterados
+
+
+def main():
+    arquivos = normalizar_datas_exportacoes_auxiliares()
+
+    if not arquivos:
+        print("Nenhum CSV auxiliar precisou de normalizacao de data.")
+        return
+
+    print("Datas normalizadas para DD/MM/AAAA nos CSVs auxiliares:")
+    for caminho in arquivos:
+        print(f"- {caminho}")
+
+
+if __name__ == "__main__":
+    main()

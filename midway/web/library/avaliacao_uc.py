@@ -132,6 +132,27 @@ def _uc_col_tensao(db_path: str, table_name: str | None) -> str | None:
 
 @st.cache_data(show_spinner=False)
 def filter_options_consumidores(db_path: str, tipo: str):
+    if require_table(db_path, "gold_outlier_uc"):
+        column_name = (
+            "COD_GRUPO_NIVEL_TENSAO_UC"
+            if tipo == "grupo"
+            else "COD_NIVEL_TENSAO_UC"
+        )
+
+        df = query_df(
+            db_path,
+            f"""
+            SELECT DISTINCT
+                NULLIF(TRIM(CAST({column_name} AS VARCHAR)), '') AS VALOR
+            FROM gold_outlier_uc
+            WHERE NULLIF(TRIM(CAST({column_name} AS VARCHAR)), '') IS NOT NULL
+            ORDER BY VALOR
+            """,
+        )
+
+        if not df.empty:
+            return df["VALOR"].astype(str).tolist()
+
     table_name, actual_column = _coluna_tensao_uc(db_path, tipo)
     if not table_name or not actual_column:
         return []
@@ -432,173 +453,27 @@ def outlier_uc_ranking(
     grupos_tensao: tuple[str, ...] = (),
     niveis_tensao: tuple[str, ...] = (),
 ):
-    valid_pos_expr = (
-        "UPPER(TRIM(CAST(VALID_POS_OPERACAO AS VARCHAR)))"
-        if _has_column(db_path, "gold_apuracao_uc", "VALID_POS_OPERACAO")
-        else "'N'"
-    )
+    filtros = ""
 
-    tensao_table = _tabela_tensao_uc(db_path)
-    _, grupo_col = _coluna_tensao_uc(db_path, "grupo")
-    _, nivel_col = _coluna_tensao_uc(db_path, "nivel")
-    uc_tensao_col = _uc_col_tensao(db_path, tensao_table)
-
-    grupo_agg = (
-        f'MAX(NULLIF(TRIM(CAST("{grupo_col}" AS VARCHAR)), \'\'))'
-        if grupo_col
-        else "NULL"
-    )
-    nivel_agg = (
-        f'MAX(NULLIF(TRIM(CAST("{nivel_col}" AS VARCHAR)), \'\'))'
-        if nivel_col
-        else "NULL"
-    )
-
-    tensao_join = ""
-    if tensao_table and uc_tensao_col:
-        tensao_join = f"""
-            LEFT JOIN (
-                SELECT
-                    TRIM(CAST("{uc_tensao_col}" AS VARCHAR)) AS UC,
-                    {grupo_agg} AS COD_GRUPO_NIVEL_TENSAO_UC,
-                    {nivel_agg} AS COD_NIVEL_TENSAO_UC
-                FROM {tensao_table}
-                WHERE NULLIF(TRIM(CAST("{uc_tensao_col}" AS VARCHAR)), '') IS NOT NULL
-                GROUP BY TRIM(CAST("{uc_tensao_col}" AS VARCHAR))
-            ) g
-              ON g.UC = e.UC
+    if grupos_tensao:
+        valores = ", ".join(sql_literal_for_streamlit(str(value)) for value in grupos_tensao)
+        filtros += f"""
+          AND NULLIF(TRIM(CAST(COD_GRUPO_NIVEL_TENSAO_UC AS VARCHAR)), '') IN ({valores})
         """
 
-    grupo_select = "g.COD_GRUPO_NIVEL_TENSAO_UC" if grupo_col and tensao_join else "NULL"
-    nivel_select = "g.COD_NIVEL_TENSAO_UC" if nivel_col and tensao_join else "NULL"
-
-    grupo_filter_sql = (
-        _sql_filter_consumidor("g", "COD_GRUPO_NIVEL_TENSAO_UC", list(grupos_tensao))
-        if grupo_col and tensao_join
-        else ""
-    )
-    nivel_filter_sql = (
-        _sql_filter_consumidor("g", "COD_NIVEL_TENSAO_UC", list(niveis_tensao))
-        if nivel_col and tensao_join
-        else ""
-    )
+    if niveis_tensao:
+        valores = ", ".join(sql_literal_for_streamlit(str(value)) for value in niveis_tensao)
+        filtros += f"""
+          AND NULLIF(TRIM(CAST(COD_NIVEL_TENSAO_UC AS VARCHAR)), '') IN ({valores})
+        """
 
     return query_df(
         db_path,
         f"""
-        WITH eventos_uc AS (
-            SELECT
-                TRIM(CAST(NUM_UC_UCI AS VARCHAR)) AS UC,
-                ANY_VALUE(REGIONAL) AS REGIONAL,
-                ANY_VALUE(COD_CONJTO_ELET_ANEEL_INTRP) AS CONJUNTO,
-                COUNT(*) AS QTD_INTERRUPCOES,
-                COUNT(DISTINCT NUM_OCORRENCIA_ADMS) AS QTD_OCORRENCIAS,
-                COUNT(DISTINCT CASE WHEN {valid_pos_expr} = 'S' THEN NUM_OCORRENCIA_ADMS END) AS QTD_OCORRENCIAS_VALIDADAS_POS,
-                COUNT(DISTINCT CASE WHEN COALESCE({valid_pos_expr}, 'N') <> 'S' THEN NUM_OCORRENCIA_ADMS END) AS QTD_OCORRENCIAS_PENDENTES_POS,
-
-                SUM(COALESCE(CI_LIQUIDO, 0)) AS FIC,
-                SUM(COALESCE(CHI_LIQUIDO, 0)) AS DIC,
-                MAX(COALESCE(CHI_LIQUIDO, 0)) AS DMIC,
-
-                SUM(CASE WHEN COALESCE({valid_pos_expr}, 'N') <> 'S' THEN COALESCE(CI_LIQUIDO, 0) ELSE 0 END) AS FIC_PENDENTE_POS,
-                SUM(CASE WHEN COALESCE({valid_pos_expr}, 'N') <> 'S' THEN COALESCE(CHI_LIQUIDO, 0) ELSE 0 END) AS DIC_PENDENTE_POS,
-                MAX(CASE WHEN COALESCE({valid_pos_expr}, 'N') <> 'S' THEN COALESCE(CHI_LIQUIDO, 0) ELSE 0 END) AS DMIC_PENDENTE_POS,
-
-                SUM(CASE WHEN COALESCE(DURACAO_HORA, 0) >= 24 THEN 1 ELSE 0 END) AS QTD_DURACAO_GE_24H,
-                SUM(CASE WHEN COALESCE({valid_pos_expr}, 'N') <> 'S' AND COALESCE(DURACAO_HORA, 0) >= 24 THEN 1 ELSE 0 END) AS QTD_DURACAO_GE_24H_PENDENTE_POS,
-
-                SUM(CASE WHEN NULLIF(TRIM(CAST(NUM_INTRP_INIC_MANOBRA_UCI AS VARCHAR)), '') IS NOT NULL THEN 1 ELSE 0 END) AS QTD_MANOBRA,
-                COUNT(DISTINCT TIPO_PROTOC_JUSTIF_UCI) AS QTD_TIPOS_PROTOCOLO,
-                COUNT(DISTINCT CASE WHEN COALESCE({valid_pos_expr}, 'N') <> 'S' THEN TIPO_PROTOC_JUSTIF_UCI END) AS QTD_TIPOS_PROTOCOLO_PENDENTE_POS,
-
-                SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0' THEN COALESCE(CHI_LIQUIDO, 0) ELSE 0 END) AS CHI_TIPO_0,
-                SUM(CASE WHEN COALESCE({valid_pos_expr}, 'N') <> 'S' AND TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0' THEN COALESCE(CHI_LIQUIDO, 0) ELSE 0 END) AS CHI_TIPO_0_PENDENTE_POS,
-                SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) <> '0' THEN COALESCE(CHI_LIQUIDO, 0) ELSE 0 END) AS CHI_TIPO_NAO_0
-            FROM gold_apuracao_uc
-            WHERE NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') IS NOT NULL
-            GROUP BY TRIM(CAST(NUM_UC_UCI AS VARCHAR))
-        ),
-        continuidade AS (
-            SELECT
-                TRIM(CAST(UC AS VARCHAR)) AS UC,
-                COALESCE(META_DIC, 0) AS META_DIC,
-                COALESCE(META_FIC, 0) AS META_FIC,
-                COALESCE(META_DMIC, 0) AS META_DMIC,
-                COALESCE(COMP_TOTAL_PRODIST, 0) AS COMP_TOTAL_PRODIST
-            FROM gold_ressarcimento_prodist
-        ),
-        score AS (
-            SELECT
-                e.*,
-                {grupo_select} AS COD_GRUPO_NIVEL_TENSAO_UC,
-                {nivel_select} AS COD_NIVEL_TENSAO_UC,
-                c.META_DIC,
-                c.META_FIC,
-                c.META_DMIC,
-                c.COMP_TOTAL_PRODIST,
-
-                CASE
-                    WHEN e.QTD_OCORRENCIAS_PENDENTES_POS > 0 THEN COALESCE(c.COMP_TOTAL_PRODIST, 0)
-                    ELSE 0
-                END AS COMP_TOTAL_PRODIST_PENDENTE_POS,
-
-                CASE
-                    WHEN e.QTD_OCORRENCIAS = e.QTD_OCORRENCIAS_VALIDADAS_POS AND e.QTD_OCORRENCIAS > 0 THEN 'Validado pós'
-                    WHEN e.QTD_OCORRENCIAS_VALIDADAS_POS > 0 THEN 'Parcialmente validado'
-                    ELSE 'Pendente pós'
-                END AS STATUS_POS_OPERACAO,
-
-                CASE WHEN COALESCE(c.META_DIC, 0) > 0 THEN e.DIC / c.META_DIC * 100 ELSE 0 END AS PCT_META_DIC,
-                CASE WHEN COALESCE(c.META_FIC, 0) > 0 THEN e.FIC / c.META_FIC * 100 ELSE 0 END AS PCT_META_FIC,
-                CASE WHEN COALESCE(c.META_DMIC, 0) > 0 THEN e.DMIC / c.META_DMIC * 100 ELSE 0 END AS PCT_META_DMIC,
-
-                CASE WHEN COALESCE(c.META_DIC, 0) > 0 THEN e.DIC_PENDENTE_POS / c.META_DIC * 100 ELSE 0 END AS PCT_META_DIC_PENDENTE_POS,
-                CASE WHEN COALESCE(c.META_FIC, 0) > 0 THEN e.FIC_PENDENTE_POS / c.META_FIC * 100 ELSE 0 END AS PCT_META_FIC_PENDENTE_POS,
-                CASE WHEN COALESCE(c.META_DMIC, 0) > 0 THEN e.DMIC_PENDENTE_POS / c.META_DMIC * 100 ELSE 0 END AS PCT_META_DMIC_PENDENTE_POS,
-
-                (
-                    LEAST(CASE WHEN COALESCE(c.META_DIC, 0) > 0 THEN e.DIC / c.META_DIC * 30 ELSE 0 END, 30)
-                  + LEAST(CASE WHEN COALESCE(c.META_FIC, 0) > 0 THEN e.FIC / c.META_FIC * 20 ELSE 0 END, 20)
-                  + LEAST(CASE WHEN COALESCE(c.META_DMIC, 0) > 0 THEN e.DMIC / c.META_DMIC * 20 ELSE 0 END, 20)
-                  + LEAST(e.QTD_DURACAO_GE_24H * 10, 10)
-                  + LEAST(e.QTD_TIPOS_PROTOCOLO * 5, 10)
-                  + LEAST(COALESCE(c.COMP_TOTAL_PRODIST, 0) / 10000.0, 10)
-                ) AS SCORE_OUTLIER_UC,
-
-                (
-                    LEAST(CASE WHEN COALESCE(c.META_DIC, 0) > 0 THEN e.DIC_PENDENTE_POS / c.META_DIC * 30 ELSE 0 END, 30)
-                  + LEAST(CASE WHEN COALESCE(c.META_FIC, 0) > 0 THEN e.FIC_PENDENTE_POS / c.META_FIC * 20 ELSE 0 END, 20)
-                  + LEAST(CASE WHEN COALESCE(c.META_DMIC, 0) > 0 THEN e.DMIC_PENDENTE_POS / c.META_DMIC * 20 ELSE 0 END, 20)
-                  + LEAST(e.QTD_DURACAO_GE_24H_PENDENTE_POS * 10, 10)
-                  + LEAST(e.QTD_TIPOS_PROTOCOLO_PENDENTE_POS * 5, 10)
-                  + LEAST(
-                        CASE WHEN e.QTD_OCORRENCIAS_PENDENTES_POS > 0 THEN COALESCE(c.COMP_TOTAL_PRODIST, 0) ELSE 0 END / 10000.0,
-                        10
-                    )
-                ) AS SCORE_OUTLIER_UC_PENDENTE
-            FROM eventos_uc e
-            LEFT JOIN continuidade c
-              ON c.UC = e.UC
-            {tensao_join}
-            WHERE 1 = 1
-              {grupo_filter_sql}
-              {nivel_filter_sql}
-        )
-        SELECT
-            *,
-            CASE
-                WHEN SCORE_OUTLIER_UC >= 80 THEN 'Crítico'
-                WHEN SCORE_OUTLIER_UC >= 60 THEN 'Alto'
-                WHEN SCORE_OUTLIER_UC >= 40 THEN 'Médio'
-                ELSE 'Baixo'
-            END AS FAIXA_OUTLIER,
-            CASE
-                WHEN SCORE_OUTLIER_UC_PENDENTE >= 80 THEN 'Crítico'
-                WHEN SCORE_OUTLIER_UC_PENDENTE >= 60 THEN 'Alto'
-                WHEN SCORE_OUTLIER_UC_PENDENTE >= 40 THEN 'Médio'
-                ELSE 'Baixo'
-            END AS FAIXA_OUTLIER_PENDENTE
-        FROM score
+        SELECT *
+        FROM gold_outlier_uc
+        WHERE 1 = 1
+          {filtros}
         ORDER BY
             SCORE_OUTLIER_UC_PENDENTE DESC,
             COMP_TOTAL_PRODIST_PENDENTE_POS DESC,
@@ -616,7 +491,7 @@ def show_outlier_uc(db_path: str, sample_limit: int) -> None:
         "protocolo, duração e compensação. Ocorrências com VALID_POS_OPERACAO = S deixam de pesar como pendência."
     )
 
-    required_tables = ["gold_apuracao_uc", "gold_ressarcimento_prodist"]
+    required_tables = ["gold_outlier_uc"]
     if not all(require_table(db_path, table_name) for table_name in required_tables):
         return
 
@@ -656,7 +531,7 @@ def show_outlier_uc(db_path: str, sample_limit: int) -> None:
         tuple(nivel_filter),
     )
     if ranking_df.empty:
-        st.success("Nenhum outlier UC encontrado.")
+        st.info("Execute `run.bat apuracao_parcial` para gerar `gold_outlier_uc`.")
         return
 
     ranking_df = ranking_df[ranking_df["SCORE_OUTLIER_UC_PENDENTE"] >= min_score]

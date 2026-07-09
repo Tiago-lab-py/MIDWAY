@@ -108,6 +108,10 @@ if /I "%~1"=="exportacoes_auxiliares" (
 if /I "%~1"=="apuracao_parcial" (
     echo Gerando camada gold e BDO de apuracao previa...
     "%PYTHON_EXE%" -m midway.apuracao.previa
+if errorlevel 1 goto erro
+echo Gerando gold_outlier_uc...
+python -m midway.analytics.outlier_uc
+if errorlevel 1 goto erro
     goto fim
 )
 
