@@ -7,6 +7,8 @@ import duckdb
 import pandas as pd
 from dotenv import load_dotenv
 
+from midway.export.iqs_csv import exportar_dataframe_iqs
+
 
 load_dotenv()
 
@@ -198,14 +200,7 @@ def exportar_csv_iqs(df, path):
 
         df[column] = formatar_coluna_inteira_iqs(df[column])
 
-    df = df.astype("string").fillna("")
-    df.to_csv(
-        path,
-        sep="|",
-        index=False,
-        encoding="utf-8",
-        lineterminator="\n",
-    )
+    exportar_dataframe_iqs(df, path)
 
 
 def criar_tabela_saida(con, nome_tabela, condicao):

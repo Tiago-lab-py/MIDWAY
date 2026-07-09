@@ -6,6 +6,8 @@ import duckdb
 import pandas as pd
 from dotenv import load_dotenv
 
+from midway.export.iqs_csv import exportar_dataframe_iqs
+
 
 load_dotenv()
 
@@ -83,6 +85,11 @@ DATE_COLUMNS = [
     "DTHR_INICIO_INTRP_UC",
 ]
 
+INTEGER_COLUMNS = [
+    "NUM_INTRP_INIC_MANOBRA_UCI",
+    "NUM_GEO_CHV_INTRP",
+]
+
 
 def table_columns(con, table_name):
     return {
@@ -111,14 +118,20 @@ def exportar_csv_iqs(df, path):
         formatted = parsed.dt.strftime("%d/%m/%Y %H:%M:%S")
         df[column] = formatted.fillna(original)
 
-    df = df.astype("string").fillna("")
-    df.to_csv(
-        path,
-        sep="|",
-        index=False,
-        encoding="utf-8",
-        lineterminator="\n",
-    )
+    for column in INTEGER_COLUMNS:
+        if column not in df.columns:
+            continue
+
+        original = df[column].astype("string").fillna("").str.strip()
+        sem_vazio = original.replace("", pd.NA)
+        numerico = pd.to_numeric(sem_vazio, errors="coerce")
+        inteiro = numerico.round()
+        mascara_inteiro = numerico.notna() & ((numerico - inteiro).abs() < 0.000000001)
+        resultado = original.copy()
+        resultado.loc[mascara_inteiro] = inteiro.loc[mascara_inteiro].astype("Int64").astype("string")
+        df[column] = resultado
+
+    exportar_dataframe_iqs(df, path)
 
 
 def exportar_interrupcao_sem_uc():

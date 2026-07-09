@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import csv
+import re
 from datetime import datetime
 from pathlib import Path
+
+from midway.export.iqs_csv import IQS_CSV_ENCODING, transliterar_iso_8859_1
 
 
 BASE_DIR = Path("data")
@@ -40,6 +43,7 @@ COLUNAS_INTEIRAS = {
     "NUM_INTRP_INIC_MANOBRA_UCI",
     "NUM_GEO_CHV_INTRP",
 }
+TIMESTAMP_ARQUIVO_RE = re.compile(r"_(\d{14})_")
 
 
 def coluna_de_data(nome_coluna: str) -> bool:
@@ -52,7 +56,7 @@ def coluna_inteira(nome_coluna: str) -> bool:
 
 
 def detectar_delimitador(caminho: Path) -> str:
-    texto = caminho.read_text(encoding="utf-8-sig", errors="ignore")[:4096]
+    texto = ler_texto_csv(caminho)[:4096]
     if "|" in texto:
         return "|"
     if ";" in texto:
@@ -60,10 +64,20 @@ def detectar_delimitador(caminho: Path) -> str:
     return ","
 
 
+def ler_texto_csv(caminho: Path) -> str:
+    for encoding in ("utf-8-sig", IQS_CSV_ENCODING):
+        try:
+            return caminho.read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+
+    return caminho.read_text(encoding=IQS_CSV_ENCODING, errors="replace")
+
+
 def converter_data(valor: str) -> str:
     valor = (valor or "").strip()
     if not valor:
-        return valor
+        return " "
 
     for formato in FORMATOS_ENTRADA:
         try:
@@ -80,7 +94,7 @@ def converter_data(valor: str) -> str:
 def converter_inteiro(valor: str) -> str:
     valor = (valor or "").strip()
     if not valor:
-        return valor
+        return " "
 
     try:
         numero = float(valor.replace(",", "."))
@@ -96,7 +110,7 @@ def converter_inteiro(valor: str) -> str:
 
 def normalizar_csv(caminho: Path) -> bool:
     delimitador = detectar_delimitador(caminho)
-    texto = caminho.read_text(encoding="utf-8-sig", errors="ignore")
+    texto = ler_texto_csv(caminho)
 
     linhas_texto = texto.splitlines()
     if not linhas_texto:
@@ -130,10 +144,21 @@ def normalizar_csv(caminho: Path) -> bool:
                 linha[coluna] = convertido
                 alterou = True
 
+        for coluna in reader.fieldnames:
+            original = linha.get(coluna, "")
+            if original is None or original == "":
+                linha[coluna] = " "
+                alterou = True
+            else:
+                convertido = transliterar_iso_8859_1(original)
+                if convertido != original:
+                    linha[coluna] = convertido
+                    alterou = True
+
     if not alterou:
         return False
 
-    with caminho.open("w", encoding="utf-8-sig", newline="") as arquivo:
+    with caminho.open("w", encoding=IQS_CSV_ENCODING, newline="") as arquivo:
         writer = csv.DictWriter(
             arquivo,
             fieldnames=reader.fieldnames,
@@ -146,6 +171,35 @@ def normalizar_csv(caminho: Path) -> bool:
     return True
 
 
+def listar_csvs_mais_recentes(pasta: Path) -> list[Path]:
+    arquivos = {
+        caminho.resolve(): caminho
+        for padrao in ("*.CSV", "*.csv")
+        for caminho in pasta.glob(padrao)
+    }.values()
+    arquivos = list(arquivos)
+
+    if not arquivos:
+        return []
+
+    timestamps = {
+        caminho: TIMESTAMP_ARQUIVO_RE.search(caminho.name).group(1)
+        for caminho in arquivos
+        if TIMESTAMP_ARQUIVO_RE.search(caminho.name)
+    }
+
+    if not timestamps:
+        mais_recente = max(arquivo.stat().st_mtime for arquivo in arquivos)
+        return [arquivo for arquivo in arquivos if arquivo.stat().st_mtime == mais_recente]
+
+    timestamp_mais_recente = max(timestamps.values())
+    return [
+        caminho
+        for caminho, timestamp in timestamps.items()
+        if timestamp == timestamp_mais_recente
+    ]
+
+
 def normalizar_datas_exportacoes_auxiliares() -> list[Path]:
     arquivos_alterados = []
     arquivos_bloqueados = []
@@ -155,7 +209,7 @@ def normalizar_datas_exportacoes_auxiliares() -> list[Path]:
         if not pasta.exists():
             continue
 
-        arquivos = list(pasta.glob("*.CSV")) + list(pasta.glob("*.csv"))
+        arquivos = listar_csvs_mais_recentes(pasta)
         for caminho in arquivos:
             try:
                 if not caminho.exists():

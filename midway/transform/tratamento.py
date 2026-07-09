@@ -26,6 +26,7 @@ from midway.controle_execucao import (
     validar_done_sucesso,
     valor_verdadeiro,
 )
+from midway.export.iqs_csv import exportar_dataframe_iqs, preparar_dataframe_iqs
 
 
 # ============================================================
@@ -247,6 +248,78 @@ def exportar_csv_formatado(df, caminho_csv):
         lineterminator=quebra_linha,
         encoding=encoding,
     )
+
+
+def validar_layout_iqs(df):
+    colunas = list(df.columns)
+
+    if colunas != LAYOUT_IQS_COLUNAS:
+        faltantes = [coluna for coluna in LAYOUT_IQS_COLUNAS if coluna not in colunas]
+        extras = [coluna for coluna in colunas if coluna not in LAYOUT_IQS_COLUNAS]
+        fora_ordem = [
+            f"{posicao + 1}: esperado={esperado}, encontrado={encontrado}"
+            for posicao, (esperado, encontrado) in enumerate(zip(LAYOUT_IQS_COLUNAS, colunas))
+            if esperado != encontrado
+        ]
+        detalhes = []
+
+        if faltantes:
+            detalhes.append("faltantes=" + ", ".join(faltantes))
+        if extras:
+            detalhes.append("extras=" + ", ".join(extras))
+        if fora_ordem:
+            detalhes.append("fora_ordem=" + "; ".join(fora_ordem[:10]))
+
+        raise RuntimeError("Layout IQS invalido: " + " | ".join(detalhes))
+
+
+def aplicar_formato_oficial_iqs(df):
+    colunas_data_hora = {
+        "DATA_HORA_INIC_INTRP",
+        "DATA_HORA_FIM_INTRP",
+        "DTHR_INICIO_INTRP_UC",
+    }
+    colunas_inteiras = {
+        "NUM_INTRP_INIC_MANOBRA_UCI",
+        "NUM_GEO_CHV_INTRP",
+    }
+
+    df = df.copy()
+
+    for coluna in colunas_data_hora:
+        if coluna not in df.columns:
+            continue
+
+        if pd.api.types.is_datetime64_any_dtype(df[coluna]):
+            df[coluna] = df[coluna].dt.strftime("%d/%m/%Y %H:%M:%S")
+            continue
+
+        valores = df[coluna].astype("string")
+        datas = pd.to_datetime(valores, errors="coerce", dayfirst=True)
+        formatadas = datas.dt.strftime("%d/%m/%Y %H:%M:%S")
+        df[coluna] = formatadas.fillna(valores)
+
+    for coluna in colunas_inteiras:
+        if coluna not in df.columns:
+            continue
+
+        original = df[coluna].astype("string").fillna("").str.strip()
+        sem_vazio = original.replace("", pd.NA)
+        numerico = pd.to_numeric(sem_vazio, errors="coerce")
+        inteiro = numerico.round()
+        mascara_inteiro = numerico.notna() & ((numerico - inteiro).abs() < 0.000000001)
+        resultado = original.copy()
+        resultado.loc[mascara_inteiro] = inteiro.loc[mascara_inteiro].astype("Int64").astype("string")
+        df[coluna] = resultado
+
+    return preparar_dataframe_iqs(df)
+
+
+def exportar_csv_iqs_oficial(df, caminho_csv):
+    validar_layout_iqs(df)
+    df = aplicar_formato_oficial_iqs(df)
+
+    exportar_dataframe_iqs(df, caminho_csv)
 
 
 def exportar_resumo_auditoria(caminho_txt, titulo, total, alertas, arquivo_completo, arquivo_anomalias):
@@ -1077,7 +1150,7 @@ def exportar_arquivos_iqs(con, regionais, diretorio_destino, prefixo, logger):
 
         logger.info("Exportando %s: %s", regional, caminho_csv)
         df_export = consultar_exportacao_iqs_regional(con, regional)
-        exportar_csv_formatado(df_export, caminho_csv)
+        exportar_csv_iqs_oficial(df_export, caminho_csv)
         arquivos_exportados.append(caminho_csv.as_posix())
 
     return arquivos_exportados
