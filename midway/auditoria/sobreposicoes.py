@@ -84,6 +84,11 @@ DATE_COLUMNS = [
     "DTHR_INICIO_INTRP_UC",
 ]
 
+INTEGER_COLUMNS = [
+    "NUM_INTRP_INIC_MANOBRA_UCI",
+    "NUM_GEO_CHV_INTRP",
+]
+
 ISO_DATE_FORMATS = [
     "%Y-%m-%d %H:%M:%S.%f",
     "%Y-%m-%d %H:%M:%S",
@@ -165,6 +170,18 @@ def formatar_coluna_data_iqs(serie):
     return formatted.fillna(original)
 
 
+def formatar_coluna_inteira_iqs(serie):
+    original = serie.astype("string").fillna("").str.strip()
+    sem_vazio = original.replace("", pd.NA)
+    numerico = pd.to_numeric(sem_vazio, errors="coerce")
+    inteiro = numerico.round()
+    mascara_inteiro = numerico.notna() & ((numerico - inteiro).abs() < 0.000000001)
+
+    resultado = original.copy()
+    resultado.loc[mascara_inteiro] = inteiro.loc[mascara_inteiro].astype("Int64").astype("string")
+    return resultado
+
+
 def exportar_csv_iqs(df, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     df = df.copy()
@@ -174,6 +191,12 @@ def exportar_csv_iqs(df, path):
             continue
 
         df[column] = formatar_coluna_data_iqs(df[column])
+
+    for column in INTEGER_COLUMNS:
+        if column not in df.columns:
+            continue
+
+        df[column] = formatar_coluna_inteira_iqs(df[column])
 
     df = df.astype("string").fillna("")
     df.to_csv(
