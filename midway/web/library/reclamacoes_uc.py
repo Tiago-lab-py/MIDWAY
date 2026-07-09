@@ -32,14 +32,7 @@ def _status_filter_sql(status: str) -> str:
 
 
 @st.cache_data(show_spinner=False)
-def reclamacoes_overview(
-    db_path: str,
-    start_date: date,
-    end_date: date,
-    status: str,
-    min_score: int,
-    uc: str,
-):
+def reclamacoes_overview(db_path: str, start_date: date, end_date: date, status: str, min_score: int, uc: str):
     uc_filter = ""
     if uc.strip():
         uc_filter = f" AND TRIM(CAST(UC AS VARCHAR)) = {sql_literal_for_streamlit(uc.strip())}"
@@ -66,14 +59,7 @@ def reclamacoes_overview(
 
 
 @st.cache_data(show_spinner=False)
-def reclamacoes_ranking_uc(
-    db_path: str,
-    start_date: date,
-    end_date: date,
-    status: str,
-    min_score: int,
-    sample_limit: int,
-):
+def reclamacoes_ranking_uc(db_path: str, start_date: date, end_date: date, status: str, min_score: int, sample_limit: int):
     return query_df(
         db_path,
         f"""
@@ -86,7 +72,7 @@ def reclamacoes_ranking_uc(
             SUM(CASE WHEN VALID_POS_OPERACAO = 'S' THEN 1 ELSE 0 END) AS QTD_OCORRENCIA_VALIDADA_POS,
             MAX(SCORE_VINCULO_RECLAMACAO) AS MAX_SCORE_VINCULO,
             MIN(DISTANCIA_MINUTOS) AS MENOR_DISTANCIA_MINUTOS,
-            SUM(COALESCE(COMP_TOTAL_PRODIST_UC, 0)) AS SOMA_COMP_TOTAL_PRODIST_UC_REFERENCIA
+            MAX(COALESCE(COMP_TOTAL_PRODIST_UC, 0)) AS COMP_TOTAL_PRODIST_UC_REFERENCIA
         FROM gold_reclamacao_uc_vinculada
         WHERE CAST(DTHR_RECLAMACAO AS DATE) >= DATE '{_fmt_sql_date(start_date)}'
           AND CAST(DTHR_RECLAMACAO AS DATE) <= DATE '{_fmt_sql_date(end_date)}'
@@ -97,22 +83,14 @@ def reclamacoes_ranking_uc(
             QTD_SEM_OCORRENCIA_PROVAVEL DESC,
             QTD_RECLAMACOES DESC,
             MAX_SCORE_VINCULO DESC,
-            SOMA_COMP_TOTAL_PRODIST_UC_REFERENCIA DESC
+            COMP_TOTAL_PRODIST_UC_REFERENCIA DESC
         LIMIT {int(sample_limit)}
         """,
     )
 
 
 @st.cache_data(show_spinner=False)
-def reclamacoes_detalhe(
-    db_path: str,
-    start_date: date,
-    end_date: date,
-    status: str,
-    min_score: int,
-    sample_limit: int,
-    uc: str,
-):
+def reclamacoes_detalhe(db_path: str, start_date: date, end_date: date, status: str, min_score: int, sample_limit: int, uc: str):
     uc_filter = ""
     if uc.strip():
         uc_filter = f" AND TRIM(CAST(UC AS VARCHAR)) = {sql_literal_for_streamlit(uc.strip())}"
@@ -173,8 +151,8 @@ def show_reclamacoes_uc(db_path: str, sample_limit: int) -> None:
     required_tables = ["gold_reclamacao_uc_vinculada", "gold_reclamacao_uc_resumo"]
     if not all(require_table(db_path, table_name) for table_name in required_tables):
         st.info(
-            "Execute `materializar_dbguo_reclamacoes_silver.bat` para gerar "
-            "`gold_reclamacao_uc_vinculada` e `gold_reclamacao_uc_resumo`."
+            "Execute `materializar_dbguo_reclamacoes_silver.bat` ou `run.bat dbguo_reclamacoes` "
+            "para gerar `gold_reclamacao_uc_vinculada` e `gold_reclamacao_uc_resumo`."
         )
         return
 
@@ -229,15 +207,8 @@ def show_reclamacoes_uc(db_path: str, sample_limit: int) -> None:
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "MAX_SCORE_VINCULO": st.column_config.ProgressColumn(
-                        "Max score",
-                        min_value=0,
-                        max_value=100,
-                    ),
-                    "SOMA_COMP_TOTAL_PRODIST_UC_REFERENCIA": st.column_config.NumberColumn(
-                        "Comp. referência",
-                        format="%.2f",
-                    ),
+                    "MAX_SCORE_VINCULO": st.column_config.ProgressColumn("Max score", min_value=0, max_value=100),
+                    "COMP_TOTAL_PRODIST_UC_REFERENCIA": st.column_config.NumberColumn("Comp. referência", format="%.2f"),
                 },
             )
             st.download_button(
@@ -258,11 +229,7 @@ def show_reclamacoes_uc(db_path: str, sample_limit: int) -> None:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "SCORE_VINCULO_RECLAMACAO": st.column_config.ProgressColumn(
-                "Score vínculo",
-                min_value=0,
-                max_value=100,
-            ),
+            "SCORE_VINCULO_RECLAMACAO": st.column_config.ProgressColumn("Score vínculo", min_value=0, max_value=100),
             "DISTANCIA_MINUTOS": st.column_config.NumberColumn("Distância min", format="%.0f"),
             "COMP_TOTAL_PRODIST_UC": st.column_config.NumberColumn("Comp. UC", format="%.2f"),
             "DURACAO_HORA": st.column_config.NumberColumn("Duração h", format="%.3f"),
