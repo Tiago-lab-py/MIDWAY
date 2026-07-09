@@ -84,6 +84,27 @@ DATE_COLUMNS = [
     "DTHR_INICIO_INTRP_UC",
 ]
 
+ISO_DATE_FORMATS = [
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d",
+]
+
+SLASH_MONTH_FIRST_FORMATS = [
+    "%m/%d/%Y %H:%M:%S.%f",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y %H:%M",
+    "%m/%d/%Y",
+]
+
+SLASH_DAY_FIRST_FORMATS = [
+    "%d/%m/%Y %H:%M:%S.%f",
+    "%d/%m/%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M",
+    "%d/%m/%Y",
+]
+
 
 def table_exists(con, table_name):
     return (
@@ -100,6 +121,25 @@ def table_exists(con, table_name):
     )
 
 
+def parse_por_formatos(valores, formatos):
+    parsed = pd.Series(pd.NaT, index=valores.index, dtype="datetime64[ns]")
+    pendentes = valores.notna()
+
+    for formato in formatos:
+        if not pendentes.any():
+            break
+
+        tentativa = pd.to_datetime(
+            valores.where(pendentes),
+            format=formato,
+            errors="coerce",
+        )
+        parsed = parsed.fillna(tentativa)
+        pendentes = parsed.isna() & valores.notna()
+
+    return parsed
+
+
 def formatar_coluna_data_iqs(serie):
     original = serie.astype("string").fillna("")
     sem_vazio = original.replace("", pd.NA)
@@ -107,22 +147,20 @@ def formatar_coluna_data_iqs(serie):
     mascara_iso = sem_vazio.str.contains("-", na=False)
     mascara_barra = sem_vazio.str.contains("/", na=False)
 
-    parsed_iso = pd.to_datetime(
+    parsed_iso = parse_por_formatos(
         sem_vazio.where(mascara_iso),
-        errors="coerce",
+        ISO_DATE_FORMATS,
     )
-    parsed_barra = pd.to_datetime(
+    parsed_barra_mes_dia = parse_por_formatos(
         sem_vazio.where(mascara_barra),
-        errors="coerce",
-        dayfirst=False,
+        SLASH_MONTH_FIRST_FORMATS,
     )
-    parsed_fallback = pd.to_datetime(
-        sem_vazio,
-        errors="coerce",
-        dayfirst=True,
+    parsed_barra_dia_mes = parse_por_formatos(
+        sem_vazio.where(mascara_barra),
+        SLASH_DAY_FIRST_FORMATS,
     )
 
-    parsed = parsed_iso.fillna(parsed_barra).fillna(parsed_fallback)
+    parsed = parsed_iso.fillna(parsed_barra_mes_dia).fillna(parsed_barra_dia_mes)
     formatted = parsed.dt.strftime("%d/%m/%Y %H:%M:%S")
     return formatted.fillna(original)
 
