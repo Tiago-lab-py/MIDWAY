@@ -22,45 +22,55 @@ RAW_SCHEMA = "dbguo_raw"
 RAW_TABLE = "raw_dbguo_reclamacoes"
 
 
-def table_exists(con, table_name: str, schema: str = "main") -> bool:
-    information_schema = (
-        "information_schema.tables"
-        if schema == "main"
-        else f"{schema}.information_schema.tables"
-    )
+def database_name(schema: str) -> str:
+    return "memory" if schema == "main" else schema
 
+
+def table_exists(con, table_name: str, schema: str = "main") -> bool:
     return (
         con.execute(
-            f"""
+            """
             SELECT COUNT(*)
-            FROM {information_schema}
-            WHERE table_schema = 'main'
+            FROM duckdb_tables()
+            WHERE database_name = ?
+              AND schema_name = 'main'
               AND table_name = ?
             """,
-            [table_name],
+            [database_name(schema), table_name],
         ).fetchone()[0]
         > 0
     )
 
 
 def table_columns(con, table_name: str, schema: str = "main") -> list[str]:
-    information_schema = (
-        "information_schema.columns"
-        if schema == "main"
-        else f"{schema}.information_schema.columns"
-    )
-
     return [
         row[0]
         for row in con.execute(
-            f"""
+            """
             SELECT column_name
-            FROM {information_schema}
-            WHERE table_schema = 'main'
+            FROM duckdb_columns()
+            WHERE database_name = ?
+              AND schema_name = 'main'
               AND table_name = ?
-            ORDER BY ordinal_position
+            ORDER BY column_index
             """,
-            [table_name],
+            [database_name(schema), table_name],
+        ).fetchall()
+    ]
+
+
+def listar_tabelas(con, schema: str = "main") -> list[str]:
+    return [
+        row[0]
+        for row in con.execute(
+            """
+            SELECT table_name
+            FROM duckdb_tables()
+            WHERE database_name = ?
+              AND schema_name = 'main'
+            ORDER BY table_name
+            """,
+            [database_name(schema)],
         ).fetchall()
     ]
 
@@ -89,14 +99,7 @@ def criar_silver_reclamacoes(con):
     raw_schema = attach_dbguo_raw(con)
 
     if not table_exists(con, RAW_TABLE, raw_schema):
-        tabelas = con.execute(
-            f"""
-            SELECT table_name
-            FROM {raw_schema}.information_schema.tables
-            WHERE table_schema = 'main'
-            ORDER BY table_name
-            """
-        ).fetchdf()["table_name"].tolist()
+        tabelas = listar_tabelas(con, raw_schema)
         raise RuntimeError(
             f"Tabela {raw_schema}.{RAW_TABLE} nao encontrada. Tabelas encontradas: {tabelas}"
         )
