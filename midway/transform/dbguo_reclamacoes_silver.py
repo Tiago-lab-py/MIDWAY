@@ -11,12 +11,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 ANOMES = os.getenv("ANOMES", "202606")
-
 BASE_DIR = Path("data")
 RAW_DUCKDB_PATH = BASE_DIR / "raw" / f"dbguo_raw_{ANOMES}.duckdb"
 PROCESSED_DUCKDB_PATH = BASE_DIR / "processed" / f"iqs_adms_processed_{ANOMES}.duckdb"
 MARTS_DIR = BASE_DIR / "marts"
-
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M%S")
 RAW_SCHEMA = "dbguo_raw"
 RAW_TABLE = "raw_dbguo_reclamacoes"
@@ -24,64 +22,44 @@ RAW_TABLE = "raw_dbguo_reclamacoes"
 
 def table_exists(con, table_name: str, schema: str = "main") -> bool:
     if schema == "main":
-        return (
-            con.execute(
-                """
-                SELECT COUNT(*)
-                FROM information_schema.tables
-                WHERE table_schema = 'main'
-                  AND table_name = ?
-                """,
-                [table_name],
-            ).fetchone()[0]
-            > 0
-        )
-
-    return (
-        con.execute(
-            """
+        sql = """
             SELECT COUNT(*)
-            FROM duckdb_tables()
-            WHERE database_name = ?
-              AND schema_name = 'main'
+            FROM information_schema.tables
+            WHERE table_schema = 'main'
               AND table_name = ?
-            """,
-            [schema, table_name],
-        ).fetchone()[0]
-        > 0
-    )
+        """
+        return con.execute(sql, [table_name]).fetchone()[0] > 0
+
+    sql = """
+        SELECT COUNT(*)
+        FROM duckdb_tables()
+        WHERE database_name = ?
+          AND schema_name = 'main'
+          AND table_name = ?
+    """
+    return con.execute(sql, [schema, table_name]).fetchone()[0] > 0
 
 
 def table_columns(con, table_name: str, schema: str = "main") -> list[str]:
     if schema == "main":
-        return [
-            row[0]
-            for row in con.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'main'
-                  AND table_name = ?
-                ORDER BY ordinal_position
-                """,
-                [table_name],
-            ).fetchall()
-        ]
-
-    return [
-        row[0]
-        for row in con.execute(
-            """
+        sql = """
             SELECT column_name
-            FROM duckdb_columns()
-            WHERE database_name = ?
-              AND schema_name = 'main'
+            FROM information_schema.columns
+            WHERE table_schema = 'main'
               AND table_name = ?
-            ORDER BY column_index
-            """,
-            [schema, table_name],
-        ).fetchall()
-    ]
+            ORDER BY ordinal_position
+        """
+        return [row[0] for row in con.execute(sql, [table_name]).fetchall()]
+
+    sql = """
+        SELECT column_name
+        FROM duckdb_columns()
+        WHERE database_name = ?
+          AND schema_name = 'main'
+          AND table_name = ?
+        ORDER BY column_index
+    """
+    return [row[0] for row in con.execute(sql, [schema, table_name]).fetchall()]
 
 
 def listar_tabelas(con, schema: str = "main") -> list[str]:
@@ -146,16 +124,9 @@ def criar_silver_reclamacoes(con):
         raise RuntimeError("Tabela gold_apuracao_uc nao encontrada. Execute run.bat apuracao_parcial.")
 
     raw_cols = table_columns(con, RAW_TABLE, raw_schema)
-
     col_uc = first_existing(
         raw_cols,
-        [
-            "UC",
-            "NUM_UC",
-            "NUM_UC_RECLAMACAO",
-            "NUM_UC_CONSUMIDORA",
-            "UNIDADE_CONSUMIDORA",
-        ],
+        ["UC", "NUM_UC", "NUM_UC_RECLAMACAO", "NUM_UC_CONSUMIDORA", "UNIDADE_CONSUMIDORA"],
     )
     col_data = first_existing(
         raw_cols,
@@ -172,19 +143,11 @@ def criar_silver_reclamacoes(con):
     )
     col_id = first_existing(
         raw_cols,
-        [
-            "ID_RECLAMACAO",
-            "NUM_RECLAMACAO",
-            "PROTOCOLO",
-            "NUM_PROTOCOLO",
-            "ID",
-            "PID",
-        ],
+        ["ID_RECLAMACAO", "NUM_RECLAMACAO", "PROTOCOLO", "NUM_PROTOCOLO", "ID", "PID"],
     )
 
     if not col_uc:
         raise RuntimeError(f"Nao encontrei coluna de UC no raw DBGUO. Colunas: {raw_cols}")
-
     if not col_data:
         raise RuntimeError(f"Nao encontrei coluna de data/hora no raw DBGUO. Colunas: {raw_cols}")
 
@@ -195,15 +158,10 @@ def criar_silver_reclamacoes(con):
     )
 
     apuracao_cols = table_columns(con, "gold_apuracao_uc")
-    alim_expr = "NULL"
-    oper_chv_expr = "NULL"
-    geo_chv_expr = "NULL"
-    if "ALIM_INTRP" in {col.upper() for col in apuracao_cols}:
-        alim_expr = "NULLIF(TRIM(CAST(ALIM_INTRP AS VARCHAR)), '')"
-    if "NUM_OPER_CHV_INTRP" in {col.upper() for col in apuracao_cols}:
-        oper_chv_expr = "NULLIF(TRIM(CAST(NUM_OPER_CHV_INTRP AS VARCHAR)), '')"
-    if "NUM_GEO_CHV_INTRP" in {col.upper() for col in apuracao_cols}:
-        geo_chv_expr = "NULLIF(TRIM(CAST(NUM_GEO_CHV_INTRP AS VARCHAR)), '')"
+    apuracao_cols_upper = {col.upper() for col in apuracao_cols}
+    alim_expr = "NULLIF(TRIM(CAST(ALIM_INTRP AS VARCHAR)), '')" if "ALIM_INTRP" in apuracao_cols_upper else "NULL"
+    oper_chv_expr = "NULLIF(TRIM(CAST(NUM_OPER_CHV_INTRP AS VARCHAR)), '')" if "NUM_OPER_CHV_INTRP" in apuracao_cols_upper else "NULL"
+    geo_chv_expr = "NULLIF(TRIM(CAST(NUM_GEO_CHV_INTRP AS VARCHAR)), '')" if "NUM_GEO_CHV_INTRP" in apuracao_cols_upper else "NULL"
 
     con.execute(
         f"""
@@ -212,8 +170,7 @@ def criar_silver_reclamacoes(con):
             SELECT
                 {id_expr} AS ID_RECLAMACAO,
                 NULLIF(TRIM(CAST(r."{col_uc}" AS VARCHAR)), '') AS UC,
-                TRY_CAST(r."{col_data}" AS TIMESTAMP) AS DTHR_RECLAMACAO,
-                r.*
+                TRY_CAST(r."{col_data}" AS TIMESTAMP) AS DTHR_RECLAMACAO
             FROM {raw_schema}.{RAW_TABLE} r
         ),
         eventos AS (
@@ -244,7 +201,6 @@ def criar_silver_reclamacoes(con):
             r.ID_RECLAMACAO,
             r.UC,
             r.DTHR_RECLAMACAO,
-
             e.NUM_OCORRENCIA_ADMS,
             e.NUM_SEQ_INTRP,
             e.NUM_INTRP_UCI,
@@ -258,47 +214,37 @@ def criar_silver_reclamacoes(con):
             e.COD_COMP_INTRP,
             e.INICIO_INTERRUPCAO_UC,
             e.FIM_INTERRUPCAO,
-            e.DURACAO_HORA,
-            e.CI_LIQUIDO,
-            e.CHI_LIQUIDO,
-
+            COALESCE(e.DURACAO_HORA, 0) AS DURACAO_HORA,
+            COALESCE(e.CI_LIQUIDO, 0) AS CI_LIQUIDO,
+            COALESCE(e.CHI_LIQUIDO, 0) AS CHI_LIQUIDO,
             CASE
-                WHEN r.DTHR_RECLAMACAO BETWEEN e.INICIO_INTERRUPCAO_UC AND e.FIM_INTERRUPCAO
-                THEN 0
-                WHEN r.DTHR_RECLAMACAO < e.INICIO_INTERRUPCAO_UC
-                THEN ABS(DATE_DIFF('minute', r.DTHR_RECLAMACAO, e.INICIO_INTERRUPCAO_UC))
+                WHEN e.NUM_SEQ_INTRP IS NULL THEN NULL
+                WHEN r.DTHR_RECLAMACAO BETWEEN e.INICIO_INTERRUPCAO_UC AND e.FIM_INTERRUPCAO THEN 0
+                WHEN r.DTHR_RECLAMACAO < e.INICIO_INTERRUPCAO_UC THEN ABS(DATE_DIFF('minute', r.DTHR_RECLAMACAO, e.INICIO_INTERRUPCAO_UC))
                 ELSE ABS(DATE_DIFF('minute', e.FIM_INTERRUPCAO, r.DTHR_RECLAMACAO))
             END AS DISTANCIA_MINUTOS,
-
             CASE
-                WHEN r.DTHR_RECLAMACAO BETWEEN e.INICIO_INTERRUPCAO_UC AND e.FIM_INTERRUPCAO
-                THEN 'DURANTE_INTERRUPCAO'
-                WHEN r.DTHR_RECLAMACAO > e.FIM_INTERRUPCAO
-                THEN 'APOS_INTERRUPCAO'
-                WHEN r.DTHR_RECLAMACAO < e.INICIO_INTERRUPCAO_UC
-                THEN 'ANTES_INTERRUPCAO'
+                WHEN e.NUM_SEQ_INTRP IS NULL THEN 'SEM_OCORRENCIA_PROVAVEL'
+                WHEN r.DTHR_RECLAMACAO BETWEEN e.INICIO_INTERRUPCAO_UC AND e.FIM_INTERRUPCAO THEN 'DURANTE_INTERRUPCAO'
+                WHEN r.DTHR_RECLAMACAO > e.FIM_INTERRUPCAO THEN 'APOS_INTERRUPCAO'
+                WHEN r.DTHR_RECLAMACAO < e.INICIO_INTERRUPCAO_UC THEN 'ANTES_INTERRUPCAO'
                 ELSE 'INDEFINIDO'
             END AS POSICAO_RECLAMACAO,
-
             CASE
-                WHEN r.DTHR_RECLAMACAO BETWEEN e.INICIO_INTERRUPCAO_UC AND e.FIM_INTERRUPCAO
-                THEN 100
+                WHEN e.NUM_SEQ_INTRP IS NULL THEN 0
+                WHEN r.DTHR_RECLAMACAO BETWEEN e.INICIO_INTERRUPCAO_UC AND e.FIM_INTERRUPCAO THEN 100
                 WHEN r.DTHR_RECLAMACAO > e.FIM_INTERRUPCAO
-                 AND DATE_DIFF('minute', e.FIM_INTERRUPCAO, r.DTHR_RECLAMACAO) BETWEEN 0 AND 60
-                THEN 90
+                 AND DATE_DIFF('minute', e.FIM_INTERRUPCAO, r.DTHR_RECLAMACAO) BETWEEN 0 AND 60 THEN 90
                 WHEN r.DTHR_RECLAMACAO > e.FIM_INTERRUPCAO
-                 AND DATE_DIFF('minute', e.FIM_INTERRUPCAO, r.DTHR_RECLAMACAO) BETWEEN 61 AND 360
-                THEN 80
+                 AND DATE_DIFF('minute', e.FIM_INTERRUPCAO, r.DTHR_RECLAMACAO) BETWEEN 61 AND 360 THEN 80
                 WHEN r.DTHR_RECLAMACAO > e.FIM_INTERRUPCAO
-                 AND DATE_DIFF('minute', e.FIM_INTERRUPCAO, r.DTHR_RECLAMACAO) BETWEEN 361 AND 1440
-                THEN 65
+                 AND DATE_DIFF('minute', e.FIM_INTERRUPCAO, r.DTHR_RECLAMACAO) BETWEEN 361 AND 1440 THEN 65
                 WHEN r.DTHR_RECLAMACAO < e.INICIO_INTERRUPCAO_UC
-                 AND DATE_DIFF('minute', r.DTHR_RECLAMACAO, e.INICIO_INTERRUPCAO_UC) BETWEEN 0 AND 120
-                THEN 50
+                 AND DATE_DIFF('minute', r.DTHR_RECLAMACAO, e.INICIO_INTERRUPCAO_UC) BETWEEN 0 AND 120 THEN 50
                 ELSE 0
             END AS SCORE_VINCULO_RECLAMACAO
         FROM reclamacoes r
-        JOIN eventos e
+        LEFT JOIN eventos e
           ON e.UC = r.UC
          AND r.DTHR_RECLAMACAO >= e.INICIO_INTERRUPCAO_UC - INTERVAL '2 hours'
          AND r.DTHR_RECLAMACAO <= e.FIM_INTERRUPCAO + INTERVAL '24 hours'
@@ -326,8 +272,8 @@ def criar_silver_reclamacoes(con):
                     PARTITION BY ID_RECLAMACAO
                     ORDER BY
                         SCORE_VINCULO_RECLAMACAO DESC,
-                        DISTANCIA_MINUTOS ASC,
-                        INICIO_INTERRUPCAO_UC DESC
+                        COALESCE(DISTANCIA_MINUTOS, 999999999) ASC,
+                        INICIO_INTERRUPCAO_UC DESC NULLS LAST
                 ) AS RN
             FROM silver_dbguo_reclamacoes_candidatas
         )
@@ -361,9 +307,7 @@ def criar_gold_reclamacoes(con):
         """
     else:
         ressarcimento_cte = """
-            SELECT
-                CAST(NULL AS VARCHAR) AS UC,
-                CAST(0 AS DOUBLE) AS COMP_TOTAL_PRODIST_UC
+            SELECT CAST(NULL AS VARCHAR) AS UC, CAST(0 AS DOUBLE) AS COMP_TOTAL_PRODIST_UC
             WHERE FALSE
         """
 
@@ -381,9 +325,7 @@ def criar_gold_reclamacoes(con):
             WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
             GROUP BY NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '')
         ),
-        ressarcimento_uc AS (
-            {ressarcimento_cte}
-        )
+        ressarcimento_uc AS ({ressarcimento_cte})
         SELECT
             s.ID_RECLAMACAO,
             s.UC,
@@ -409,10 +351,7 @@ def criar_gold_reclamacoes(con):
             s.POSICAO_RECLAMACAO,
             s.SCORE_VINCULO_RECLAMACAO,
             s.CLASSIFICACAO_VINCULO_RECLAMACAO,
-            CASE
-                WHEN s.CLASSIFICACAO_VINCULO_RECLAMACAO <> 'SEM_OCORRENCIA_PROVAVEL' THEN 'S'
-                ELSE 'N'
-            END AS TEM_OCORRENCIA_PROVAVEL,
+            CASE WHEN s.CLASSIFICACAO_VINCULO_RECLAMACAO <> 'SEM_OCORRENCIA_PROVAVEL' THEN 'S' ELSE 'N' END AS TEM_OCORRENCIA_PROVAVEL,
             COALESCE(o.VALID_POS_OPERACAO, 'N') AS VALID_POS_OPERACAO,
             COALESCE(o.UCS_APURAVEIS_OCORRENCIA, 0) AS UCS_APURAVEIS_OCORRENCIA,
             COALESCE(o.FIC_OCORRENCIA, 0) AS FIC_OCORRENCIA,
@@ -427,10 +366,8 @@ def criar_gold_reclamacoes(con):
                 ELSE 'RECLAMACAO_SEM_OCORRENCIA_PROVAVEL'
             END AS STATUS_AVALIACAO_RECLAMACAO
         FROM silver_dbguo_reclamacoes s
-        LEFT JOIN status_ocorrencia o
-          ON o.NUM_OCORRENCIA_ADMS = s.NUM_OCORRENCIA_ADMS
-        LEFT JOIN ressarcimento_uc r
-          ON r.UC = s.UC
+        LEFT JOIN status_ocorrencia o ON o.NUM_OCORRENCIA_ADMS = s.NUM_OCORRENCIA_ADMS
+        LEFT JOIN ressarcimento_uc r ON r.UC = s.UC
         """
     )
 
@@ -449,7 +386,7 @@ def criar_gold_reclamacoes(con):
             SUM(CASE WHEN VALID_POS_OPERACAO = 'S' THEN 1 ELSE 0 END) AS QTD_RECLAMACOES_OCORRENCIA_VALIDADA_POS,
             MAX(SCORE_VINCULO_RECLAMACAO) AS MAX_SCORE_VINCULO_RECLAMACAO,
             MIN(DISTANCIA_MINUTOS) AS MENOR_DISTANCIA_MINUTOS,
-            SUM(COALESCE(COMP_TOTAL_PRODIST_UC, 0)) AS SOMA_COMP_TOTAL_PRODIST_UC_REFERENCIA
+            MAX(COALESCE(COMP_TOTAL_PRODIST_UC, 0)) AS COMP_TOTAL_PRODIST_UC_REFERENCIA
         FROM gold_reclamacao_uc_vinculada
         GROUP BY UC
         """
@@ -484,7 +421,6 @@ def criar_gold_reclamacoes(con):
 
 def exportar_resumo(con):
     MARTS_DIR.mkdir(parents=True, exist_ok=True)
-
     resumo_path = MARTS_DIR / f"Silver_DBGUO_Reclamacoes_{ANOMES}_{TIMESTAMP}_RESUMO.TXT"
 
     row = con.execute(
@@ -497,7 +433,6 @@ def exportar_resumo(con):
         FROM silver_dbguo_reclamacoes
         """
     ).fetchone()
-
     gold_row = con.execute(
         """
         SELECT
