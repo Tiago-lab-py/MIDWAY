@@ -5,6 +5,8 @@
 Versao incremental com frontend de qualidade de interrupcoes.
 
 - Adiciona pagina Streamlit `09 Qualidade de Interrupções`.
+- Adiciona pagina Streamlit `10 Ajuste Manual IQS` para registrar ajustes aprovados e gerar CSV corrigido.
+- Permite ajuste manual de data/hora da ocorrência e exibe evidências coloridas para decisão do analista.
 - Cruza interrupcoes IQS/ADMS, reclamacoes DBGUO e servicos ADMS no painel.
 - Usa `data/raw/adms_servicos_raw_<ANOMES>.duckdb` como fonte complementar de servicos.
 - Classifica interrupcoes por evidencias de improcedencia, atendimento por outra ocorrencia, multiplos servicos e reclamacoes fortes.

@@ -458,6 +458,8 @@ run.bat versao
 - Analise de reclamacoes com causa provavel, aderencia IQS e ranking por ocorrencia.
 - Extrator RAW de servicos ADMS para apoiar causa/componente e improcedencia.
 - Página `09 Qualidade de Interrupções` no Streamlit para cruzar interrupções, reclamações e serviços.
+- Página `10 Ajuste Manual IQS` para registrar decisões e gerar CSV corrigido no layout IQS.
+- Ajuste Manual IQS aceita data/hora da ocorrência e mostra evidências coloridas para o analista.
 - DIC/FIC da qualidade de interrupções calculado pela `gold_apuracao_uc`.
 - `data/input` versionado para distribuir `causa.csv`, `componente.csv` e listas auxiliares.
 - Comandos DBGUO consolidados no `run.bat`.
