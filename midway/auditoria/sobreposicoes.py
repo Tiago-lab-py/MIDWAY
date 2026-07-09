@@ -100,6 +100,33 @@ def table_exists(con, table_name):
     )
 
 
+def formatar_coluna_data_iqs(serie):
+    original = serie.astype("string").fillna("")
+    sem_vazio = original.replace("", pd.NA)
+
+    mascara_iso = sem_vazio.str.contains("-", na=False)
+    mascara_barra = sem_vazio.str.contains("/", na=False)
+
+    parsed_iso = pd.to_datetime(
+        sem_vazio.where(mascara_iso),
+        errors="coerce",
+    )
+    parsed_barra = pd.to_datetime(
+        sem_vazio.where(mascara_barra),
+        errors="coerce",
+        dayfirst=False,
+    )
+    parsed_fallback = pd.to_datetime(
+        sem_vazio,
+        errors="coerce",
+        dayfirst=True,
+    )
+
+    parsed = parsed_iso.fillna(parsed_barra).fillna(parsed_fallback)
+    formatted = parsed.dt.strftime("%d/%m/%Y %H:%M:%S")
+    return formatted.fillna(original)
+
+
 def exportar_csv_iqs(df, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     df = df.copy()
@@ -108,10 +135,7 @@ def exportar_csv_iqs(df, path):
         if column not in df.columns:
             continue
 
-        original = df[column].astype("string").fillna("")
-        parsed = pd.to_datetime(original, errors="coerce", dayfirst=True)
-        formatted = parsed.dt.strftime("%d/%m/%Y %H:%M:%S")
-        df[column] = formatted.fillna(original)
+        df[column] = formatar_coluna_data_iqs(df[column])
 
     df = df.astype("string").fillna("")
     df.to_csv(
