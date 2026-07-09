@@ -138,6 +138,7 @@ run.bat painel
 | `run.bat sincronizar_iqs_raw` | Sincroniza `data/raw/iqs_raw_<ANOMES>.duckdb` para o processed |
 | `run.bat extrair_dbguo_reclamacoes` | Extrai reclamacoes DBGUO para `data/raw` |
 | `run.bat dbguo_reclamacoes` | Materializa silver/gold de reclamacoes DBGUO |
+| `run.bat extrair_adms_servicos` | Extrai servicos ADMS de backup para `data/raw` |
 | `run.bat vrc` | Extrai VRC IQS sob demanda |
 | `run.bat metas_uc` | Extrai metas UC IQS sob demanda |
 
@@ -168,6 +169,7 @@ Arquivos importantes:
 ```text
 data/raw/iqs_adms_raw_<ANOMES>.duckdb
 data/raw/iqs_raw_<ANOMES>.duckdb
+data/raw/adms_servicos_raw_<ANOMES>.duckdb
 data/processed/iqs_adms_processed_<ANOMES>.duckdb
 ```
 
@@ -454,6 +456,7 @@ run.bat versao
 - Exportador separado para sobreposicao total por UC, parcial por UC e interrupcao sem UC.
 - Reclamacoes DBGUO com janela do mes de apuracao `+-2 dias`.
 - Analise de reclamacoes com causa provavel, aderencia IQS e ranking por ocorrencia.
+- Extrator RAW de servicos ADMS para apoiar causa/componente e improcedencia.
 - `data/input` versionado para distribuir `causa.csv`, `componente.csv` e listas auxiliares.
 - Comandos DBGUO consolidados no `run.bat`.
 

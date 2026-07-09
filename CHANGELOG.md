@@ -9,8 +9,10 @@ Versao de integracao IQS/DBGUO e endurecimento das exportacoes operacionais.
 - Adiciona utilitario comum de exportacao em `midway/export/iqs_csv.py` para evitar divergencia entre arquivos gerados.
 - Centraliza a extracao DBGUO em `run.bat extrair_dbguo_reclamacoes` e remove BATs soltos obsoletos.
 - Mantem a materializacao de reclamacoes DBGUO em `run.bat dbguo_reclamacoes`.
+- Adiciona extrator `run.bat extrair_adms_servicos` para gerar `data/raw/adms_servicos_raw_<ANOMES>.duckdb`.
 - Limita a extracao e a materializacao DBGUO ao mes de apuracao com margem operacional de dois dias antes/depois.
 - Enriquece a analise de reclamacoes com causa provavel, tipo textual, aderencia com causa/componente IQS e previa operacional por reclamacao.
+- Documenta a avaliacao de qualidade da interrupcao cruzando IQS/ADMS, reclamacoes DBGUO e servicos ADMS.
 - Adiciona ranking de ocorrencias com reclamacoes no painel Streamlit.
 - Versiona os dicionarios em `data/input` para evitar falhas por ausencia de `causa.csv`, `componente.csv` e listas auxiliares.
 - Atualiza a documentacao tecnica das exportacoes IQS, extracao DBGUO e avaliacao de reclamacoes.
