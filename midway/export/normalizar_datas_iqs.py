@@ -149,6 +149,7 @@ def normalizar_csv(caminho: Path) -> bool:
 def normalizar_datas_exportacoes_auxiliares() -> list[Path]:
     arquivos_alterados = []
     arquivos_bloqueados = []
+    arquivos_removidos = []
 
     for pasta in PASTAS_EXPORTACOES_AUXILIARES:
         if not pasta.exists():
@@ -157,14 +158,25 @@ def normalizar_datas_exportacoes_auxiliares() -> list[Path]:
         arquivos = list(pasta.glob("*.CSV")) + list(pasta.glob("*.csv"))
         for caminho in arquivos:
             try:
+                if not caminho.exists():
+                    arquivos_removidos.append(caminho)
+                    continue
+
                 if normalizar_csv(caminho):
                     arquivos_alterados.append(caminho)
             except PermissionError:
                 arquivos_bloqueados.append(caminho)
+            except FileNotFoundError:
+                arquivos_removidos.append(caminho)
 
     if arquivos_bloqueados:
         print("Aviso: alguns CSVs estavam abertos e nao foram normalizados:")
         for caminho in arquivos_bloqueados:
+            print(f"- {caminho}")
+
+    if arquivos_removidos:
+        print("Aviso: alguns CSVs nao estavam mais disponiveis durante a normalizacao:")
+        for caminho in arquivos_removidos:
             print(f"- {caminho}")
 
     return arquivos_alterados
