@@ -102,16 +102,22 @@ if /I "%~1"=="exportacoes_auxiliares" (
     "%PYTHON_EXE%" -m midway.auditoria.interrupcao_sem_uc
     if errorlevel 1 goto erro
 
+    echo Normalizando datas das exportacoes auxiliares...
+    "%PYTHON_EXE%" -m midway.export.normalizar_datas_iqs
+    if errorlevel 1 goto erro
+
     goto fim
 )
 
 if /I "%~1"=="apuracao_parcial" (
     echo Gerando camada gold e BDO de apuracao previa...
     "%PYTHON_EXE%" -m midway.apuracao.previa
-if errorlevel 1 goto erro
-echo Gerando gold_outlier_uc...
-python -m midway.analytics.outlier_uc
-if errorlevel 1 goto erro
+    if errorlevel 1 goto erro
+
+    echo Gerando gold_outlier_uc...
+    "%PYTHON_EXE%" -m midway.analytics.outlier_uc
+    if errorlevel 1 goto erro
+
     goto fim
 )
 
@@ -237,6 +243,10 @@ if /I "%~1"=="full_mais_apuracao" (
     "%PYTHON_EXE%" -m midway.apuracao.previa
     if errorlevel 1 goto erro
 
+    echo Gerando gold_outlier_uc...
+    "%PYTHON_EXE%" -m midway.analytics.outlier_uc
+    if errorlevel 1 goto erro
+
     echo Gerando exportacoes separadas de sobreposicao...
     "%PYTHON_EXE%" -m midway.auditoria.sobreposicoes
     if errorlevel 1 goto erro
@@ -245,6 +255,10 @@ if /I "%~1"=="full_mais_apuracao" (
 
     echo Gerando exportacao de interrupcoes sem UC...
     "%PYTHON_EXE%" -m midway.auditoria.interrupcao_sem_uc
+    if errorlevel 1 goto erro
+
+    echo Normalizando datas das exportacoes auxiliares...
+    "%PYTHON_EXE%" -m midway.export.normalizar_datas_iqs
     if errorlevel 1 goto erro
 
     goto fim
