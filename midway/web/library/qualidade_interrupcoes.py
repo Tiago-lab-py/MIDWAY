@@ -228,6 +228,10 @@ def _base_quality_query(db_path: str) -> str:
               AND NULLIF(TRIM(CAST(COD_CAUSA_SRVE AS VARCHAR)), '') IS NOT NULL
         ),
         {_referencia_componente_causa_cte(db_path)}
+        referencia_status AS (
+            SELECT COUNT(*) AS QTD_REFERENCIAS_COMP_CAUSA
+            FROM referencia_comp_causa
+        ),
         ref_primeira_causa_comp AS (
             SELECT
                 COD_COMP,
@@ -252,45 +256,36 @@ def _base_quality_query(db_path: str) -> str:
             SELECT
                 sp.NUM_SEQ_INTRP,
                 COUNT(*) AS QTD_PARES_COMP_CAUSA_SERVICO,
-                SUM(CASE WHEN ref.COD_COMP IS NOT NULL THEN 1 ELSE 0 END) AS QTD_PARES_COMP_CAUSA_VALIDOS,
-                SUM(CASE WHEN ref.COD_COMP IS NULL THEN 1 ELSE 0 END) AS QTD_INCONSISTENCIA_COMP_CAUSA,
+                SUM(CASE WHEN rs.QTD_REFERENCIAS_COMP_CAUSA > 0 AND ref.COD_COMP IS NOT NULL THEN 1 ELSE 0 END) AS QTD_PARES_COMP_CAUSA_VALIDOS,
+                SUM(CASE WHEN rs.QTD_REFERENCIAS_COMP_CAUSA > 0 AND ref.COD_COMP IS NULL THEN 1 ELSE 0 END) AS QTD_INCONSISTENCIA_COMP_CAUSA,
                 STRING_AGG(
                     DISTINCT CASE
-                        WHEN ref.COD_COMP IS NULL THEN sp.COD_COMP_SERVICO || '/' || sp.COD_CAUSA_SERVICO
+                        WHEN rs.QTD_REFERENCIAS_COMP_CAUSA > 0 AND ref.COD_COMP IS NULL THEN sp.COD_COMP_SERVICO || '/' || sp.COD_CAUSA_SERVICO
                     END,
                     ', '
-                    ORDER BY CASE
-                        WHEN ref.COD_COMP IS NULL THEN sp.COD_COMP_SERVICO || '/' || sp.COD_CAUSA_SERVICO
-                    END
                 ) AS PARES_COMP_CAUSA_INCONSISTENTES,
                 STRING_AGG(
                     DISTINCT CASE
-                        WHEN ref.COD_COMP IS NULL THEN
+                        WHEN rs.QTD_REFERENCIAS_COMP_CAUSA > 0 AND ref.COD_COMP IS NULL THEN
                             COALESCE(
                                 CASE WHEN rpc.COD_CAUSA_SUGERIDA IS NOT NULL THEN sp.COD_COMP_SERVICO || '/' || rpc.COD_CAUSA_SUGERIDA END,
                                 CASE WHEN rca.COD_COMP_SUGERIDO IS NOT NULL THEN rca.COD_COMP_SUGERIDO || '/' || sp.COD_CAUSA_SERVICO END
                             )
                     END,
                     ', '
-                    ORDER BY CASE
-                        WHEN ref.COD_COMP IS NULL THEN
-                            COALESCE(
-                                CASE WHEN rpc.COD_CAUSA_SUGERIDA IS NOT NULL THEN sp.COD_COMP_SERVICO || '/' || rpc.COD_CAUSA_SUGERIDA END,
-                                CASE WHEN rca.COD_COMP_SUGERIDO IS NOT NULL THEN rca.COD_COMP_SUGERIDO || '/' || sp.COD_CAUSA_SERVICO END
-                            )
-                    END
                 ) AS SUGESTAO_PARES_COMP_CAUSA,
                 MIN(
                     CASE
-                        WHEN ref.COD_COMP IS NULL THEN COALESCE(sp.COD_COMP_SERVICO, rca.COD_COMP_SUGERIDO)
+                        WHEN rs.QTD_REFERENCIAS_COMP_CAUSA > 0 AND ref.COD_COMP IS NULL THEN COALESCE(sp.COD_COMP_SERVICO, rca.COD_COMP_SUGERIDO)
                     END
                 ) AS SUGESTAO_COD_COMP_INTRP,
                 MIN(
                     CASE
-                        WHEN ref.COD_COMP IS NULL THEN COALESCE(rpc.COD_CAUSA_SUGERIDA, sp.COD_CAUSA_SERVICO)
+                        WHEN rs.QTD_REFERENCIAS_COMP_CAUSA > 0 AND ref.COD_COMP IS NULL THEN COALESCE(rpc.COD_CAUSA_SUGERIDA, sp.COD_CAUSA_SERVICO)
                     END
                 ) AS SUGESTAO_COD_CAUSA_INTRP
             FROM servico_pares sp
+            CROSS JOIN referencia_status rs
             LEFT JOIN referencia_comp_causa ref
               ON ref.COD_COMP = sp.COD_COMP_SERVICO
              AND ref.COD_CAUSA = sp.COD_CAUSA_SERVICO
