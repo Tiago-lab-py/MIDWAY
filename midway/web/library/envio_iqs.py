@@ -158,22 +158,6 @@ def _candidate_defaults(row: pd.Series | dict) -> dict[str, str]:
     }
 
 
-def _candidate_options(candidates: pd.DataFrame) -> dict[str, dict[str, str]]:
-    options = {"Preencher manualmente": {}}
-    if candidates.empty:
-        return options
-
-    for _, row in candidates.head(500).iterrows():
-        occurrence = _row_value(row, ["NUM_OCORRENCIA_ADMS"])
-        interruption = _row_value(row, ["NUM_SEQ_INTRP"])
-        score = _row_value(row, ["SCORE_QUALIDADE"])
-        classification = _row_value(row, ["CLASSIFICACAO_QUALIDADE"])
-        label = f"{classification or 'CANDIDATO'} | score={score or '-'} | oc={occurrence or '-'} | intrp={interruption or '-'}"
-        options[label] = _candidate_defaults(row)
-
-    return options
-
-
 def _defaults_from_candidates(
     candidates: pd.DataFrame,
     occurrence: str,
@@ -413,8 +397,6 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
 
     with tabs[0]:
         st.markdown("### Candidatos de qualidade")
-        candidate_options = _candidate_options(candidates)
-        selected_candidate = "Preencher manualmente"
         if candidates.empty:
             st.info("Sem candidatos carregados. Você ainda pode preencher o ajuste manualmente.")
         else:
@@ -433,17 +415,12 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
                 "FIC_OCORRENCIA",
                 "DIC_OCORRENCIA",
             ]
+            st.caption("Digite a ocorrência, interrupção ou UC abaixo para buscar evidências e preencher sugestões automaticamente.")
             st.dataframe(
                 candidates[[column for column in columns if column in candidates.columns]].head(sample_limit),
                 use_container_width=True,
                 hide_index=True,
             )
-            selected_candidate = st.selectbox(
-                "Usar candidato para preencher ocorrência e sugestões",
-                list(candidate_options.keys()),
-            )
-
-        candidate_defaults = candidate_options.get(selected_candidate, {})
 
         st.markdown("### Identificação da ocorrência")
         col_scope, col_input, col_btn = st.columns([1, 2, 1])
@@ -454,27 +431,27 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
             if escopo == "OCORRENCIA":
                 ocorrencia = st.text_input(
                     "NUM_OCORRENCIA_ADMS",
-                    value=candidate_defaults.get("NUM_OCORRENCIA_ADMS", ""),
-                    key=_widget_key("ocorrencia", candidate_defaults),
+                    value="",
+                    key="envio_iqs_ocorrencia_manual",
                 )
-                interrupcao = candidate_defaults.get("NUM_SEQ_INTRP", "")
-                uc = candidate_defaults.get("NUM_UC_UCI", "")
+                interrupcao = ""
+                uc = ""
             elif escopo == "INTERRUPCAO":
                 interrupcao = st.text_input(
                     "NUM_SEQ_INTRP",
-                    value=candidate_defaults.get("NUM_SEQ_INTRP", ""),
-                    key=_widget_key("interrupcao", candidate_defaults),
+                    value="",
+                    key="envio_iqs_interrupcao_manual",
                 )
-                ocorrencia = candidate_defaults.get("NUM_OCORRENCIA_ADMS", "")
-                uc = candidate_defaults.get("NUM_UC_UCI", "")
+                ocorrencia = ""
+                uc = ""
             else:
                 uc = st.text_input(
                     "NUM_UC_UCI",
-                    value=candidate_defaults.get("NUM_UC_UCI", ""),
-                    key=_widget_key("uc", candidate_defaults),
+                    value="",
+                    key="envio_iqs_uc_manual",
                 )
-                ocorrencia = candidate_defaults.get("NUM_OCORRENCIA_ADMS", "")
-                interrupcao = candidate_defaults.get("NUM_SEQ_INTRP", "")
+                ocorrencia = ""
+                interrupcao = ""
 
         with col_btn:
             st.write("")
@@ -488,7 +465,7 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
         }
         matched_candidate_defaults = _defaults_from_candidates(candidates, ocorrencia, interrupcao, uc)
         gold_defaults = _defaults_from_gold(db_path, ocorrencia, interrupcao, uc) if buscar or ocorrencia or interrupcao or uc else {}
-        defaults = _merge_defaults(candidate_defaults, typed_defaults, matched_candidate_defaults, gold_defaults)
+        defaults = _merge_defaults(typed_defaults, matched_candidate_defaults, gold_defaults)
 
         _render_sugestoes(defaults)
 
