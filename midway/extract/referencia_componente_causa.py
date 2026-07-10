@@ -57,13 +57,49 @@ def tabela_existe(con, nome_tabela: str) -> bool:
     )
 
 
+def normalizar_codigo(valor, preencher_zero: bool = False) -> str:
+    if pd.isna(valor):
+        return ""
+    texto = str(valor).strip().upper()
+    if not texto:
+        return ""
+    if texto.endswith(".0") and texto[:-2].isdigit():
+        texto = texto[:-2]
+    if preencher_zero and texto.isdigit() and len(texto) == 1:
+        return f"0{texto}"
+    return texto
+
+
+def normalizar_referencia(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [col.upper() for col in df.columns]
+
+    for coluna in ["DESC_GRUPO_GCR", "DESC_COMP", "DESC_CAUSA"]:
+        if coluna in df.columns:
+            df[coluna] = df[coluna].fillna("").astype(str).str.strip().str.upper()
+
+    df["COD_GRUPO_GCR"] = df.get("COD_GRUPO_GCR", "").map(normalizar_codigo)
+    df["COD_COMP"] = df.get("COD_COMP", "").map(normalizar_codigo)
+    df["COD_CAUSA"] = df.get("COD_CAUSA", "").map(lambda value: normalizar_codigo(value, preencher_zero=True))
+
+    df = df[(df["COD_COMP"] != "") & (df["COD_CAUSA"] != "")].copy()
+    df["GRUPO_COMPONENTE_REDE"] = df["COD_GRUPO_GCR"] + " - " + df["DESC_GRUPO_GCR"]
+    df["COMPONENTE_REDE"] = df["COD_COMP"] + " - " + df["DESC_COMP"]
+    df["CAUSA_REDE"] = df["COD_CAUSA"] + " - " + df["DESC_CAUSA"]
+    df["CHAVE_COMP_CAUSA"] = df["COD_COMP"] + "/" + df["COD_CAUSA"]
+
+    colunas_ordem = ["COD_GRUPO_GCR", "DESC_GRUPO_GCR", "COD_COMP", "DESC_COMP", "COD_CAUSA", "DESC_CAUSA"]
+    df = df.drop_duplicates(subset=["COD_GRUPO_GCR", "COD_COMP", "COD_CAUSA"])
+    return df.sort_values(colunas_ordem).reset_index(drop=True)
+
+
 def exportar_amostra(con, caminho_amostra: Path):
     con.execute(
         f"""
         COPY (
             SELECT *
             FROM {RAW_TABLE}
-            ORDER BY DESC_GRUPO_GCR, DESC_COMP, DESC_CAUSA
+            ORDER BY COD_GRUPO_GCR, DESC_GRUPO_GCR, COD_COMP, DESC_COMP, COD_CAUSA, DESC_CAUSA
             LIMIT 500
         )
         TO '{caminho_amostra.as_posix()}'
@@ -83,6 +119,8 @@ def criar_indices(con):
         con.execute(f"CREATE INDEX IF NOT EXISTS idx_{RAW_TABLE}_comp ON {RAW_TABLE}(COD_COMP)")
     if "COD_CAUSA" in colunas:
         con.execute(f"CREATE INDEX IF NOT EXISTS idx_{RAW_TABLE}_causa ON {RAW_TABLE}(COD_CAUSA)")
+    if "CHAVE_COMP_CAUSA" in colunas:
+        con.execute(f"CREATE INDEX IF NOT EXISTS idx_{RAW_TABLE}_chave ON {RAW_TABLE}(CHAVE_COMP_CAUSA)")
 
 
 def materializar_referencia():
@@ -98,6 +136,9 @@ def materializar_referencia():
         )
         con_processed.execute(
             f"CREATE INDEX IF NOT EXISTS idx_{GOLD_TABLE}_causa ON {GOLD_TABLE}(COD_CAUSA)"
+        )
+        con_processed.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_{GOLD_TABLE}_chave ON {GOLD_TABLE}(CHAVE_COMP_CAUSA)"
         )
     finally:
         con_processed.close()
@@ -142,7 +183,10 @@ def extrair_referencia_componente_causa(chunksize: int = 100_000):
                     if df.empty:
                         continue
 
-                    df.columns = [col.upper() for col in df.columns]
+                    df = normalizar_referencia(df)
+                    if df.empty:
+                        continue
+
                     con_duck.register("referencia_iqs_lote_tmp", df)
 
                     if primeiro_lote:
@@ -162,6 +206,7 @@ def extrair_referencia_componente_causa(chunksize: int = 100_000):
             if primeiro_lote:
                 raise RuntimeError("Nenhum registro de referencia componente/causa IQS extraido.")
 
+            con_duck.execute(f"CREATE OR REPLACE TABLE {RAW_TABLE} AS SELECT DISTINCT * FROM {RAW_TABLE}")
             criar_indices(con_duck)
             total_validado = con_duck.execute(f"SELECT COUNT(*) FROM {RAW_TABLE}").fetchone()[0]
             caminho_resumo = MARTS_DIR / f"Referencia_Componente_Causa_IQS_{ANOMES}_{TIMESTAMP_ARQ}_RESUMO.TXT"
