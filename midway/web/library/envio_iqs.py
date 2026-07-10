@@ -104,6 +104,16 @@ COMPONENTE_DESCRICOES = {
 }
 
 
+REFERENCIA_COMPONENTE_CAUSA_TABLES = [
+    "gold_iqs_referencia_componente_causa",
+    "silver_iqs_referencia_componente_causa",
+    "gold_referencia_iqs_componente_causa",
+    "silver_referencia_iqs_componente_causa",
+    "gold_iqs_componente_causa",
+    "silver_iqs_componente_causa",
+]
+
+
 def _table_columns(con, table_name: str) -> list[str]:
     return [
         row[0]
@@ -128,13 +138,13 @@ def _first_existing(columns: list[str], candidates: list[str]) -> str | None:
     return None
 
 
-def _normalizar_codigo(codigo: str, descricoes: dict[str, str]) -> str:
+def _normalizar_codigo(codigo: str, descricoes: dict[str, str] | None = None) -> str:
     valor = ajuste._clean_value(codigo).upper()
     if not valor:
         return ""
-    if valor in descricoes:
+    if descricoes and valor in descricoes:
         return valor
-    if valor.isdigit() and len(valor) == 1 and f"0{valor}" in descricoes:
+    if descricoes and valor.isdigit() and len(valor) == 1 and f"0{valor}" in descricoes:
         return f"0{valor}"
     return valor
 
@@ -144,39 +154,6 @@ def _descricao_codigo(codigo: str, descricoes: dict[str, str]) -> str:
     if not codigo_normalizado:
         return ""
     return descricoes.get(codigo_normalizado, "Descrição não cadastrada")
-
-
-def _label_codigo(codigo: str, descricoes: dict[str, str]) -> str:
-    codigo_normalizado = _normalizar_codigo(codigo, descricoes)
-    if not codigo_normalizado:
-        return ""
-    return f"{codigo_normalizado} - {_descricao_codigo(codigo_normalizado, descricoes)}"
-
-
-def _codigo_from_label(label: str) -> str:
-    if not label:
-        return ""
-    return label.split(" - ", 1)[0].strip()
-
-
-def _codigo_options(default_code: str, descricoes: dict[str, str]) -> list[str]:
-    labels = [""]
-    default_label = _label_codigo(default_code, descricoes)
-    if default_label:
-        labels.append(default_label)
-    for codigo in descricoes:
-        label = _label_codigo(codigo, descricoes)
-        if label not in labels:
-            labels.append(label)
-    return labels
-
-
-def _codigo_selectbox(label: str, default_code: str, descricoes: dict[str, str], key: str) -> str:
-    options = _codigo_options(default_code, descricoes)
-    default_label = _label_codigo(default_code, descricoes)
-    index = options.index(default_label) if default_label in options else 0
-    selected = st.selectbox(label, options, index=index, key=key)
-    return _codigo_from_label(selected)
 
 
 def _first_list_value(value) -> str:
@@ -193,6 +170,139 @@ def _row_value(row: pd.Series | dict, candidates: list[str]) -> str:
             if value:
                 return value
     return ""
+
+
+def _ref_label(codigo: str, descricao: str = "") -> str:
+    codigo = ajuste._clean_value(codigo)
+    descricao = ajuste._clean_value(descricao)
+    if not codigo:
+        return ""
+    return f"{codigo} - {descricao}" if descricao else codigo
+
+
+def _codigo_from_label(label: str) -> str:
+    if not label:
+        return ""
+    return label.split(" - ", 1)[0].strip()
+
+
+def _fallback_referencia_componentes_causas() -> pd.DataFrame:
+    rows = []
+    for cod_comp, desc_comp in COMPONENTE_DESCRICOES.items():
+        for cod_causa, desc_causa in CAUSA_DESCRICOES.items():
+            rows.append(
+                {
+                    "COD_GRUPO_GCR": "",
+                    "DESC_GRUPO_GCR": "Todos os grupos",
+                    "COD_COMP": cod_comp,
+                    "DESC_COMP": desc_comp,
+                    "COD_CAUSA": cod_causa,
+                    "DESC_CAUSA": desc_causa,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(show_spinner=False)
+def _referencia_componentes_causas(db_path: str) -> pd.DataFrame:
+    for table_name in REFERENCIA_COMPONENTE_CAUSA_TABLES:
+        if not table_exists(db_path, table_name):
+            continue
+        with duckdb.connect(db_path, read_only=True) as con:
+            columns = _table_columns(con, table_name)
+            cod_grupo = _first_existing(columns, ["COD_GRUPO_GCR", "COD_GRUPO", "GRUPO"])
+            desc_grupo = _first_existing(columns, ["DESC_GRUPO_GCR", "DESC_GRUPO", "GRUPO_DESCRICAO"])
+            cod_comp = _first_existing(columns, ["COD_COMP", "COD_COMP_INTRP", "COMPONENTE"])
+            desc_comp = _first_existing(columns, ["DESC_COMP", "DESC_COMPONENTE", "COMPONENTE_DESCRICAO"])
+            cod_causa = _first_existing(columns, ["COD_CAUSA", "COD_CAUSA_INTRP", "CAUSA"])
+            desc_causa = _first_existing(columns, ["DESC_CAUSA", "DESC_CAUSA_INTRP", "CAUSA_DESCRICAO"])
+            if not cod_comp or not cod_causa:
+                continue
+
+            select_parts = [
+                f"NULLIF(TRIM(CAST({cod_grupo} AS VARCHAR)), '') AS COD_GRUPO_GCR" if cod_grupo else "'' AS COD_GRUPO_GCR",
+                f"NULLIF(TRIM(CAST({desc_grupo} AS VARCHAR)), '') AS DESC_GRUPO_GCR" if desc_grupo else "'Todos os grupos' AS DESC_GRUPO_GCR",
+                f"NULLIF(TRIM(CAST({cod_comp} AS VARCHAR)), '') AS COD_COMP",
+                f"NULLIF(TRIM(CAST({desc_comp} AS VARCHAR)), '') AS DESC_COMP" if desc_comp else "'' AS DESC_COMP",
+                f"NULLIF(TRIM(CAST({cod_causa} AS VARCHAR)), '') AS COD_CAUSA",
+                f"NULLIF(TRIM(CAST({desc_causa} AS VARCHAR)), '') AS DESC_CAUSA" if desc_causa else "'' AS DESC_CAUSA",
+            ]
+            df = con.execute(
+                f"""
+                SELECT DISTINCT
+                    {", ".join(select_parts)}
+                FROM {table_name}
+                WHERE NULLIF(TRIM(CAST({cod_comp} AS VARCHAR)), '') IS NOT NULL
+                  AND NULLIF(TRIM(CAST({cod_causa} AS VARCHAR)), '') IS NOT NULL
+                ORDER BY DESC_GRUPO_GCR, DESC_COMP, DESC_CAUSA
+                """
+            ).fetchdf()
+            if not df.empty:
+                return df.fillna("").astype(str)
+
+    return _fallback_referencia_componentes_causas()
+
+
+def _referencia_options(df: pd.DataFrame, code_col: str, desc_col: str, default_code: str = "") -> list[str]:
+    labels = [""]
+    default_code = _normalizar_codigo(default_code)
+    if default_code and default_code not in set(df.get(code_col, pd.Series(dtype=str)).astype(str)):
+        labels.append(_ref_label(default_code, "Descrição não cadastrada"))
+
+    if df.empty or code_col not in df.columns:
+        return labels
+
+    work = df[[code_col, desc_col]].drop_duplicates() if desc_col in df.columns else df[[code_col]].drop_duplicates()
+    if desc_col not in work.columns:
+        work[desc_col] = ""
+    work = work.sort_values([desc_col, code_col])
+    for _, row in work.iterrows():
+        codigo = ajuste._clean_value(row.get(code_col))
+        if not codigo:
+            continue
+        label = _ref_label(codigo, row.get(desc_col, ""))
+        if label not in labels:
+            labels.append(label)
+    return labels
+
+
+def _referencia_selectbox(
+    label: str,
+    df: pd.DataFrame,
+    code_col: str,
+    desc_col: str,
+    default_code: str,
+    key: str,
+) -> str:
+    options = _referencia_options(df, code_col, desc_col, default_code)
+    default_code = _normalizar_codigo(default_code)
+    default_label = next((option for option in options if _codigo_from_label(option) == default_code), "")
+    index = options.index(default_label) if default_label in options else 0
+    selected = st.selectbox(label, options, index=index, key=key)
+    return _codigo_from_label(selected)
+
+
+def _referencia_descricao(df: pd.DataFrame, code_col: str, desc_col: str, codigo: str, fallback: dict[str, str]) -> str:
+    codigo = _normalizar_codigo(codigo, fallback)
+    if not codigo:
+        return ""
+    if not df.empty and code_col in df.columns and desc_col in df.columns:
+        matches = df[df[code_col].astype(str).str.strip() == codigo]
+        if not matches.empty:
+            descricao = ajuste._clean_value(matches.iloc[0].get(desc_col, ""))
+            if descricao:
+                return descricao
+    return fallback.get(codigo, "Descrição não cadastrada")
+
+
+def _grupo_default_por_componente(referencia_df: pd.DataFrame, cod_comp: str) -> str:
+    cod_comp = _normalizar_codigo(cod_comp)
+    if not cod_comp or referencia_df.empty:
+        return ""
+    matches = referencia_df[referencia_df["COD_COMP"].astype(str).str.strip() == cod_comp]
+    if matches.empty:
+        return ""
+    return ajuste._clean_value(matches.iloc[0].get("COD_GRUPO_GCR", ""))
 
 
 def _where_occurrence(columns: list[str], occurrence: str, interruption: str, uc: str = "") -> str | None:
@@ -622,35 +732,72 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
             with col_aprov:
                 aprovado = st.checkbox("Aprovado para exportar", value=True)
 
+            referencia_iqs = _referencia_componentes_causas(db_path)
+            default_comp = defaults.get("NOVO_COD_COMP_INTRP", "")
+            default_causa = defaults.get("NOVO_COD_CAUSA_INTRP", "")
+            default_grupo = _grupo_default_por_componente(referencia_iqs, default_comp)
+
             st.markdown("#### Campos IQS a alterar")
-            col_causa, col_desc_causa, col_comp, col_desc_comp = st.columns([1, 2, 1, 2])
-            with col_causa:
-                novo_causa = _codigo_selectbox(
-                    "COD_CAUSA_INTRP",
-                    defaults.get("NOVO_COD_CAUSA_INTRP", ""),
-                    CAUSA_DESCRICOES,
-                    _widget_key("novo_causa", defaults),
+            col_grupo, col_comp, col_desc_comp = st.columns([1, 1, 2])
+            with col_grupo:
+                cod_grupo = _referencia_selectbox(
+                    "GRUPO_COMPONENTE_REDE",
+                    referencia_iqs,
+                    "COD_GRUPO_GCR",
+                    "DESC_GRUPO_GCR",
+                    default_grupo,
+                    _widget_key("grupo_comp", defaults),
                 )
-            with col_desc_causa:
-                st.text_input(
-                    "DESC_CAUSA_INTRP",
-                    value=_descricao_codigo(novo_causa, CAUSA_DESCRICOES),
-                    disabled=True,
-                    key=_widget_key("desc_causa", {**defaults, "NOVO_COD_CAUSA_INTRP": novo_causa}),
-                )
+
+            componentes_df = referencia_iqs
+            if cod_grupo:
+                componentes_df = componentes_df[componentes_df["COD_GRUPO_GCR"].astype(str).str.strip() == cod_grupo]
+            if componentes_df.empty:
+                componentes_df = referencia_iqs
+
             with col_comp:
-                novo_comp = _codigo_selectbox(
+                novo_comp = _referencia_selectbox(
                     "COD_COMP_INTRP",
-                    defaults.get("NOVO_COD_COMP_INTRP", ""),
-                    COMPONENTE_DESCRICOES,
-                    _widget_key("novo_comp", defaults),
+                    componentes_df,
+                    "COD_COMP",
+                    "DESC_COMP",
+                    default_comp,
+                    _widget_key("novo_comp", {**defaults, "COD_GRUPO_GCR": cod_grupo}),
                 )
             with col_desc_comp:
                 st.text_input(
                     "DESC_COMP_INTRP",
-                    value=_descricao_codigo(novo_comp, COMPONENTE_DESCRICOES),
+                    value=_referencia_descricao(componentes_df, "COD_COMP", "DESC_COMP", novo_comp, COMPONENTE_DESCRICOES),
                     disabled=True,
-                    key=_widget_key("desc_comp", {**defaults, "NOVO_COD_COMP_INTRP": novo_comp}),
+                    key=_widget_key("desc_comp", {**defaults, "NOVO_COD_COMP_INTRP": novo_comp, "COD_GRUPO_GCR": cod_grupo}),
+                )
+
+            causas_df = componentes_df
+            if novo_comp:
+                causas_df = componentes_df[componentes_df["COD_COMP"].astype(str).str.strip() == novo_comp]
+            if causas_df.empty:
+                causas_df = _fallback_referencia_componentes_causas()
+                if novo_comp:
+                    causas_df = causas_df[causas_df["COD_COMP"].astype(str).str.strip() == novo_comp]
+                if causas_df.empty:
+                    causas_df = _fallback_referencia_componentes_causas()
+
+            col_causa, col_desc_causa = st.columns([1, 3])
+            with col_causa:
+                novo_causa = _referencia_selectbox(
+                    "COD_CAUSA_INTRP",
+                    causas_df,
+                    "COD_CAUSA",
+                    "DESC_CAUSA",
+                    default_causa,
+                    _widget_key("novo_causa", {**defaults, "NOVO_COD_COMP_INTRP": novo_comp}),
+                )
+            with col_desc_causa:
+                st.text_input(
+                    "DESC_CAUSA_INTRP",
+                    value=_referencia_descricao(causas_df, "COD_CAUSA", "DESC_CAUSA", novo_causa, CAUSA_DESCRICOES),
+                    disabled=True,
+                    key=_widget_key("desc_causa", {**defaults, "NOVO_COD_CAUSA_INTRP": novo_causa, "NOVO_COD_COMP_INTRP": novo_comp}),
                 )
 
             col_clima, col_tipo = st.columns(2)
