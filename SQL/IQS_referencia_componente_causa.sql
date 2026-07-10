@@ -24,6 +24,9 @@ LEFT JOIN sod.CAUSA ca
 WHERE comp.COD_COMP IS NOT NULL
   AND ca.COD_CAUSA IS NOT NULL
 ORDER BY
+    gcr.COD_GRUPO_GCR,
     gcr.DESC_GRUPO_GCR,
+    comp.COD_COMP,
     comp.DESC_COMP,
+    ca.COD_CAUSA,
     ca.DESC_CAUSA
