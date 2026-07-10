@@ -206,7 +206,7 @@ def ensure_ajustes_db(anomes: str) -> None:
 def listar_ajustes(anomes: str) -> pd.DataFrame:
     ensure_ajustes_db(anomes)
     db_path = ajustes_db_path(anomes)
-    with duckdb.connect(str(db_path), read_only=True) as con:
+    with duckdb.connect(str(db_path)) as con:
         df = con.execute(
             """
             SELECT *
@@ -825,9 +825,7 @@ def show_ajuste_manual_iqs(anomes: str, db_path: str, sample_limit: int) -> None
                 hide_index=True,
             )
 
-        options = _candidate_options(candidates)
-        selected = st.selectbox("Usar candidato como base", list(options.keys()))
-        defaults = options[selected]
+        defaults = {}
 
         st.markdown("### Identificação (Pesquisa e Vínculo)")
         col_scope, col_input, col_btn = st.columns([1, 2, 1])
