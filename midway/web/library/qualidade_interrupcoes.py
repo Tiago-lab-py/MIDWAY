@@ -190,6 +190,7 @@ def _base_quality_query(db_path: str) -> str:
                 MAX(NULLIF(TRIM(CAST(SIGLA_REGIONAL AS VARCHAR)), '')) AS REGIONAL,
                 MAX(NULLIF(TRIM(CAST(ALIM_INTRP AS VARCHAR)), '')) AS ALIM_INTRP,
                 MAX(NULLIF(TRIM(CAST(NUM_OPER_CHV_INTRP AS VARCHAR)), '')) AS NUM_OPER_CHV_INTRP,
+                MAX(NULLIF(TRIM(CAST(TIPO_CHV_INTRP AS VARCHAR)), '')) AS TIPO_CHV_INTRP,
                 MAX(LPAD(NULLIF(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), ''), 2, '0')) AS COD_CAUSA_INTRP,
                 MAX(NULLIF(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '')) AS COD_COMP_INTRP,
                 MAX(NULLIF(TRIM(CAST(VALID_POS_OPERACAO AS VARCHAR)), '')) AS VALID_POS_OPERACAO,
@@ -339,6 +340,12 @@ def _base_quality_query(db_path: str) -> str:
                 i.REGIONAL,
                 i.ALIM_INTRP,
                 i.NUM_OPER_CHV_INTRP,
+                i.TIPO_CHV_INTRP,
+                CASE
+                    WHEN UPPER(TRIM(COALESCE(i.TIPO_CHV_INTRP, ''))) = 'RA' THEN 'RELIGADOR AUTOMATICO'
+                    WHEN NULLIF(TRIM(COALESCE(i.TIPO_CHV_INTRP, '')), '') IS NOT NULL THEN i.TIPO_CHV_INTRP
+                    ELSE NULL
+                END AS DESC_TIPO_CHV_INTRP,
                 i.COD_CAUSA_INTRP,
                 i.COD_COMP_INTRP,
                 i.VALID_POS_OPERACAO,
@@ -438,6 +445,8 @@ def qualidade_ranking(
                 REGIONAL,
                 ALIM_INTRP,
                 NUM_OPER_CHV_INTRP,
+                TIPO_CHV_INTRP,
+                DESC_TIPO_CHV_INTRP,
                 DATA_HORA_INIC_INTRP,
                 DATA_HORA_FIM_INTRP,
                 COD_CAUSA_INTRP,
