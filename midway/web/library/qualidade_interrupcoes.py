@@ -24,6 +24,19 @@ def _sql_literal(value: str | Path) -> str:
     return "'" + str(value).replace("\\", "/").replace("'", "''") + "'"
 
 
+def _attach_servicos_raw(con, raw_path: str | Path) -> None:
+    databases = con.execute("PRAGMA database_list").fetchall()
+    if any(row[1] == "serv_raw" for row in databases):
+        return
+
+    try:
+        con.execute(f"ATTACH {_sql_literal(raw_path)} AS serv_raw (READ_ONLY)")
+    except duckdb.BinderException as exc:
+        if "database with name \"serv_raw\" already exists" in str(exc).lower():
+            return
+        raise
+
+
 def _raw_servicos_exists(raw_path: Path) -> bool:
     if not raw_path.exists():
         return False
@@ -76,7 +89,7 @@ def _referencia_componente_causa_cte(db_path: str) -> str:
 @st.cache_data(show_spinner=False)
 def qualidade_overview(db_path: str, raw_path: str) -> pd.DataFrame:
     with duckdb.connect(db_path, read_only=True) as con:
-        con.execute(f"ATTACH {_sql_literal(raw_path)} AS serv_raw (READ_ONLY)")
+        _attach_servicos_raw(con, raw_path)
         return con.execute(
             """
             WITH interrupcoes AS (
@@ -350,8 +363,8 @@ def _base_quality_query(db_path: str) -> str:
                 COALESCE(sc.QTD_INCONSISTENCIA_COMP_CAUSA, 0) AS QTD_INCONSISTENCIA_COMP_CAUSA,
                 sc.PARES_COMP_CAUSA_INCONSISTENTES,
                 sc.SUGESTAO_PARES_COMP_CAUSA,
-                COALESCE(sc.SUGESTAO_COD_COMP_INTRP, s.COMPONENTES_SERVICO) AS SUGESTAO_COD_COMP_INTRP,
-                COALESCE(sc.SUGESTAO_COD_CAUSA_INTRP, s.CAUSAS_SERVICO) AS SUGESTAO_COD_CAUSA_INTRP,
+                sc.SUGESTAO_COD_COMP_INTRP AS SUGESTAO_COD_COMP_INTRP,
+                sc.SUGESTAO_COD_CAUSA_INTRP AS SUGESTAO_COD_CAUSA_INTRP,
                 COALESCE(r.QTD_RECLAMACOES, 0) AS QTD_RECLAMACOES,
                 COALESCE(r.QTD_UCS_RECLAMANTES, 0) AS QTD_UCS_RECLAMANTES,
                 r.TIPOS_RECLAMACAO_PROVAVEIS,
@@ -413,7 +426,7 @@ def qualidade_ranking(
 
     where_clause = " AND ".join(filters)
     with duckdb.connect(db_path, read_only=True) as con:
-        con.execute(f"ATTACH {_sql_literal(raw_path)} AS serv_raw (READ_ONLY)")
+        _attach_servicos_raw(con, raw_path)
         return con.execute(
             f"""
             SELECT
@@ -471,7 +484,7 @@ def qualidade_ranking(
 @st.cache_data(show_spinner=False)
 def qualidade_por_classificacao(db_path: str, raw_path: str) -> pd.DataFrame:
     with duckdb.connect(db_path, read_only=True) as con:
-        con.execute(f"ATTACH {_sql_literal(raw_path)} AS serv_raw (READ_ONLY)")
+        _attach_servicos_raw(con, raw_path)
         return con.execute(
             f"""
             SELECT
@@ -497,7 +510,7 @@ def qualidade_por_classificacao(db_path: str, raw_path: str) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def servicos_por_causa(db_path: str, raw_path: str, limit: int) -> pd.DataFrame:
     with duckdb.connect(db_path, read_only=True) as con:
-        con.execute(f"ATTACH {_sql_literal(raw_path)} AS serv_raw (READ_ONLY)")
+        _attach_servicos_raw(con, raw_path)
         return con.execute(
             f"""
             SELECT
