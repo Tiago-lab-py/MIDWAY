@@ -386,11 +386,15 @@ def _fallback_ocorrencia_df(db_path: str, occurrence: str, interruption: str, uc
 
 
 def _candidate_defaults(row: pd.Series | dict) -> dict[str, str]:
-    causa_servico = _first_list_value(row.get("CAUSAS_SERVICO"))
-    componente_servico = _first_list_value(row.get("COMPONENTES_SERVICO"))
+    causa_sugerida = _first_list_value(row.get("SUGESTAO_COD_CAUSA_INTRP")) or _first_list_value(row.get("CAUSAS_SERVICO"))
+    componente_sugerido = _first_list_value(row.get("SUGESTAO_COD_COMP_INTRP")) or _first_list_value(row.get("COMPONENTES_SERVICO"))
+    pares_inconsistentes = _row_value(row, ["PARES_COMP_CAUSA_INCONSISTENTES"])
+    sugestao_pares = _row_value(row, ["SUGESTAO_PARES_COMP_CAUSA"])
     justificativa_partes = [
         _row_value(row, ["CLASSIFICACAO_QUALIDADE"]),
         f"score={_row_value(row, ['SCORE_QUALIDADE'])}" if _row_value(row, ["SCORE_QUALIDADE"]) else "",
+        f"pares inconsistentes={pares_inconsistentes}" if pares_inconsistentes else "",
+        f"sugestao componente/causa={sugestao_pares}" if sugestao_pares else "",
         _row_value(row, ["TIPOS_RECLAMACAO_PROVAVEIS"]),
         _row_value(row, ["PREVIAS_CAUSA_RECLAMACAO", "CAUSAS_PROVAVEIS_RECLAMACAO"]),
     ]
@@ -401,8 +405,10 @@ def _candidate_defaults(row: pd.Series | dict) -> dict[str, str]:
         "SIGLA_REGIONAL": _row_value(row, ["REGIONAL", "SIGLA_REGIONAL"]),
         "COD_CAUSA_ATUAL": _row_value(row, ["COD_CAUSA_INTRP"]),
         "COD_COMP_ATUAL": _row_value(row, ["COD_COMP_INTRP"]),
-        "NOVO_COD_CAUSA_INTRP": causa_servico,
-        "NOVO_COD_COMP_INTRP": componente_servico,
+        "NOVO_COD_CAUSA_INTRP": causa_sugerida,
+        "NOVO_COD_COMP_INTRP": componente_sugerido,
+        "PARES_COMP_CAUSA_INCONSISTENTES": pares_inconsistentes,
+        "SUGESTAO_PARES_COMP_CAUSA": sugestao_pares,
         "JUSTIFICATIVA": " | ".join(part for part in justificativa_partes if part),
         "CLASSIFICACAO_QUALIDADE": _row_value(row, ["CLASSIFICACAO_QUALIDADE"]),
         "SCORE_QUALIDADE": _row_value(row, ["SCORE_QUALIDADE"]),
@@ -453,9 +459,9 @@ def _defaults_from_gold(db_path: str, occurrence: str, interruption: str, uc: st
                 continue
 
             row = df.iloc[0]
-            causa_sugerida = _first_list_value(_row_value(row, ["CAUSAS_SERVICO"]))
-            comp_sugerido = _first_list_value(_row_value(row, ["COMPONENTES_SERVICO"]))
-            justificativa = _row_value(row, ["PREVIA_CAUSA_RECLAMACAO", "CAUSA_PROVAVEL_RECLAMACAO"])
+            causa_sugerida = _first_list_value(_row_value(row, ["SUGESTAO_COD_CAUSA_INTRP", "CAUSAS_SERVICO"]))
+            comp_sugerido = _first_list_value(_row_value(row, ["SUGESTAO_COD_COMP_INTRP", "COMPONENTES_SERVICO"]))
+            justificativa = _row_value(row, ["SUGESTAO_PARES_COMP_CAUSA", "PREVIA_CAUSA_RECLAMACAO", "CAUSA_PROVAVEL_RECLAMACAO"])
             classificacao = _row_value(row, ["CLASSIFICACACAO_QUALIDADE", "CLASSIFICACAO_VINCULO_RECLAMACAO"])
             return {
                 "NUM_OCORRENCIA_ADMS": _row_value(row, ["NUM_OCORRENCIA_ADMS"]),
@@ -498,6 +504,8 @@ def _render_sugestoes(defaults: dict[str, str]) -> None:
         "NOVO_COD_CAUSA_INTRP",
         "COD_COMP_ATUAL",
         "NOVO_COD_COMP_INTRP",
+        "PARES_COMP_CAUSA_INCONSISTENTES",
+        "SUGESTAO_PARES_COMP_CAUSA",
         "JUSTIFICATIVA",
     ]
     rows = [{"Campo": field, "Valor": defaults.get(field, "")} for field in fields if ajuste._clean_value(defaults.get(field, ""))]
@@ -603,6 +611,7 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
                 "Todos",
                 "SUSPEITA_IMPROCEDENTE",
                 "SUSPEITA_ATENDIDO_OUTRA_OCORRENCIA",
+                "INCONSISTENCIA_COMPONENTE_CAUSA",
                 "RECLAMACAO_FORTE_SEM_SERVICO",
                 "RECLAMACAO_FORTE_REVISAR_CAUSA",
                 "MULTIPLOS_SERVICOS_REVISAR",
@@ -663,6 +672,11 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
                 "COD_COMP_INTRP",
                 "CAUSAS_SERVICO",
                 "COMPONENTES_SERVICO",
+                "QTD_INCONSISTENCIA_COMP_CAUSA",
+                "PARES_COMP_CAUSA_INCONSISTENTES",
+                "SUGESTAO_PARES_COMP_CAUSA",
+                "SUGESTAO_COD_CAUSA_INTRP",
+                "SUGESTAO_COD_COMP_INTRP",
                 "QTD_RECLAMACOES",
                 "FIC_OCORRENCIA",
                 "DIC_OCORRENCIA",
