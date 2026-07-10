@@ -42,6 +42,37 @@ def _raw_servicos_exists(raw_path: Path) -> bool:
         )
 
 
+def _referencia_componente_causa_cte(db_path: str) -> str:
+    if table_exists(db_path, "gold_iqs_referencia_componente_causa"):
+        return """
+        referencia_comp_causa AS (
+            SELECT DISTINCT
+                NULLIF(TRIM(CAST(COD_COMP AS VARCHAR)), '') AS COD_COMP,
+                NULLIF(TRIM(CAST(DESC_COMP AS VARCHAR)), '') AS DESC_COMP,
+                LPAD(NULLIF(TRIM(CAST(COD_CAUSA AS VARCHAR)), ''), 2, '0') AS COD_CAUSA,
+                NULLIF(TRIM(CAST(DESC_CAUSA AS VARCHAR)), '') AS DESC_CAUSA,
+                NULLIF(TRIM(CAST(COD_GRUPO_GCR AS VARCHAR)), '') AS COD_GRUPO_GCR,
+                NULLIF(TRIM(CAST(DESC_GRUPO_GCR AS VARCHAR)), '') AS DESC_GRUPO_GCR
+            FROM gold_iqs_referencia_componente_causa
+            WHERE NULLIF(TRIM(CAST(COD_COMP AS VARCHAR)), '') IS NOT NULL
+              AND NULLIF(TRIM(CAST(COD_CAUSA AS VARCHAR)), '') IS NOT NULL
+        ),
+        """
+
+    return """
+        referencia_comp_causa AS (
+            SELECT
+                CAST(NULL AS VARCHAR) AS COD_COMP,
+                CAST(NULL AS VARCHAR) AS DESC_COMP,
+                CAST(NULL AS VARCHAR) AS COD_CAUSA,
+                CAST(NULL AS VARCHAR) AS DESC_CAUSA,
+                CAST(NULL AS VARCHAR) AS COD_GRUPO_GCR,
+                CAST(NULL AS VARCHAR) AS DESC_GRUPO_GCR
+            WHERE FALSE
+        ),
+        """
+
+
 @st.cache_data(show_spinner=False)
 def qualidade_overview(db_path: str, raw_path: str) -> pd.DataFrame:
     with duckdb.connect(db_path, read_only=True) as con:
@@ -90,6 +121,7 @@ def _classification_sql() -> str:
         CASE
             WHEN COALESCE(QTD_CAUSA_85, 0) > 0 THEN 'SUSPEITA_IMPROCEDENTE'
             WHEN COALESCE(QTD_CAUSA_22, 0) > 0 THEN 'SUSPEITA_ATENDIDO_OUTRA_OCORRENCIA'
+            WHEN COALESCE(QTD_INCONSISTENCIA_COMP_CAUSA, 0) > 0 THEN 'INCONSISTENCIA_COMPONENTE_CAUSA'
             WHEN COALESCE(QTD_RECLAMACOES, 0) >= 10 AND COALESCE(QTD_SERVICOS, 0) = 0
                 THEN 'RECLAMACAO_FORTE_SEM_SERVICO'
             WHEN COALESCE(QTD_RECLAMACOES, 0) >= 10
@@ -117,6 +149,7 @@ def _score_sql() -> str:
             + CASE WHEN COALESCE(QTD_SERVICOS, 0) > 0 THEN 20 ELSE 0 END
             + CASE WHEN COALESCE(QTD_CAUSA_22, 0) > 0 THEN 25 ELSE 0 END
             + CASE WHEN COALESCE(QTD_CAUSA_85, 0) > 0 THEN 25 ELSE 0 END
+            + CASE WHEN COALESCE(QTD_INCONSISTENCIA_COMP_CAUSA, 0) > 0 THEN 25 ELSE 0 END
             + CASE WHEN COALESCE(QTD_SERVICOS, 0) > 1 THEN 10 ELSE 0 END
             + CASE
                 WHEN COALESCE(CAUSAS_SERVICO, '') <> ''
@@ -134,7 +167,7 @@ def _score_sql() -> str:
     """
 
 
-def _base_quality_query() -> str:
+def _base_quality_query(db_path: str) -> str:
     return f"""
         WITH interrupcoes AS (
             SELECT
@@ -144,7 +177,7 @@ def _base_quality_query() -> str:
                 MAX(NULLIF(TRIM(CAST(SIGLA_REGIONAL AS VARCHAR)), '')) AS REGIONAL,
                 MAX(NULLIF(TRIM(CAST(ALIM_INTRP AS VARCHAR)), '')) AS ALIM_INTRP,
                 MAX(NULLIF(TRIM(CAST(NUM_OPER_CHV_INTRP AS VARCHAR)), '')) AS NUM_OPER_CHV_INTRP,
-                MAX(NULLIF(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '')) AS COD_CAUSA_INTRP,
+                MAX(LPAD(NULLIF(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), ''), 2, '0')) AS COD_CAUSA_INTRP,
                 MAX(NULLIF(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '')) AS COD_COMP_INTRP,
                 MAX(NULLIF(TRIM(CAST(VALID_POS_OPERACAO AS VARCHAR)), '')) AS VALID_POS_OPERACAO,
                 MIN(DATA_HORA_INIC_INTRP) AS DATA_HORA_INIC_INTRP,
@@ -183,6 +216,89 @@ def _base_quality_query() -> str:
             FROM serv_raw.raw_adms_servicos
             WHERE NULLIF(TRIM(CAST(PID_INTRP_SRVE AS VARCHAR)), '') IS NOT NULL
             GROUP BY 1
+        ),
+        servico_pares AS (
+            SELECT DISTINCT
+                NULLIF(TRIM(CAST(PID_INTRP_SRVE AS VARCHAR)), '') AS NUM_SEQ_INTRP,
+                NULLIF(TRIM(CAST(COD_COMP_SRVE AS VARCHAR)), '') AS COD_COMP_SERVICO,
+                LPAD(NULLIF(TRIM(CAST(COD_CAUSA_SRVE AS VARCHAR)), ''), 2, '0') AS COD_CAUSA_SERVICO
+            FROM serv_raw.raw_adms_servicos
+            WHERE NULLIF(TRIM(CAST(PID_INTRP_SRVE AS VARCHAR)), '') IS NOT NULL
+              AND NULLIF(TRIM(CAST(COD_COMP_SRVE AS VARCHAR)), '') IS NOT NULL
+              AND NULLIF(TRIM(CAST(COD_CAUSA_SRVE AS VARCHAR)), '') IS NOT NULL
+        ),
+        {_referencia_componente_causa_cte(db_path)}
+        ref_primeira_causa_comp AS (
+            SELECT
+                COD_COMP,
+                MIN(COD_CAUSA) AS COD_CAUSA_SUGERIDA,
+                ANY_VALUE(DESC_CAUSA) AS DESC_CAUSA_SUGERIDA
+            FROM referencia_comp_causa
+            WHERE COD_COMP IS NOT NULL
+              AND COD_CAUSA IS NOT NULL
+            GROUP BY COD_COMP
+        ),
+        ref_primeiro_comp_causa AS (
+            SELECT
+                COD_CAUSA,
+                MIN(COD_COMP) AS COD_COMP_SUGERIDO,
+                ANY_VALUE(DESC_COMP) AS DESC_COMP_SUGERIDO
+            FROM referencia_comp_causa
+            WHERE COD_COMP IS NOT NULL
+              AND COD_CAUSA IS NOT NULL
+            GROUP BY COD_CAUSA
+        ),
+        servico_consistencia AS (
+            SELECT
+                sp.NUM_SEQ_INTRP,
+                COUNT(*) AS QTD_PARES_COMP_CAUSA_SERVICO,
+                SUM(CASE WHEN ref.COD_COMP IS NOT NULL THEN 1 ELSE 0 END) AS QTD_PARES_COMP_CAUSA_VALIDOS,
+                SUM(CASE WHEN ref.COD_COMP IS NULL THEN 1 ELSE 0 END) AS QTD_INCONSISTENCIA_COMP_CAUSA,
+                STRING_AGG(
+                    DISTINCT CASE
+                        WHEN ref.COD_COMP IS NULL THEN sp.COD_COMP_SERVICO || '/' || sp.COD_CAUSA_SERVICO
+                    END,
+                    ', '
+                    ORDER BY CASE
+                        WHEN ref.COD_COMP IS NULL THEN sp.COD_COMP_SERVICO || '/' || sp.COD_CAUSA_SERVICO
+                    END
+                ) AS PARES_COMP_CAUSA_INCONSISTENTES,
+                STRING_AGG(
+                    DISTINCT CASE
+                        WHEN ref.COD_COMP IS NULL THEN
+                            COALESCE(
+                                CASE WHEN rpc.COD_CAUSA_SUGERIDA IS NOT NULL THEN sp.COD_COMP_SERVICO || '/' || rpc.COD_CAUSA_SUGERIDA END,
+                                CASE WHEN rca.COD_COMP_SUGERIDO IS NOT NULL THEN rca.COD_COMP_SUGERIDO || '/' || sp.COD_CAUSA_SERVICO END
+                            )
+                    END,
+                    ', '
+                    ORDER BY CASE
+                        WHEN ref.COD_COMP IS NULL THEN
+                            COALESCE(
+                                CASE WHEN rpc.COD_CAUSA_SUGERIDA IS NOT NULL THEN sp.COD_COMP_SERVICO || '/' || rpc.COD_CAUSA_SUGERIDA END,
+                                CASE WHEN rca.COD_COMP_SUGERIDO IS NOT NULL THEN rca.COD_COMP_SUGERIDO || '/' || sp.COD_CAUSA_SERVICO END
+                            )
+                    END
+                ) AS SUGESTAO_PARES_COMP_CAUSA,
+                MIN(
+                    CASE
+                        WHEN ref.COD_COMP IS NULL THEN COALESCE(sp.COD_COMP_SERVICO, rca.COD_COMP_SUGERIDO)
+                    END
+                ) AS SUGESTAO_COD_COMP_INTRP,
+                MIN(
+                    CASE
+                        WHEN ref.COD_COMP IS NULL THEN COALESCE(rpc.COD_CAUSA_SUGERIDA, sp.COD_CAUSA_SERVICO)
+                    END
+                ) AS SUGESTAO_COD_CAUSA_INTRP
+            FROM servico_pares sp
+            LEFT JOIN referencia_comp_causa ref
+              ON ref.COD_COMP = sp.COD_COMP_SERVICO
+             AND ref.COD_CAUSA = sp.COD_CAUSA_SERVICO
+            LEFT JOIN ref_primeira_causa_comp rpc
+              ON rpc.COD_COMP = sp.COD_COMP_SERVICO
+            LEFT JOIN ref_primeiro_comp_causa rca
+              ON rca.COD_CAUSA = sp.COD_CAUSA_SERVICO
+            GROUP BY sp.NUM_SEQ_INTRP
         ),
         reclamacoes AS (
             SELECT
@@ -234,6 +350,13 @@ def _base_quality_query() -> str:
                 s.ULTIMO_FECHAMENTO_SERVICO,
                 COALESCE(s.QTD_CAUSA_22, 0) AS QTD_CAUSA_22,
                 COALESCE(s.QTD_CAUSA_85, 0) AS QTD_CAUSA_85,
+                COALESCE(sc.QTD_PARES_COMP_CAUSA_SERVICO, 0) AS QTD_PARES_COMP_CAUSA_SERVICO,
+                COALESCE(sc.QTD_PARES_COMP_CAUSA_VALIDOS, 0) AS QTD_PARES_COMP_CAUSA_VALIDOS,
+                COALESCE(sc.QTD_INCONSISTENCIA_COMP_CAUSA, 0) AS QTD_INCONSISTENCIA_COMP_CAUSA,
+                sc.PARES_COMP_CAUSA_INCONSISTENTES,
+                sc.SUGESTAO_PARES_COMP_CAUSA,
+                COALESCE(sc.SUGESTAO_COD_COMP_INTRP, s.COMPONENTES_SERVICO) AS SUGESTAO_COD_COMP_INTRP,
+                COALESCE(sc.SUGESTAO_COD_CAUSA_INTRP, s.CAUSAS_SERVICO) AS SUGESTAO_COD_CAUSA_INTRP,
                 COALESCE(r.QTD_RECLAMACOES, 0) AS QTD_RECLAMACOES,
                 COALESCE(r.QTD_UCS_RECLAMANTES, 0) AS QTD_UCS_RECLAMANTES,
                 r.TIPOS_RECLAMACAO_PROVAVEIS,
@@ -251,6 +374,8 @@ def _base_quality_query() -> str:
               ON i.NUM_OCORRENCIA_ADMS = a.NUM_OCORRENCIA_ADMS
             LEFT JOIN servicos s
               ON i.NUM_SEQ_INTRP = s.NUM_SEQ_INTRP
+            LEFT JOIN servico_consistencia sc
+              ON i.NUM_SEQ_INTRP = sc.NUM_SEQ_INTRP
             LEFT JOIN reclamacoes r
               ON i.NUM_OCORRENCIA_ADMS = r.NUM_OCORRENCIA_ADMS
         )
@@ -311,6 +436,13 @@ def qualidade_ranking(
                 COD_COMP_INTRP,
                 CAUSAS_SERVICO,
                 COMPONENTES_SERVICO,
+                QTD_PARES_COMP_CAUSA_SERVICO,
+                QTD_PARES_COMP_CAUSA_VALIDOS,
+                QTD_INCONSISTENCIA_COMP_CAUSA,
+                PARES_COMP_CAUSA_INCONSISTENTES,
+                SUGESTAO_PARES_COMP_CAUSA,
+                SUGESTAO_COD_CAUSA_INTRP,
+                SUGESTAO_COD_COMP_INTRP,
                 QTD_SERVICOS,
                 QTD_CAUSA_22,
                 QTD_CAUSA_85,
@@ -328,10 +460,11 @@ def qualidade_ranking(
                 ORGAOS_EXECUTORES,
                 PRIMEIRO_INICIO_SERVICO,
                 ULTIMO_FECHAMENTO_SERVICO
-            FROM ({_base_quality_query()})
+            FROM ({_base_quality_query(db_path)})
             WHERE {where_clause}
             ORDER BY
                 SCORE_QUALIDADE DESC,
+                QTD_INCONSISTENCIA_COMP_CAUSA DESC,
                 QTD_RECLAMACOES DESC,
                 QTD_SERVICOS DESC,
                 DIC_OCORRENCIA DESC
@@ -354,9 +487,10 @@ def qualidade_por_classificacao(db_path: str, raw_path: str) -> pd.DataFrame:
                 SUM(QTD_UCS_RECLAMANTES) AS UCS_RECLAMANTES,
                 SUM(QTD_CAUSA_22) AS CAUSAS_22,
                 SUM(QTD_CAUSA_85) AS CAUSAS_85,
+                SUM(QTD_INCONSISTENCIA_COMP_CAUSA) AS INCONSISTENCIAS_COMP_CAUSA,
                 AVG(SCORE_QUALIDADE) AS SCORE_MEDIO,
                 SUM(DIC_OCORRENCIA) AS DIC_TOTAL
-            FROM ({_base_quality_query()})
+            FROM ({_base_quality_query(db_path)})
             GROUP BY 1
             ORDER BY
                 MAX(SCORE_QUALIDADE) DESC,
@@ -441,6 +575,7 @@ def show_qualidade_interrupcoes(anomes: str, db_path: str, sample_limit: int) ->
                     "Todos",
                     "SUSPEITA_IMPROCEDENTE",
                     "SUSPEITA_ATENDIDO_OUTRA_OCORRENCIA",
+                    "INCONSISTENCIA_COMPONENTE_CAUSA",
                     "RECLAMACAO_FORTE_SEM_SERVICO",
                     "RECLAMACAO_FORTE_REVISAR_CAUSA",
                     "MULTIPLOS_SERVICOS_REVISAR",
