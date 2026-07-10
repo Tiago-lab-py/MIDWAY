@@ -24,10 +24,10 @@ def main() -> None:
         - **07 SQL**: catálogo e consulta somente leitura no DuckDB processado.
         - **08 Avaliação de UC**: consulta por UC, outliers e reclamações.
         - **09 Qualidade de Interrupções**: cruza interrupção, reclamação e serviço ADMS.
-        - **10 Ajuste Manual IQS**: registra decisões e gera CSV corrigido para carga.
+        - **10 Envio IQS**: registra ajustes manuais e gera CSV corrigido para carga no IQS.
 
         Destaques da 6.2.1: exportação IQS padronizada, análise DBGUO de reclamações
-        por ocorrência, serviços ADMS, ajuste manual IQS e dicionários `data/input` versionados.
+        por ocorrência, serviços ADMS, Envio IQS com ajuste manual e dicionários `data/input` versionados.
         """
     )
 
