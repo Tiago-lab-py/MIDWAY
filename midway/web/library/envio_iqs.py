@@ -37,31 +37,11 @@ def _first_existing(columns: list[str], candidates: list[str]) -> str | None:
     return None
 
 
-def _text_expr(columns: list[str], candidates: list[str]) -> str:
-    column = _first_existing(columns, candidates)
-    if not column:
-        return "CAST(NULL AS VARCHAR)"
-    return f'NULLIF(TRIM(CAST("{column}" AS VARCHAR)), \'\')'
-
-
-def _timestamp_expr(columns: list[str], candidates: list[str]) -> str:
-    column = _first_existing(columns, candidates)
-    if not column:
-        return "CAST(NULL AS TIMESTAMP)"
-    return f'TRY_CAST("{column}" AS TIMESTAMP)'
-
-
-def _number_expr(columns: list[str], candidates: list[str]) -> str:
-    column = _first_existing(columns, candidates)
-    if not column:
-        return "CAST(0 AS DOUBLE)"
-    return f'COALESCE(TRY_CAST("{column}" AS DOUBLE), 0)'
-
-
-def _where_occurrence(columns: list[str], occurrence: str, interruption: str) -> str | None:
+def _where_occurrence(columns: list[str], occurrence: str, interruption: str, uc: str = "") -> str | None:
     conditions = []
     occurrence_col = _first_existing(columns, ["NUM_OCORRENCIA_ADMS"])
     interruption_col = _first_existing(columns, ["NUM_SEQ_INTRP", "NUM_INTRP_UCI", "INTERRUPCAO"])
+    uc_col = _first_existing(columns, ["NUM_UC_UCI", "UC"])
 
     if occurrence and occurrence_col:
         conditions.append(
@@ -71,108 +51,66 @@ def _where_occurrence(columns: list[str], occurrence: str, interruption: str) ->
         conditions.append(
             f'TRIM(CAST("{interruption_col}" AS VARCHAR)) = {sql_literal_for_streamlit(interruption)}'
         )
+    if uc and uc_col:
+        conditions.append(f'TRIM(CAST("{uc_col}" AS VARCHAR)) = {sql_literal_for_streamlit(uc)}')
 
     if not conditions:
         return None
     return " AND ".join(conditions)
 
 
-def _fallback_ocorrencia_df(db_path: str, occurrence: str, interruption: str, limit: int) -> pd.DataFrame:
-    sources = [
-        (
-            "gold_interrupcao_tratada",
-            "gold_interrupcao_tratada",
-            ["REGIONAL", "SIGLA_REGIONAL", "SIGLA_REGIONAL_INTRP_PRIM_HIADMS"],
-            ["DATA_HORA_INIC_INTRP", "DTHR_INICIO_INTRP_UC"],
-            ["DATA_HORA_FIM_INTRP"],
-        ),
-        (
-            "gold_apuracao_uc",
-            "gold_apuracao_uc",
-            ["REGIONAL", "SIGLA_REGIONAL", "SIGLA_REGIONAL_INTRP_PRIM_HIADMS"],
-            ["DATA_HORA_INIC_INTRP", "DTHR_INICIO_INTRP_UC"],
-            ["DATA_HORA_FIM_INTRP"],
-        ),
-        (
-            "gold_reclamacao_uc_vinculada",
-            "gold_reclamacao_uc_vinculada",
-            ["REGIONAL", "SIGLA_REGIONAL"],
-            ["INICIO_INTERRUPCAO_UC"],
-            ["FIM_INTERRUPCAO"],
-        ),
+def _filtered_table_df(
+    con,
+    table_name: str,
+    occurrence: str,
+    interruption: str,
+    uc: str,
+    limit: int,
+) -> pd.DataFrame:
+    columns = _table_columns(con, table_name)
+    where_clause = _where_occurrence(columns, occurrence, interruption, uc)
+    if not where_clause:
+        return pd.DataFrame()
+
+    order_col = _first_existing(
+        columns,
+        [
+            "DATA_HORA_INIC_INTRP",
+            "DTHR_INICIO_INTRP_UC",
+            "INICIO_INTERRUPCAO_UC",
+            "DTHR_RECLAMACAO",
+            "DATA_RECLAMACAO",
+        ],
+    )
+    order_clause = f'ORDER BY "{order_col}"' if order_col else ""
+
+    return con.execute(
+        f"""
+        SELECT
+            {sql_literal_for_streamlit(table_name)} AS FONTE_OCORRENCIA,
+            *
+        FROM {table_name}
+        WHERE {where_clause}
+        {order_clause}
+        LIMIT {int(limit)}
+        """
+    ).fetchdf()
+
+
+def _fallback_ocorrencia_df(db_path: str, occurrence: str, interruption: str, uc: str, limit: int) -> pd.DataFrame:
+    table_order = [
+        "gold_interrupcao_tratada",
+        "gold_apuracao_uc",
+        "gold_reclamacao_uc_vinculada",
+        "silver_dbguo_reclamacoes_candidatas",
+        "silver_dbguo_reclamacoes",
     ]
 
     with duckdb.connect(db_path, read_only=True) as con:
-        for table_name, source_label, regional_candidates, start_candidates, end_candidates in sources:
+        for table_name in table_order:
             if not table_exists(db_path, table_name):
                 continue
-
-            columns = _table_columns(con, table_name)
-            where_clause = _where_occurrence(columns, occurrence, interruption)
-            if not where_clause:
-                continue
-
-            occurrence_expr = _text_expr(columns, ["NUM_OCORRENCIA_ADMS"])
-            interruption_expr = _text_expr(columns, ["NUM_SEQ_INTRP", "INTERRUPCAO"])
-            regional_expr = _text_expr(columns, regional_candidates)
-            conjunto_expr = _text_expr(columns, ["COD_CONJTO_ELET_ANEEL_INTRP", "CONJUNTO"])
-            alim_expr = _text_expr(columns, ["ALIM_INTRP"])
-            oper_expr = _text_expr(columns, ["NUM_OPER_CHV_INTRP"])
-            geo_expr = _text_expr(columns, ["NUM_GEO_CHV_INTRP"])
-            estado_expr = _text_expr(columns, ["ESTADO_INTRP"])
-            valid_expr = _text_expr(columns, ["VALID_POS_OPERACAO"])
-            causa_expr = _text_expr(columns, ["COD_CAUSA_INTRP"])
-            comp_expr = _text_expr(columns, ["COD_COMP_INTRP"])
-            clima_expr = _text_expr(columns, ["COD_COND_CLIMA_INTRP"])
-            tipo_expr = _text_expr(columns, ["COD_TIPO_INTRP"])
-            uc_expr = _text_expr(columns, ["NUM_UC_UCI", "UC"])
-            start_expr = _timestamp_expr(columns, start_candidates)
-            end_expr = _timestamp_expr(columns, end_candidates)
-            duracao_expr = _number_expr(columns, ["DURACAO_HORA"])
-
-            df = con.execute(
-                f"""
-                SELECT
-                    {occurrence_expr} AS NUM_OCORRENCIA_ADMS,
-                    {interruption_expr} AS NUM_SEQ_INTRP,
-                    {regional_expr} AS SIGLA_REGIONAL,
-                    {conjunto_expr} AS CONJUNTO,
-                    {alim_expr} AS ALIM_INTRP,
-                    {oper_expr} AS NUM_OPER_CHV_INTRP,
-                    {geo_expr} AS NUM_GEO_CHV_INTRP,
-                    MIN({start_expr}) AS DATA_HORA_INIC_INTRP,
-                    MAX({end_expr}) AS DATA_HORA_FIM_INTRP,
-                    {estado_expr} AS ESTADO_INTRP,
-                    {valid_expr} AS VALID_POS_OPERACAO,
-                    {causa_expr} AS COD_CAUSA_INTRP,
-                    {comp_expr} AS COD_COMP_INTRP,
-                    {clima_expr} AS COD_COND_CLIMA_INTRP,
-                    {tipo_expr} AS COD_TIPO_INTRP,
-                    COUNT(*) AS LINHAS_IQS,
-                    COUNT(DISTINCT {uc_expr}) AS UCS,
-                    SUM({duracao_expr}) AS DURACAO_TOTAL_HORA,
-                    {sql_literal_for_streamlit(source_label)} AS FONTE_OCORRENCIA
-                FROM {table_name}
-                WHERE {where_clause}
-                GROUP BY
-                    {occurrence_expr},
-                    {interruption_expr},
-                    {regional_expr},
-                    {conjunto_expr},
-                    {alim_expr},
-                    {oper_expr},
-                    {geo_expr},
-                    {estado_expr},
-                    {valid_expr},
-                    {causa_expr},
-                    {comp_expr},
-                    {clima_expr},
-                    {tipo_expr}
-                ORDER BY DATA_HORA_INIC_INTRP, NUM_SEQ_INTRP
-                LIMIT {int(limit)}
-                """
-            ).fetchdf()
-
+            df = _filtered_table_df(con, table_name, occurrence, interruption, uc, limit)
             if not df.empty:
                 return df
 
@@ -180,9 +118,10 @@ def _fallback_ocorrencia_df(db_path: str, occurrence: str, interruption: str, li
 
 
 def _render_evidencias_envio(defaults: dict[str, str], db_path: str, raw_path, sample_limit: int) -> None:
-    occurrence = defaults.get("NUM_OCORRENCIA_ADMS", "")
-    interruption = defaults.get("NUM_SEQ_INTRP", "")
-    if not occurrence and not interruption:
+    occurrence = ajuste._clean_value(defaults.get("NUM_OCORRENCIA_ADMS", ""))
+    interruption = ajuste._clean_value(defaults.get("NUM_SEQ_INTRP", ""))
+    uc = ajuste._clean_value(defaults.get("NUM_UC_UCI", ""))
+    if not occurrence and not interruption and not uc:
         st.info("Selecione uma ocorrência para carregar evidências.")
         return
 
@@ -198,6 +137,7 @@ def _render_evidencias_envio(defaults: dict[str, str], db_path: str, raw_path, s
             db_path,
             occurrence,
             interruption,
+            uc,
             min(sample_limit, 200),
         )
 
@@ -213,8 +153,12 @@ def _render_evidencias_envio(defaults: dict[str, str], db_path: str, raw_path, s
     with evidence_tabs[0]:
         ocorrencia_df = detalhes["interrupcao"]
         if ocorrencia_df.empty:
-            st.info("Sem dados da ocorrência encontrados para o filtro nas tabelas `adms_iqs_export`, `gold_interrupcao_tratada`, `gold_apuracao_uc` e `gold_reclamacao_uc_vinculada`.")
+            st.info(
+                "Sem dados da ocorrência encontrados nas tabelas de evidência. "
+                "Confira se o número da ocorrência está no mesmo ANOMES processado."
+            )
         else:
+            st.caption("A fonte usada aparece na coluna `FONTE_OCORRENCIA` quando a busca cai no fallback gold/silver.")
             st.dataframe(ocorrencia_df, use_container_width=True, hide_index=True)
 
     with evidence_tabs[1]:
@@ -363,7 +307,7 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
             evidence_defaults["NUM_SEQ_INTRP"] = interrupcao
             evidence_defaults["NUM_UC_UCI"] = uc
 
-        if buscar or evidence_defaults.get("NUM_OCORRENCIA_ADMS") or evidence_defaults.get("NUM_SEQ_INTRP"):
+        if buscar or evidence_defaults.get("NUM_OCORRENCIA_ADMS") or evidence_defaults.get("NUM_SEQ_INTRP") or evidence_defaults.get("NUM_UC_UCI"):
             st.markdown("### Evidências para decisão")
             _render_evidencias_envio(evidence_defaults, db_path, raw_path, sample_limit)
 
