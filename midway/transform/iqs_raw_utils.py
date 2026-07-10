@@ -14,6 +14,7 @@ IQS_RAW_TABLES = {
     "raw_iqs_uc_fatura": "gold_uc_fatura",
     "raw_iqs_vrc": "gold_vrc",
     "raw_iqs_metas_uc": "gold_metas_uc",
+    "raw_iqs_referencia_componente_causa": "gold_iqs_referencia_componente_causa",
 }
 
 IQS_SILVER_TABLES = {
@@ -21,6 +22,7 @@ IQS_SILVER_TABLES = {
     "raw_iqs_uc_fatura": "silver_iqs_uc_fatura",
     "raw_iqs_vrc": "silver_iqs_vrc",
     "raw_iqs_metas_uc": "silver_iqs_metas_uc",
+    "raw_iqs_referencia_componente_causa": "silver_iqs_referencia_componente_causa",
 }
 
 
