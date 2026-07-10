@@ -120,6 +120,14 @@ def first_existing(columns: list[str], candidates: list[str]) -> str | None:
     return None
 
 
+def column_text_expr(columns: list[str], column_name: str, alias: str | None = None) -> str:
+    actual = first_existing(columns, [column_name])
+    if not actual:
+        return "CAST(NULL AS VARCHAR)"
+    prefix = f'{alias}.' if alias else ""
+    return f'NULLIF(TRIM(CAST({prefix}"{actual}" AS VARCHAR)), \'\')'
+
+
 def attach_dbguo_raw(con) -> str:
     if not RAW_DUCKDB_PATH.exists():
         raise RuntimeError(f"DuckDB raw DBGUO nao encontrado: {RAW_DUCKDB_PATH}")
@@ -240,10 +248,52 @@ def criar_silver_reclamacoes(con):
     )
 
     apuracao_cols = table_columns(con, "gold_apuracao_uc")
-    apuracao_cols_upper = {col.upper() for col in apuracao_cols}
-    alim_expr = "NULLIF(TRIM(CAST(ALIM_INTRP AS VARCHAR)), '')" if "ALIM_INTRP" in apuracao_cols_upper else "NULL"
-    oper_chv_expr = "NULLIF(TRIM(CAST(NUM_OPER_CHV_INTRP AS VARCHAR)), '')" if "NUM_OPER_CHV_INTRP" in apuracao_cols_upper else "NULL"
-    geo_chv_expr = "NULLIF(TRIM(CAST(NUM_GEO_CHV_INTRP AS VARCHAR)), '')" if "NUM_GEO_CHV_INTRP" in apuracao_cols_upper else "NULL"
+    apuracao_alim_expr = column_text_expr(apuracao_cols, "ALIM_INTRP")
+    apuracao_oper_chv_expr = column_text_expr(apuracao_cols, "NUM_OPER_CHV_INTRP")
+    apuracao_geo_chv_expr = column_text_expr(apuracao_cols, "NUM_GEO_CHV_INTRP")
+
+    tratada_cols = table_columns(con, "gold_interrupcao_tratada") if table_exists(con, "gold_interrupcao_tratada") else []
+    tratada_tem_chaves = all(
+        first_existing(tratada_cols, [col])
+        for col in ["NUM_OCORRENCIA_ADMS", "NUM_SEQ_INTRP", "NUM_INTRP_UCI"]
+    )
+    tratada_alim_expr = column_text_expr(tratada_cols, "ALIM_INTRP")
+    tratada_oper_chv_expr = column_text_expr(tratada_cols, "NUM_OPER_CHV_INTRP")
+    tratada_geo_chv_expr = column_text_expr(tratada_cols, "NUM_GEO_CHV_INTRP")
+
+    if tratada_tem_chaves:
+        interrupcao_meta_cte = f"""
+        interrupcao_meta AS (
+            SELECT
+                NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') AS NUM_OCORRENCIA_ADMS,
+                NULLIF(TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)), '') AS NUM_SEQ_INTRP,
+                NULLIF(TRIM(CAST(NUM_INTRP_UCI AS VARCHAR)), '') AS NUM_INTRP_UCI,
+                MAX({tratada_alim_expr}) AS ALIM_INTRP_META,
+                MAX({tratada_oper_chv_expr}) AS NUM_OPER_CHV_INTRP_META,
+                MAX({tratada_geo_chv_expr}) AS NUM_GEO_CHV_INTRP_META
+            FROM gold_interrupcao_tratada
+            WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+              AND NULLIF(TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)), '') IS NOT NULL
+              AND NULLIF(TRIM(CAST(NUM_INTRP_UCI AS VARCHAR)), '') IS NOT NULL
+            GROUP BY
+                NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), ''),
+                NULLIF(TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)), ''),
+                NULLIF(TRIM(CAST(NUM_INTRP_UCI AS VARCHAR)), '')
+        ),
+        """
+    else:
+        interrupcao_meta_cte = """
+        interrupcao_meta AS (
+            SELECT
+                CAST(NULL AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
+                CAST(NULL AS VARCHAR) AS NUM_SEQ_INTRP,
+                CAST(NULL AS VARCHAR) AS NUM_INTRP_UCI,
+                CAST(NULL AS VARCHAR) AS ALIM_INTRP_META,
+                CAST(NULL AS VARCHAR) AS NUM_OPER_CHV_INTRP_META,
+                CAST(NULL AS VARCHAR) AS NUM_GEO_CHV_INTRP_META
+            WHERE FALSE
+        ),
+        """
 
     con.execute(
         f"""
@@ -295,7 +345,8 @@ def criar_silver_reclamacoes(con):
                 END AS TIPO_RECLAMACAO_PROVAVEL
             FROM reclamacoes
         ),
-        eventos AS (
+        {interrupcao_meta_cte}
+        eventos_base AS (
             SELECT
                 NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') AS UC,
                 NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') AS NUM_OCORRENCIA_ADMS,
@@ -303,9 +354,9 @@ def criar_silver_reclamacoes(con):
                 NULLIF(TRIM(CAST(NUM_INTRP_UCI AS VARCHAR)), '') AS NUM_INTRP_UCI,
                 NULLIF(TRIM(CAST(NUM_POSTO_UCI AS VARCHAR)), '') AS NUM_POSTO_UCI,
                 NULLIF(TRIM(CAST(COD_CONJTO_ELET_ANEEL_INTRP AS VARCHAR)), '') AS CONJUNTO,
-                {alim_expr} AS ALIM_INTRP,
-                {oper_chv_expr} AS NUM_OPER_CHV_INTRP,
-                {geo_chv_expr} AS NUM_GEO_CHV_INTRP,
+                {apuracao_alim_expr} AS ALIM_INTRP_APURACAO,
+                {apuracao_oper_chv_expr} AS NUM_OPER_CHV_INTRP_APURACAO,
+                {apuracao_geo_chv_expr} AS NUM_GEO_CHV_INTRP_APURACAO,
                 NULLIF(TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), '') AS TIPO_PROTOC_JUSTIF_UCI,
                 NULLIF(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') AS COD_CAUSA_INTRP,
                 NULLIF(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '') AS COD_COMP_INTRP,
@@ -318,6 +369,31 @@ def criar_silver_reclamacoes(con):
             WHERE NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') IS NOT NULL
               AND DTHR_INICIO_INTRP_UC IS NOT NULL
               AND DATA_HORA_FIM_INTRP IS NOT NULL
+        ),
+        eventos AS (
+            SELECT
+                e.UC,
+                e.NUM_OCORRENCIA_ADMS,
+                e.NUM_SEQ_INTRP,
+                e.NUM_INTRP_UCI,
+                e.NUM_POSTO_UCI,
+                e.CONJUNTO,
+                COALESCE(e.ALIM_INTRP_APURACAO, m.ALIM_INTRP_META) AS ALIM_INTRP,
+                COALESCE(e.NUM_OPER_CHV_INTRP_APURACAO, m.NUM_OPER_CHV_INTRP_META) AS NUM_OPER_CHV_INTRP,
+                COALESCE(e.NUM_GEO_CHV_INTRP_APURACAO, m.NUM_GEO_CHV_INTRP_META) AS NUM_GEO_CHV_INTRP,
+                e.TIPO_PROTOC_JUSTIF_UCI,
+                e.COD_CAUSA_INTRP,
+                e.COD_COMP_INTRP,
+                e.INICIO_INTERRUPCAO_UC,
+                e.FIM_INTERRUPCAO,
+                e.DURACAO_HORA,
+                e.CI_LIQUIDO,
+                e.CHI_LIQUIDO
+            FROM eventos_base e
+            LEFT JOIN interrupcao_meta m
+              ON m.NUM_OCORRENCIA_ADMS = e.NUM_OCORRENCIA_ADMS
+             AND m.NUM_SEQ_INTRP = e.NUM_SEQ_INTRP
+             AND m.NUM_INTRP_UCI = e.NUM_INTRP_UCI
         )
         SELECT
             r.ID_RECLAMACAO,
