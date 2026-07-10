@@ -37,6 +37,22 @@ def _first_existing(columns: list[str], candidates: list[str]) -> str | None:
     return None
 
 
+def _first_list_value(value) -> str:
+    text = ajuste._clean_value(value)
+    if not text:
+        return ""
+    return next((part.strip() for part in text.split(",") if part.strip()), "")
+
+
+def _row_value(row: pd.Series | dict, candidates: list[str]) -> str:
+    for column in candidates:
+        if column in row:
+            value = ajuste._clean_value(row.get(column))
+            if value:
+                return value
+    return ""
+
+
 def _where_occurrence(columns: list[str], occurrence: str, interruption: str, uc: str = "") -> str | None:
     conditions = []
     occurrence_col = _first_existing(columns, ["NUM_OCORRENCIA_ADMS"])
@@ -115,6 +131,150 @@ def _fallback_ocorrencia_df(db_path: str, occurrence: str, interruption: str, uc
                 return df
 
     return pd.DataFrame()
+
+
+def _candidate_defaults(row: pd.Series | dict) -> dict[str, str]:
+    causa_servico = _first_list_value(row.get("CAUSAS_SERVICO"))
+    componente_servico = _first_list_value(row.get("COMPONENTES_SERVICO"))
+    justificativa_partes = [
+        _row_value(row, ["CLASSIFICACAO_QUALIDADE"]),
+        f"score={_row_value(row, ['SCORE_QUALIDADE'])}" if _row_value(row, ["SCORE_QUALIDADE"]) else "",
+        _row_value(row, ["TIPOS_RECLAMACAO_PROVAVEIS"]),
+        _row_value(row, ["PREVIAS_CAUSA_RECLAMACAO", "CAUSAS_PROVAVEIS_RECLAMACAO"]),
+    ]
+    return {
+        "NUM_OCORRENCIA_ADMS": _row_value(row, ["NUM_OCORRENCIA_ADMS"]),
+        "NUM_SEQ_INTRP": _row_value(row, ["NUM_SEQ_INTRP"]),
+        "NUM_UC_UCI": _row_value(row, ["NUM_UC_UCI", "UC"]),
+        "SIGLA_REGIONAL": _row_value(row, ["REGIONAL", "SIGLA_REGIONAL"]),
+        "COD_CAUSA_ATUAL": _row_value(row, ["COD_CAUSA_INTRP"]),
+        "COD_COMP_ATUAL": _row_value(row, ["COD_COMP_INTRP"]),
+        "NOVO_COD_CAUSA_INTRP": causa_servico,
+        "NOVO_COD_COMP_INTRP": componente_servico,
+        "JUSTIFICATIVA": " | ".join(part for part in justificativa_partes if part),
+        "CLASSIFICACAO_QUALIDADE": _row_value(row, ["CLASSIFICACAO_QUALIDADE"]),
+        "SCORE_QUALIDADE": _row_value(row, ["SCORE_QUALIDADE"]),
+        "SUGESTAO_ORIGEM": "Candidatos de qualidade",
+    }
+
+
+def _candidate_options(candidates: pd.DataFrame) -> dict[str, dict[str, str]]:
+    options = {"Preencher manualmente": {}}
+    if candidates.empty:
+        return options
+
+    for _, row in candidates.head(500).iterrows():
+        occurrence = _row_value(row, ["NUM_OCORRENCIA_ADMS"])
+        interruption = _row_value(row, ["NUM_SEQ_INTRP"])
+        score = _row_value(row, ["SCORE_QUALIDADE"])
+        classification = _row_value(row, ["CLASSIFICACAO_QUALIDADE"])
+        label = f"{classification or 'CANDIDATO'} | score={score or '-'} | oc={occurrence or '-'} | intrp={interruption or '-'}"
+        options[label] = _candidate_defaults(row)
+
+    return options
+
+
+def _defaults_from_candidates(
+    candidates: pd.DataFrame,
+    occurrence: str,
+    interruption: str,
+    uc: str,
+) -> dict[str, str]:
+    if candidates.empty:
+        return {}
+
+    filtered = candidates.copy()
+    if occurrence and "NUM_OCORRENCIA_ADMS" in filtered.columns:
+        filtered = filtered[filtered["NUM_OCORRENCIA_ADMS"].astype(str).str.strip() == str(occurrence).strip()]
+    if interruption and "NUM_SEQ_INTRP" in filtered.columns:
+        filtered = filtered[filtered["NUM_SEQ_INTRP"].astype(str).str.strip() == str(interruption).strip()]
+    if uc:
+        uc_column = "NUM_UC_UCI" if "NUM_UC_UCI" in filtered.columns else "UC" if "UC" in filtered.columns else None
+        if uc_column:
+            filtered = filtered[filtered[uc_column].astype(str).str.strip() == str(uc).strip()]
+
+    if filtered.empty:
+        return {}
+
+    return _candidate_defaults(filtered.iloc[0])
+
+
+def _defaults_from_gold(db_path: str, occurrence: str, interruption: str, uc: str) -> dict[str, str]:
+    tables = [
+        "gold_reclamacao_uc_vinculada",
+        "gold_interrupcao_tratada",
+        "gold_apuracao_uc",
+        "silver_dbguo_reclamacoes_candidatas",
+        "silver_dbguo_reclamacoes",
+    ]
+
+    with duckdb.connect(db_path, read_only=True) as con:
+        for table_name in tables:
+            if not table_exists(db_path, table_name):
+                continue
+            df = _filtered_table_df(con, table_name, occurrence, interruption, uc, 1)
+            if df.empty:
+                continue
+
+            row = df.iloc[0]
+            causa_sugerida = _first_list_value(_row_value(row, ["CAUSAS_SERVICO"]))
+            comp_sugerido = _first_list_value(_row_value(row, ["COMPONENTES_SERVICO"]))
+            justificativa = _row_value(row, ["PREVIA_CAUSA_RECLAMACAO", "CAUSA_PROVAVEL_RECLAMACAO"])
+            classificacao = _row_value(row, ["CLASSIFICACACAO_QUALIDADE", "CLASSIFICACAO_VINCULO_RECLAMACAO"])
+            return {
+                "NUM_OCORRENCIA_ADMS": _row_value(row, ["NUM_OCORRENCIA_ADMS"]),
+                "NUM_SEQ_INTRP": _row_value(row, ["NUM_SEQ_INTRP", "INTERRUPCAO"]),
+                "NUM_UC_UCI": _row_value(row, ["NUM_UC_UCI", "UC"]),
+                "SIGLA_REGIONAL": _row_value(row, ["SIGLA_REGIONAL", "REGIONAL"]),
+                "COD_CAUSA_ATUAL": _row_value(row, ["COD_CAUSA_INTRP"]),
+                "COD_COMP_ATUAL": _row_value(row, ["COD_COMP_INTRP"]),
+                "NOVO_COD_CAUSA_INTRP": causa_sugerida,
+                "NOVO_COD_COMP_INTRP": comp_sugerido,
+                "NOVO_VALID_POS_OPERACAO": "S",
+                "NOVA_DATA_HORA_INIC_INTRP": _row_value(row, ["DATA_HORA_INIC_INTRP", "INICIO_INTERRUPCAO_UC"]),
+                "NOVA_DATA_HORA_FIM_INTRP": _row_value(row, ["DATA_HORA_FIM_INTRP", "FIM_INTERRUPCAO"]),
+                "NOVA_DTHR_INICIO_INTRP_UC": _row_value(row, ["DTHR_INICIO_INTRP_UC", "INICIO_INTERRUPCAO_UC"]),
+                "JUSTIFICATIVA": " | ".join(part for part in [classificacao, justificativa, table_name] if part),
+                "SUGESTAO_ORIGEM": table_name,
+            }
+
+    return {}
+
+
+def _merge_defaults(*sources: dict[str, str]) -> dict[str, str]:
+    merged: dict[str, str] = {}
+    for source in sources:
+        for key, value in source.items():
+            clean = ajuste._clean_value(value)
+            if clean and not ajuste._clean_value(merged.get(key, "")):
+                merged[key] = clean
+    return merged
+
+
+def _render_sugestoes(defaults: dict[str, str]) -> None:
+    fields = [
+        "SUGESTAO_ORIGEM",
+        "NUM_OCORRENCIA_ADMS",
+        "NUM_SEQ_INTRP",
+        "NUM_UC_UCI",
+        "SIGLA_REGIONAL",
+        "COD_CAUSA_ATUAL",
+        "NOVO_COD_CAUSA_INTRP",
+        "COD_COMP_ATUAL",
+        "NOVO_COD_COMP_INTRP",
+        "JUSTIFICATIVA",
+    ]
+    rows = [{"Campo": field, "Valor": defaults.get(field, "")} for field in fields if ajuste._clean_value(defaults.get(field, ""))]
+    if rows:
+        st.markdown("### Dados da ocorrência e sugestões")
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def _widget_key(prefix: str, defaults: dict[str, str]) -> str:
+    occurrence = ajuste._clean_value(defaults.get("NUM_OCORRENCIA_ADMS", "manual")) or "manual"
+    interruption = ajuste._clean_value(defaults.get("NUM_SEQ_INTRP", ""))
+    uc = ajuste._clean_value(defaults.get("NUM_UC_UCI", ""))
+    return f"{prefix}_{occurrence}_{interruption}_{uc}"
 
 
 def _render_evidencias_envio(defaults: dict[str, str], db_path: str, raw_path, sample_limit: int) -> None:
@@ -253,6 +413,8 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
 
     with tabs[0]:
         st.markdown("### Candidatos de qualidade")
+        candidate_options = _candidate_options(candidates)
+        selected_candidate = "Preencher manualmente"
         if candidates.empty:
             st.info("Sem candidatos carregados. Você ainda pode preencher o ajuste manualmente.")
         else:
@@ -276,40 +438,63 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
                 use_container_width=True,
                 hide_index=True,
             )
+            selected_candidate = st.selectbox(
+                "Usar candidato para preencher ocorrência e sugestões",
+                list(candidate_options.keys()),
+            )
 
-        defaults = {}
+        candidate_defaults = candidate_options.get(selected_candidate, {})
 
         st.markdown("### Identificação da ocorrência")
         col_scope, col_input, col_btn = st.columns([1, 2, 1])
         with col_scope:
             escopo = st.selectbox("Escopo", ["OCORRENCIA", "INTERRUPCAO", "UC"])
 
-        ocorrencia = defaults.get("NUM_OCORRENCIA_ADMS", "")
-        interrupcao = defaults.get("NUM_SEQ_INTRP", "")
-        uc = ""
-
         with col_input:
             if escopo == "OCORRENCIA":
-                ocorrencia = st.text_input("NUM_OCORRENCIA_ADMS", value=ocorrencia)
+                ocorrencia = st.text_input(
+                    "NUM_OCORRENCIA_ADMS",
+                    value=candidate_defaults.get("NUM_OCORRENCIA_ADMS", ""),
+                    key=_widget_key("ocorrencia", candidate_defaults),
+                )
+                interrupcao = candidate_defaults.get("NUM_SEQ_INTRP", "")
+                uc = candidate_defaults.get("NUM_UC_UCI", "")
             elif escopo == "INTERRUPCAO":
-                interrupcao = st.text_input("NUM_SEQ_INTRP", value=interrupcao)
-            elif escopo == "UC":
-                uc = st.text_input("NUM_UC_UCI", value="")
+                interrupcao = st.text_input(
+                    "NUM_SEQ_INTRP",
+                    value=candidate_defaults.get("NUM_SEQ_INTRP", ""),
+                    key=_widget_key("interrupcao", candidate_defaults),
+                )
+                ocorrencia = candidate_defaults.get("NUM_OCORRENCIA_ADMS", "")
+                uc = candidate_defaults.get("NUM_UC_UCI", "")
+            else:
+                uc = st.text_input(
+                    "NUM_UC_UCI",
+                    value=candidate_defaults.get("NUM_UC_UCI", ""),
+                    key=_widget_key("uc", candidate_defaults),
+                )
+                ocorrencia = candidate_defaults.get("NUM_OCORRENCIA_ADMS", "")
+                interrupcao = candidate_defaults.get("NUM_SEQ_INTRP", "")
 
         with col_btn:
             st.write("")
             st.write("")
             buscar = st.button("Buscar evidências")
 
-        evidence_defaults = defaults.copy()
-        if ocorrencia or interrupcao or uc:
-            evidence_defaults["NUM_OCORRENCIA_ADMS"] = ocorrencia
-            evidence_defaults["NUM_SEQ_INTRP"] = interrupcao
-            evidence_defaults["NUM_UC_UCI"] = uc
+        typed_defaults = {
+            "NUM_OCORRENCIA_ADMS": ocorrencia,
+            "NUM_SEQ_INTRP": interrupcao,
+            "NUM_UC_UCI": uc,
+        }
+        matched_candidate_defaults = _defaults_from_candidates(candidates, ocorrencia, interrupcao, uc)
+        gold_defaults = _defaults_from_gold(db_path, ocorrencia, interrupcao, uc) if buscar or ocorrencia or interrupcao or uc else {}
+        defaults = _merge_defaults(candidate_defaults, typed_defaults, matched_candidate_defaults, gold_defaults)
 
-        if buscar or evidence_defaults.get("NUM_OCORRENCIA_ADMS") or evidence_defaults.get("NUM_SEQ_INTRP") or evidence_defaults.get("NUM_UC_UCI"):
+        _render_sugestoes(defaults)
+
+        if buscar or defaults.get("NUM_OCORRENCIA_ADMS") or defaults.get("NUM_SEQ_INTRP") or defaults.get("NUM_UC_UCI"):
             st.markdown("### Evidências para decisão")
-            _render_evidencias_envio(evidence_defaults, db_path, raw_path, sample_limit)
+            _render_evidencias_envio(defaults, db_path, raw_path, sample_limit)
 
         with st.form("form_novo_ajuste_iqs"):
             col_resp, col_aprov = st.columns([2, 1])
@@ -321,42 +506,74 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
             st.markdown("#### Campos IQS a alterar")
             col_causa, col_comp, col_clima, col_tipo = st.columns(4)
             with col_causa:
-                novo_causa = st.text_input("COD_CAUSA_INTRP", value=defaults.get("NOVO_COD_CAUSA_INTRP", ""))
+                novo_causa = st.text_input(
+                    "COD_CAUSA_INTRP",
+                    value=defaults.get("NOVO_COD_CAUSA_INTRP", ""),
+                    key=_widget_key("novo_causa", defaults),
+                )
             with col_comp:
-                novo_comp = st.text_input("COD_COMP_INTRP", value=defaults.get("NOVO_COD_COMP_INTRP", ""))
+                novo_comp = st.text_input(
+                    "COD_COMP_INTRP",
+                    value=defaults.get("NOVO_COD_COMP_INTRP", ""),
+                    key=_widget_key("novo_comp", defaults),
+                )
             with col_clima:
-                novo_clima = st.text_input("COD_COND_CLIMA_INTRP", value="")
+                novo_clima = st.text_input("COD_COND_CLIMA_INTRP", value="", key=_widget_key("novo_clima", defaults))
             with col_tipo:
-                novo_tipo = st.text_input("COD_TIPO_INTRP", value="")
+                novo_tipo = st.text_input("COD_TIPO_INTRP", value="", key=_widget_key("novo_tipo", defaults))
 
             col_motivo, col_tipo_uci, col_prot_uci = st.columns(3)
             with col_motivo:
-                novo_motivo = st.text_input("NUM_MOTIVO_TRAT_DIF_UCI", value="")
+                novo_motivo = st.text_input("NUM_MOTIVO_TRAT_DIF_UCI", value="", key=_widget_key("novo_motivo", defaults))
             with col_tipo_uci:
-                novo_tipo_prot_uci = st.text_input("TIPO_PROTOC_JUSTIF_UCI", value="")
+                novo_tipo_prot_uci = st.text_input("TIPO_PROTOC_JUSTIF_UCI", value="", key=_widget_key("novo_tipo_uci", defaults))
             with col_prot_uci:
-                novo_prot_uci = st.text_input("NUM_PROTOC_JUSTIF_RESP_UCI", value="")
+                novo_prot_uci = st.text_input("NUM_PROTOC_JUSTIF_RESP_UCI", value="", key=_widget_key("novo_prot_uci", defaults))
 
             col_tipo_intrp, col_prot_intrp, col_valid, col_estado = st.columns(4)
             with col_tipo_intrp:
-                novo_tipo_prot_intrp = st.text_input("TIPO_PROTOC_JUSTIF_INTRP", value="")
+                novo_tipo_prot_intrp = st.text_input("TIPO_PROTOC_JUSTIF_INTRP", value="", key=_widget_key("novo_tipo_intrp", defaults))
             with col_prot_intrp:
-                novo_prot_intrp = st.text_input("NUM_PROTOC_JUSTIF_RESP_INTRP", value="")
+                novo_prot_intrp = st.text_input("NUM_PROTOC_JUSTIF_RESP_INTRP", value="", key=_widget_key("novo_prot_intrp", defaults))
             with col_valid:
-                novo_valid = st.text_input("VALID_POS_OPERACAO", value="S")
+                novo_valid = st.text_input(
+                    "VALID_POS_OPERACAO",
+                    value=defaults.get("NOVO_VALID_POS_OPERACAO", "S"),
+                    key=_widget_key("novo_valid", defaults),
+                )
             with col_estado:
-                novo_estado = st.text_input("ESTADO_INTRP", value="")
+                novo_estado = st.text_input("ESTADO_INTRP", value="", key=_widget_key("novo_estado", defaults))
 
             st.markdown("#### Data/hora da ocorrência")
             col_ini, col_fim, col_ini_uc = st.columns(3)
             with col_ini:
-                nova_data_ini = st.text_input("DATA_HORA_INIC_INTRP", value="", help="Opcional. Use dd/mm/aaaa hh:mm:ss.")
+                nova_data_ini = st.text_input(
+                    "DATA_HORA_INIC_INTRP",
+                    value=defaults.get("NOVA_DATA_HORA_INIC_INTRP", ""),
+                    help="Opcional. Use dd/mm/aaaa hh:mm:ss.",
+                    key=_widget_key("nova_data_ini", defaults),
+                )
             with col_fim:
-                nova_data_fim = st.text_input("DATA_HORA_FIM_INTRP", value="", help="Opcional. Use dd/mm/aaaa hh:mm:ss.")
+                nova_data_fim = st.text_input(
+                    "DATA_HORA_FIM_INTRP",
+                    value=defaults.get("NOVA_DATA_HORA_FIM_INTRP", ""),
+                    help="Opcional. Use dd/mm/aaaa hh:mm:ss.",
+                    key=_widget_key("nova_data_fim", defaults),
+                )
             with col_ini_uc:
-                nova_data_ini_uc = st.text_input("DTHR_INICIO_INTRP_UC", value="", help="Opcional. Use dd/mm/aaaa hh:mm:ss.")
+                nova_data_ini_uc = st.text_input(
+                    "DTHR_INICIO_INTRP_UC",
+                    value=defaults.get("NOVA_DTHR_INICIO_INTRP_UC", ""),
+                    help="Opcional. Use dd/mm/aaaa hh:mm:ss.",
+                    key=_widget_key("nova_data_ini_uc", defaults),
+                )
 
-            justificativa = st.text_area("Justificativa/evidência", value=defaults.get("JUSTIFICATIVA", ""), height=100)
+            justificativa = st.text_area(
+                "Justificativa/evidência",
+                value=defaults.get("JUSTIFICATIVA", ""),
+                height=100,
+                key=_widget_key("justificativa", defaults),
+            )
             submitted = st.form_submit_button("Adicionar ajuste")
 
         if submitted:
