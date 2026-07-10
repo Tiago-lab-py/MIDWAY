@@ -271,6 +271,7 @@ def qualidade_ranking(
     occurrence: str,
     min_score: int,
     limit: int,
+    valid_pos_operacao: str = "Todos",
 ) -> pd.DataFrame:
     filters = [f"SCORE_QUALIDADE >= {int(min_score)}"]
     if classification != "Todos":
@@ -285,6 +286,10 @@ def qualidade_ranking(
             f"OR NUM_SEQ_INTRP = {sql_literal_for_streamlit(value)}"
             ")"
         )
+    if valid_pos_operacao == "Somente validados (S)":
+        filters.append("VALID_POS_OPERACAO = 'S'")
+    elif valid_pos_operacao == "Somente pendentes (N)":
+        filters.append("(VALID_POS_OPERACAO = 'N' OR VALID_POS_OPERACAO IS NULL)")
 
     where_clause = " AND ".join(filters)
     with duckdb.connect(db_path, read_only=True) as con:

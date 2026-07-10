@@ -622,18 +622,18 @@ def detalhe_ajuste_ocorrencia(
 def _comparison_style(df: pd.DataFrame) -> pd.DataFrame:
     styles = pd.DataFrame("", index=df.index, columns=df.columns)
     if "Valor atual IQS" in styles.columns:
-        styles["Valor atual IQS"] = "color: white; background-color: #334155"
+        styles["Valor atual IQS"] = ""
     if "Pré-tratado/evidência" in styles.columns:
         styles["Pré-tratado/evidência"] = "color: #052e16; background-color: #bbf7d0"
     if "Sugestão algoritmo" in styles.columns:
-        styles["Sugestão algoritmo"] = "color: white; background-color: #dc2626"
+        styles["Sugestão algoritmo"] = "color: #052e16; background-color: #bbf7d0"
     if "Ajuste manual" in styles.columns:
         styles["Ajuste manual"] = "color: #111827; background-color: #fde68a"
     return styles
 
 
 def _manual_adjustment_style(df: pd.DataFrame) -> pd.DataFrame:
-    styles = pd.DataFrame("color: white; background-color: #334155", index=df.index, columns=df.columns)
+    styles = pd.DataFrame("", index=df.index, columns=df.columns)
     for column in df.columns:
         if column.startswith("NOVO_") or column.startswith("NOVA_"):
             mask = df[column].map(_clean_value).ne("")
@@ -705,8 +705,7 @@ def _render_evidencias(defaults: dict[str, str], db_path: str, raw_path: Path, s
     detalhes = detalhe_ajuste_ocorrencia(db_path, str(raw_path), occurrence, interruption, min(sample_limit, 200))
     st.markdown(
         """
-        **Legenda visual:** branco = valor atual da interrupção/ocorrência; verde = informação pré-tratada/evidência;
-        vermelho = sugestão do algoritmo; amarelo = ajuste manual registrado.
+        **Legenda visual:** sem cor = valor atual da interrupção/ocorrência; verde = sugestão do algoritmo e informação pré-tratada/evidência; amarelo = ajuste manual registrado.
         """
     )
     preview = _preview_comparacao(defaults, detalhes)
@@ -753,10 +752,37 @@ def show_ajuste_manual_iqs(anomes: str, db_path: str, sample_limit: int) -> None
     st.caption(f"Base local de ajustes: `{ajustes_path}`")
 
     raw_path = adms_servicos_raw_path(anomes)
+    
+    col_filtro_class, col_filtro_val = st.columns(2)
+    with col_filtro_class:
+        filtro_classificacao = st.selectbox(
+            "Classificação Qualidade",
+            [
+                "Todos",
+                "SUSPEITA_IMPROCEDENTE",
+                "SUSPEITA_ATENDIDO_OUTRA_OCORRENCIA",
+                "RECLAMACAO_FORTE_SEM_SERVICO",
+                "RECLAMACAO_FORTE_REVISAR_CAUSA",
+                "MULTIPLOS_SERVICOS_REVISAR",
+                "CAUSA_COMPONENTE_COM_EVIDENCIA",
+                "SERVICO_SEM_RECLAMACAO",
+                "RECLAMACAO_SEM_SERVICO",
+                "SEM_EVIDENCIA_COMPLEMENTAR"
+            ]
+        )
+    with col_filtro_val:
+        filtro_validacao = st.selectbox(
+            "Validação Pós-Operação (Filtro Candidatos)",
+            ["Todos", "Somente validados (S)", "Somente pendentes (N)"],
+            index=2
+        )
+
     candidates = pd.DataFrame()
     if raw_path.exists():
         try:
-            candidates = qualidade_ranking(db_path, str(raw_path), "Todos", True, "", 20, min(sample_limit, 500))
+            candidates = qualidade_ranking(
+                db_path, str(raw_path), filtro_classificacao, True, "", 20, min(sample_limit, 500), filtro_validacao
+            )
         except Exception as error:
             st.warning(f"Não foi possível carregar candidatos da qualidade: {error}")
 
@@ -802,24 +828,41 @@ def show_ajuste_manual_iqs(anomes: str, db_path: str, sample_limit: int) -> None
         options = _candidate_options(candidates)
         selected = st.selectbox("Usar candidato como base", list(options.keys()))
         defaults = options[selected]
-        if defaults:
+
+        st.markdown("### Identificação (Pesquisa e Vínculo)")
+        col_scope, col_input, col_btn = st.columns([1, 2, 1])
+        with col_scope:
+            escopo = st.selectbox("Escopo", ["OCORRENCIA", "INTERRUPCAO", "UC"])
+            
+        ocorrencia = defaults.get("NUM_OCORRENCIA_ADMS", "")
+        interrupcao = defaults.get("NUM_SEQ_INTRP", "")
+        uc = ""
+        
+        with col_input:
+            if escopo == "OCORRENCIA":
+                ocorrencia = st.text_input("NUM_OCORRENCIA_ADMS", value=ocorrencia)
+            elif escopo == "INTERRUPCAO":
+                interrupcao = st.text_input("NUM_SEQ_INTRP", value=interrupcao)
+            elif escopo == "UC":
+                uc = st.text_input("NUM_UC_UCI", value="")
+                
+        with col_btn:
+            st.write("")
+            st.write("")
+            buscar = st.button("Buscar evidências")
+
+        evidence_defaults = defaults.copy()
+        if ocorrencia or interrupcao or uc:
+            evidence_defaults["NUM_OCORRENCIA_ADMS"] = ocorrencia
+            evidence_defaults["NUM_SEQ_INTRP"] = interrupcao
+            evidence_defaults["NUM_UC_UCI"] = uc
+
+        if buscar or evidence_defaults.get("NUM_OCORRENCIA_ADMS") or evidence_defaults.get("NUM_SEQ_INTRP"):
             st.markdown("### Evidências para decisão")
-            _render_evidencias(defaults, db_path, raw_path, sample_limit)
+            _render_evidencias(evidence_defaults, db_path, raw_path, sample_limit)
 
         with st.form("form_novo_ajuste_iqs"):
-            col_scope, col_occ, col_intrp, col_uc = st.columns([1, 2, 2, 2])
-            with col_scope:
-                escopo = st.selectbox("Escopo", ["OCORRENCIA", "INTERRUPCAO", "UC"])
-            with col_occ:
-                ocorrencia = st.text_input("NUM_OCORRENCIA_ADMS", value=defaults.get("NUM_OCORRENCIA_ADMS", ""))
-            with col_intrp:
-                interrupcao = st.text_input("NUM_SEQ_INTRP", value=defaults.get("NUM_SEQ_INTRP", ""))
-            with col_uc:
-                uc = st.text_input("NUM_UC_UCI", value="")
-
-            col_reg, col_resp, col_aprov = st.columns([1, 2, 1])
-            with col_reg:
-                regional = st.text_input("SIGLA_REGIONAL", value=defaults.get("SIGLA_REGIONAL", ""))
+            col_resp, col_aprov = st.columns([2, 1])
             with col_resp:
                 responsavel = st.text_input("Responsável", value="")
             with col_aprov:
@@ -850,7 +893,7 @@ def show_ajuste_manual_iqs(anomes: str, db_path: str, sample_limit: int) -> None
             with col_prot_intrp:
                 novo_prot_intrp = st.text_input("NUM_PROTOC_JUSTIF_RESP_INTRP", value="")
             with col_valid:
-                novo_valid = st.text_input("VALID_POS_OPERACAO", value="")
+                novo_valid = st.text_input("VALID_POS_OPERACAO", value="S")
             with col_estado:
                 novo_estado = st.text_input("ESTADO_INTRP", value="")
 
@@ -888,7 +931,7 @@ def show_ajuste_manual_iqs(anomes: str, db_path: str, sample_limit: int) -> None
                         "NUM_OCORRENCIA_ADMS": ocorrencia,
                         "NUM_SEQ_INTRP": interrupcao,
                         "NUM_UC_UCI": uc,
-                        "SIGLA_REGIONAL": regional,
+                        "SIGLA_REGIONAL": defaults.get("SIGLA_REGIONAL", ""),
                         "NOVO_COD_CAUSA_INTRP": novo_causa,
                         "NOVO_COD_COMP_INTRP": novo_comp,
                         "NOVO_COD_COND_CLIMA_INTRP": novo_clima,
