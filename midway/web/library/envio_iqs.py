@@ -1,10 +1,182 @@
 from __future__ import annotations
 
+import duckdb
 import pandas as pd
 import streamlit as st
 
 import midway.web.library.ajuste_manual_iqs as ajuste
-from midway.web.library.shared import format_number, show_metric_cards, table_exists
+from midway.web.library.shared import (
+    format_number,
+    show_metric_cards,
+    sql_literal_for_streamlit,
+    table_exists,
+)
+
+
+def _table_columns(con, table_name: str) -> list[str]:
+    return [
+        row[0]
+        for row in con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'main'
+              AND table_name = ?
+            ORDER BY ordinal_position
+            """,
+            [table_name],
+        ).fetchall()
+    ]
+
+
+def _first_existing(columns: list[str], candidates: list[str]) -> str | None:
+    mapping = {column.upper(): column for column in columns}
+    for candidate in candidates:
+        if candidate.upper() in mapping:
+            return mapping[candidate.upper()]
+    return None
+
+
+def _text_expr(columns: list[str], candidates: list[str]) -> str:
+    column = _first_existing(columns, candidates)
+    if not column:
+        return "CAST(NULL AS VARCHAR)"
+    return f'NULLIF(TRIM(CAST("{column}" AS VARCHAR)), \'\')'
+
+
+def _timestamp_expr(columns: list[str], candidates: list[str]) -> str:
+    column = _first_existing(columns, candidates)
+    if not column:
+        return "CAST(NULL AS TIMESTAMP)"
+    return f'TRY_CAST("{column}" AS TIMESTAMP)'
+
+
+def _number_expr(columns: list[str], candidates: list[str]) -> str:
+    column = _first_existing(columns, candidates)
+    if not column:
+        return "CAST(0 AS DOUBLE)"
+    return f'COALESCE(TRY_CAST("{column}" AS DOUBLE), 0)'
+
+
+def _where_occurrence(columns: list[str], occurrence: str, interruption: str) -> str | None:
+    conditions = []
+    occurrence_col = _first_existing(columns, ["NUM_OCORRENCIA_ADMS"])
+    interruption_col = _first_existing(columns, ["NUM_SEQ_INTRP", "NUM_INTRP_UCI", "INTERRUPCAO"])
+
+    if occurrence and occurrence_col:
+        conditions.append(
+            f'TRIM(CAST("{occurrence_col}" AS VARCHAR)) = {sql_literal_for_streamlit(occurrence)}'
+        )
+    if interruption and interruption_col:
+        conditions.append(
+            f'TRIM(CAST("{interruption_col}" AS VARCHAR)) = {sql_literal_for_streamlit(interruption)}'
+        )
+
+    if not conditions:
+        return None
+    return " AND ".join(conditions)
+
+
+def _fallback_ocorrencia_df(db_path: str, occurrence: str, interruption: str, limit: int) -> pd.DataFrame:
+    sources = [
+        (
+            "gold_interrupcao_tratada",
+            "gold_interrupcao_tratada",
+            ["REGIONAL", "SIGLA_REGIONAL", "SIGLA_REGIONAL_INTRP_PRIM_HIADMS"],
+            ["DATA_HORA_INIC_INTRP", "DTHR_INICIO_INTRP_UC"],
+            ["DATA_HORA_FIM_INTRP"],
+        ),
+        (
+            "gold_apuracao_uc",
+            "gold_apuracao_uc",
+            ["REGIONAL", "SIGLA_REGIONAL", "SIGLA_REGIONAL_INTRP_PRIM_HIADMS"],
+            ["DATA_HORA_INIC_INTRP", "DTHR_INICIO_INTRP_UC"],
+            ["DATA_HORA_FIM_INTRP"],
+        ),
+        (
+            "gold_reclamacao_uc_vinculada",
+            "gold_reclamacao_uc_vinculada",
+            ["REGIONAL", "SIGLA_REGIONAL"],
+            ["INICIO_INTERRUPCAO_UC"],
+            ["FIM_INTERRUPCAO"],
+        ),
+    ]
+
+    with duckdb.connect(db_path, read_only=True) as con:
+        for table_name, source_label, regional_candidates, start_candidates, end_candidates in sources:
+            if not table_exists(db_path, table_name):
+                continue
+
+            columns = _table_columns(con, table_name)
+            where_clause = _where_occurrence(columns, occurrence, interruption)
+            if not where_clause:
+                continue
+
+            occurrence_expr = _text_expr(columns, ["NUM_OCORRENCIA_ADMS"])
+            interruption_expr = _text_expr(columns, ["NUM_SEQ_INTRP", "INTERRUPCAO"])
+            regional_expr = _text_expr(columns, regional_candidates)
+            conjunto_expr = _text_expr(columns, ["COD_CONJTO_ELET_ANEEL_INTRP", "CONJUNTO"])
+            alim_expr = _text_expr(columns, ["ALIM_INTRP"])
+            oper_expr = _text_expr(columns, ["NUM_OPER_CHV_INTRP"])
+            geo_expr = _text_expr(columns, ["NUM_GEO_CHV_INTRP"])
+            estado_expr = _text_expr(columns, ["ESTADO_INTRP"])
+            valid_expr = _text_expr(columns, ["VALID_POS_OPERACAO"])
+            causa_expr = _text_expr(columns, ["COD_CAUSA_INTRP"])
+            comp_expr = _text_expr(columns, ["COD_COMP_INTRP"])
+            clima_expr = _text_expr(columns, ["COD_COND_CLIMA_INTRP"])
+            tipo_expr = _text_expr(columns, ["COD_TIPO_INTRP"])
+            uc_expr = _text_expr(columns, ["NUM_UC_UCI", "UC"])
+            start_expr = _timestamp_expr(columns, start_candidates)
+            end_expr = _timestamp_expr(columns, end_candidates)
+            duracao_expr = _number_expr(columns, ["DURACAO_HORA"])
+
+            df = con.execute(
+                f"""
+                SELECT
+                    {occurrence_expr} AS NUM_OCORRENCIA_ADMS,
+                    {interruption_expr} AS NUM_SEQ_INTRP,
+                    {regional_expr} AS SIGLA_REGIONAL,
+                    {conjunto_expr} AS CONJUNTO,
+                    {alim_expr} AS ALIM_INTRP,
+                    {oper_expr} AS NUM_OPER_CHV_INTRP,
+                    {geo_expr} AS NUM_GEO_CHV_INTRP,
+                    MIN({start_expr}) AS DATA_HORA_INIC_INTRP,
+                    MAX({end_expr}) AS DATA_HORA_FIM_INTRP,
+                    {estado_expr} AS ESTADO_INTRP,
+                    {valid_expr} AS VALID_POS_OPERACAO,
+                    {causa_expr} AS COD_CAUSA_INTRP,
+                    {comp_expr} AS COD_COMP_INTRP,
+                    {clima_expr} AS COD_COND_CLIMA_INTRP,
+                    {tipo_expr} AS COD_TIPO_INTRP,
+                    COUNT(*) AS LINHAS_IQS,
+                    COUNT(DISTINCT {uc_expr}) AS UCS,
+                    SUM({duracao_expr}) AS DURACAO_TOTAL_HORA,
+                    {sql_literal_for_streamlit(source_label)} AS FONTE_OCORRENCIA
+                FROM {table_name}
+                WHERE {where_clause}
+                GROUP BY
+                    {occurrence_expr},
+                    {interruption_expr},
+                    {regional_expr},
+                    {conjunto_expr},
+                    {alim_expr},
+                    {oper_expr},
+                    {geo_expr},
+                    {estado_expr},
+                    {valid_expr},
+                    {causa_expr},
+                    {comp_expr},
+                    {clima_expr},
+                    {tipo_expr}
+                ORDER BY DATA_HORA_INIC_INTRP, NUM_SEQ_INTRP
+                LIMIT {int(limit)}
+                """
+            ).fetchdf()
+
+            if not df.empty:
+                return df
+
+    return pd.DataFrame()
 
 
 def _render_evidencias_envio(defaults: dict[str, str], db_path: str, raw_path, sample_limit: int) -> None:
@@ -21,6 +193,14 @@ def _render_evidencias_envio(defaults: dict[str, str], db_path: str, raw_path, s
         interruption,
         min(sample_limit, 200),
     )
+    if detalhes["interrupcao"].empty:
+        detalhes["interrupcao"] = _fallback_ocorrencia_df(
+            db_path,
+            occurrence,
+            interruption,
+            min(sample_limit, 200),
+        )
+
     st.markdown(
         """
         **Legenda visual:** sem cor = valor atual da ocorrência; verde = sugestão do algoritmo e informação pré-tratada/evidência; amarelo = ajuste manual registrado.
@@ -33,7 +213,7 @@ def _render_evidencias_envio(defaults: dict[str, str], db_path: str, raw_path, s
     with evidence_tabs[0]:
         ocorrencia_df = detalhes["interrupcao"]
         if ocorrencia_df.empty:
-            st.info("Sem dados da ocorrência encontrados para o filtro.")
+            st.info("Sem dados da ocorrência encontrados para o filtro nas tabelas `adms_iqs_export`, `gold_interrupcao_tratada`, `gold_apuracao_uc` e `gold_reclamacao_uc_vinculada`.")
         else:
             st.dataframe(ocorrencia_df, use_container_width=True, hide_index=True)
 
