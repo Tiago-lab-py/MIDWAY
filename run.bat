@@ -206,6 +206,21 @@ if /I "%~1"=="metas_uc" (
     goto fim
 )
 
+if /I "%~1"=="referencia_iqs" (
+    echo Extraindo referencia componente/causa IQS...
+    "%PYTHON_EXE%" -m midway.extract.referencia_componente_causa
+    if errorlevel 1 goto erro
+    goto fim
+)
+
+if /I "%~1"=="reextrair_referencia_iqs" (
+    echo Reextraindo referencia componente/causa IQS...
+    set "REEXTRAIR_REFERENCIA_IQS=1"
+    "%PYTHON_EXE%" -m midway.extract.referencia_componente_causa
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="sincronizar_iqs_raw" (
     echo Sincronizando IQS raw para DuckDB processado...
     "%PYTHON_EXE%" "%SCRIPT_DIR%tools\sincronizar_iqs_raw.py"
@@ -311,6 +326,8 @@ echo   run.bat vrc                          Extrai VRC IQS sob demanda para gold
 echo   run.bat reextrair_vrc                Reextrai VRC IQS com REEXTRAIR_VRC=1
 echo   run.bat metas_uc                     Extrai metas UC IQS sob demanda para gold_metas_uc
 echo   run.bat reextrair_metas_uc           Reextrai metas UC IQS com REEXTRAIR_METAS_UC=1
+echo   run.bat referencia_iqs               Extrai referencia grupo/componente/causa para Envio IQS
+echo   run.bat reextrair_referencia_iqs     Reextrai referencia IQS com REEXTRAIR_REFERENCIA_IQS=1
 echo   run.bat sincronizar_iqs_raw          Sincroniza data\raw\iqs_raw_^<ANOMES^>.duckdb para o processed
 echo   run.bat apuracao_parcial             Gera camada gold e BDO de apuracao previa
 echo   run.bat extrair_dbguo_reclamacoes    Extrai reclamacoes DBGUO para data\raw
@@ -335,6 +352,7 @@ echo   run.bat tratamento
 echo   run.bat exportacoes_auxiliares
 echo   run.bat apuracao_parcial
 echo   run.bat dbguo_reclamacoes
+echo   run.bat referencia_iqs
 goto fim
 
 :erro
