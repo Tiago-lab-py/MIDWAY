@@ -13,6 +13,97 @@ from midway.web.library.shared import (
 )
 
 
+CAUSA_DESCRICOES = {
+    "00": "SEM CAUSA INFORMADA",
+    "01": "ANIMAIS/INSETOS/PASSAROS",
+    "02": "GALHOS TOCANDO A RD (PODA)",
+    "03": "CORROSAO/OXIDACAO/POLUICAO",
+    "04": "DESCARGA ATMOSFERICA",
+    "05": "EROSAO",
+    "06": "GEADA/NEVE/BAIXA TEMP./GRANIZO",
+    "07": "ARVORE CAIU SOBRE A REDE",
+    "08": "CASCAS/GALHOS LANCADOS NA RD",
+    "09": "INUNDACAO/ALAGAMENTO/BANHADO",
+    "10": "TERCEIROS DERRUBADA ARVORE RD",
+    "13": "VENTO/VENDAVAL",
+    "15": "FATORES IMPREV.CALAMID.PUBLICA",
+    "18": "ABALROAMENTO",
+    "19": "ACIDENTE DE TERCEIROS",
+    "20": "FALTA DE ACESSO",
+    "21": "NECESSARIO VEICULO COM CESTO",
+    "22": "ATENDIDO POR OUTRA OCORRENCIA",
+    "23": "OBJETOS ESTRANHOS NA REDE",
+    "24": "DESLIGAMENTO POR SEGURANCA",
+    "26": "VANDALISMO/FURTOS",
+    "28": "QUEIMADAS/INCENDIO",
+    "33": "FALHA HUMANA DA EMPRESA",
+    "34": "FALHA HUMANA CONTRATADA",
+    "38": "DESEQUILIBRIO DE CARGA/TENSAO",
+    "39": "MANOBRAS",
+    "40": "ABERTURA OPERACAO OUTRA CHAVE",
+    "41": "MANUTENCAO CORRETIVA",
+    "42": "MANUTENCAO PREVENTIVA",
+    "43": "MELHORIAS E/OU AMPLIACOES",
+    "44": "REPOR COMPONENTE FURTADO DA RD",
+    "45": "REVISAO OBRA",
+    "47": "FALHA SISTEMA GERACAO/TRANSM",
+    "48": "FALHA ALIMENTACAO CA/CC",
+    "50": "OSCILACAO DE TENSAO/FREQUENCIA",
+    "51": "RACIONAMENTO DE ENERGIA",
+    "52": "TRANSF. CARGA/RETORNO CONFIG.",
+    "54": "COMPONENTE AVARIADO/DESRREGUL",
+    "60": "FALHA OU DEFEITO DE FABRICACAO",
+    "68": "PONTO QUENTE",
+    "69": "FALHA DE OUTRO RA/DISJUNTOR",
+    "71": "DEFEITO INSTALACAO INTERNA",
+    "74": "LIGAR/DESLIGAR/RELIGAR",
+    "75": "REARMAR DISJUNTOR",
+    "76": "NIVEL TENSAO ENVIAR P/ MEDICAO",
+    "77": "NIVEL TENSAO NADA ENCONTRADO",
+    "78": "SUBSTIT./RETIRADA/INSTALACAO",
+    "82": "NAO IDENTIFICADA",
+    "83": "ATENDIMENTO NAO EFETUADO",
+    "85": "IMPROCEDENTE",
+    "86": "BALANCEAMENTO CIRC/REMANEJAM.",
+    "87": "COORDENACAO DA PROTECAO",
+    "88": "SOLICITACAO DE TERCEIROS",
+    "89": "ACOMP. VEICULO CARGA ALTA",
+    "90": "AUXILIAR OUTRA EQUIPE",
+    "91": "INSP./MANUT. EQUIPE DE EMERG.",
+    "93": "MEDICOES/LEITURA EM SE OU RD",
+    "95": "SERVICO EQUIPE DE MANUTENCAO",
+    "96": "OUTRAS NECESSIDADES DA EMPRESA",
+    "98": "FESTIVIDADES/COMICIOS/EVENTOS",
+    "E1": "MANOBRA INDEVIDA TRANSMISSAO",
+    "E2": "MANOBRA INDEVIDA EM SE 34,5 KV",
+    "E3": "INTERF. ACIDENT. EQUIPE MANUT.",
+    "E4": "CORTE DE CARGA",
+    "E5": "RECOMPOSICAO",
+    "H1": "FALHA COMPONENTE PROTECAO",
+    "H2": "FALHA DE COMPONENTE DE MEDICAO",
+    "H3": "FALHA SUPERVISAO(COE/COD/COS)",
+    "K1": "MANOBRA INDEVIDA SISTEMA INTER",
+    "K2": "INTER. ACID. MANUT SIST INTERL",
+    "K3": "RACIONAMENTO SIST. INTERLIGADO",
+    "K4": "RECOMPOSICAO SIST. INTERLIGADO",
+    "K5": "FALHA COMP. PROT. SIST. INTERL",
+    "K6": "FALHA COMP. MEDICAO SIST. INT.",
+    "K7": "FALHA SUPERVISAO SIST. INTERL.",
+    "K8": "FALHA GERACAO/TRANSM. SIST.INT",
+    "K9": "FALHA ALIMENTACAO CA/CC SIST.",
+    "P1": "OSCILACAO DE TENSAO/FREQ. SIST",
+}
+
+
+COMPONENTE_DESCRICOES = {
+    "22": "COMPONENTE 22",
+    "35": "COMPONENTE 35",
+    "47": "COMPONENTE 47",
+    "52": "CHAVE_PROTECAO",
+    "92": "NAO_IDENTIFICADA",
+}
+
+
 def _table_columns(con, table_name: str) -> list[str]:
     return [
         row[0]
@@ -35,6 +126,57 @@ def _first_existing(columns: list[str], candidates: list[str]) -> str | None:
         if candidate.upper() in mapping:
             return mapping[candidate.upper()]
     return None
+
+
+def _normalizar_codigo(codigo: str, descricoes: dict[str, str]) -> str:
+    valor = ajuste._clean_value(codigo).upper()
+    if not valor:
+        return ""
+    if valor in descricoes:
+        return valor
+    if valor.isdigit() and len(valor) == 1 and f"0{valor}" in descricoes:
+        return f"0{valor}"
+    return valor
+
+
+def _descricao_codigo(codigo: str, descricoes: dict[str, str]) -> str:
+    codigo_normalizado = _normalizar_codigo(codigo, descricoes)
+    if not codigo_normalizado:
+        return ""
+    return descricoes.get(codigo_normalizado, "Descrição não cadastrada")
+
+
+def _label_codigo(codigo: str, descricoes: dict[str, str]) -> str:
+    codigo_normalizado = _normalizar_codigo(codigo, descricoes)
+    if not codigo_normalizado:
+        return ""
+    return f"{codigo_normalizado} - {_descricao_codigo(codigo_normalizado, descricoes)}"
+
+
+def _codigo_from_label(label: str) -> str:
+    if not label:
+        return ""
+    return label.split(" - ", 1)[0].strip()
+
+
+def _codigo_options(default_code: str, descricoes: dict[str, str]) -> list[str]:
+    labels = [""]
+    default_label = _label_codigo(default_code, descricoes)
+    if default_label:
+        labels.append(default_label)
+    for codigo in descricoes:
+        label = _label_codigo(codigo, descricoes)
+        if label not in labels:
+            labels.append(label)
+    return labels
+
+
+def _codigo_selectbox(label: str, default_code: str, descricoes: dict[str, str], key: str) -> str:
+    options = _codigo_options(default_code, descricoes)
+    default_label = _label_codigo(default_code, descricoes)
+    index = options.index(default_label) if default_label in options else 0
+    selected = st.selectbox(label, options, index=index, key=key)
+    return _codigo_from_label(selected)
 
 
 def _first_list_value(value) -> str:
@@ -481,19 +623,37 @@ def show_envio_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
                 aprovado = st.checkbox("Aprovado para exportar", value=True)
 
             st.markdown("#### Campos IQS a alterar")
-            col_causa, col_comp, col_clima, col_tipo = st.columns(4)
+            col_causa, col_desc_causa, col_comp, col_desc_comp = st.columns([1, 2, 1, 2])
             with col_causa:
-                novo_causa = st.text_input(
+                novo_causa = _codigo_selectbox(
                     "COD_CAUSA_INTRP",
-                    value=defaults.get("NOVO_COD_CAUSA_INTRP", ""),
-                    key=_widget_key("novo_causa", defaults),
+                    defaults.get("NOVO_COD_CAUSA_INTRP", ""),
+                    CAUSA_DESCRICOES,
+                    _widget_key("novo_causa", defaults),
+                )
+            with col_desc_causa:
+                st.text_input(
+                    "DESC_CAUSA_INTRP",
+                    value=_descricao_codigo(novo_causa, CAUSA_DESCRICOES),
+                    disabled=True,
+                    key=_widget_key("desc_causa", {**defaults, "NOVO_COD_CAUSA_INTRP": novo_causa}),
                 )
             with col_comp:
-                novo_comp = st.text_input(
+                novo_comp = _codigo_selectbox(
                     "COD_COMP_INTRP",
-                    value=defaults.get("NOVO_COD_COMP_INTRP", ""),
-                    key=_widget_key("novo_comp", defaults),
+                    defaults.get("NOVO_COD_COMP_INTRP", ""),
+                    COMPONENTE_DESCRICOES,
+                    _widget_key("novo_comp", defaults),
                 )
+            with col_desc_comp:
+                st.text_input(
+                    "DESC_COMP_INTRP",
+                    value=_descricao_codigo(novo_comp, COMPONENTE_DESCRICOES),
+                    disabled=True,
+                    key=_widget_key("desc_comp", {**defaults, "NOVO_COD_COMP_INTRP": novo_comp}),
+                )
+
+            col_clima, col_tipo = st.columns(2)
             with col_clima:
                 novo_clima = st.text_input("COD_COND_CLIMA_INTRP", value="", key=_widget_key("novo_clima", defaults))
             with col_tipo:
