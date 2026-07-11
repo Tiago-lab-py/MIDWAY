@@ -2,6 +2,15 @@ from __future__ import annotations
 
 import altair as alt
 
+from midway.auditoria.correcao_9282 import (
+    adms_servicos_raw_path as correcao_9282_raw_path,
+    calcular_correcao_9282,
+    candidatos_automaticos_9282,
+    candidatos_manuais_9282,
+    gerar_exportacao_correcao_9282,
+    registrar_ajustes_automaticos_9282,
+    resumo_correcao_9282,
+)
 from midway.web.library.shared import *
 
 alt.data_transformers.disable_max_rows()
@@ -325,7 +334,204 @@ def _pie_chart(df: pd.DataFrame, indicador: str, titulo: str, formato: str = ".6
     )
 
 
-def show_executivo(db_path: str, sample_limit: int) -> None:
+@st.cache_data(show_spinner=False)
+def _correcao_9282_cached(anomes: str, db_path: str, raw_path: str) -> pd.DataFrame:
+    return calcular_correcao_9282(anomes, db_path, raw_path)
+
+
+def _show_correcao_9282(anomes: str, db_path: str, sample_limit: int) -> None:
+    st.subheader("Tratativa RA 92/82")
+    st.caption(
+        "Classifica ocorrências RA com componente 92 e causa 82. "
+        "Serviço ADMS válido prevalece; sem serviço válido, usa a melhor coincidência "
+        "entre reclamação e referência grupo/componente/causa."
+    )
+
+    raw_path = correcao_9282_raw_path(anomes)
+    if not raw_path.exists():
+        st.info(
+            "RAW de serviços ADMS não encontrado. Execute "
+            f"`run.bat extrair_adms_servicos` para gerar `{raw_path}`."
+        )
+        return
+
+    required_tables = [
+        "gold_interrupcao_tratada",
+        "gold_apuracao_uc",
+        "gold_reclamacao_uc_vinculada",
+        "gold_reclamacao_ocorrencia_resumo",
+        "gold_iqs_referencia_componente_causa",
+    ]
+    missing = [table for table in required_tables if not table_exists(db_path, table)]
+    if missing:
+        st.info(
+            "Tabelas necessárias não encontradas: "
+            + ", ".join(f"`{table}`" for table in missing)
+            + ". Execute apuração, reclamações DBGUO e referência IQS."
+        )
+        return
+
+    df = _correcao_9282_cached(anomes, db_path, str(raw_path))
+    if df.empty:
+        st.success("Nenhum caso RA 92/82 encontrado.")
+        return
+
+    automaticos = candidatos_automaticos_9282(df)
+    manuais = candidatos_manuais_9282(df)
+    with_suggestion = int(df["COD_CAUSA_SUGERIDA"].astype(str).str.len().gt(0).sum())
+    show_metric_cards(
+        [
+            ("RA 92/82", format_number(df["NUM_SEQ_INTRP"].nunique(), 0), "Interrupções"),
+            ("Automático autorizado", format_number(len(automaticos), 0), "Serviço robusto"),
+            ("Fila técnica/manual", format_number(len(manuais), 0), "Conflito ou reclamação"),
+            ("Sem ação automática", format_number(len(df) - len(automaticos) - len(manuais), 0), "Sem evidência"),
+            (
+                "Fonte serviço",
+                format_number(df["FONTE_SUGESTAO"].eq("SERVICO").sum(), 0),
+                "Inclui conflitos",
+            ),
+            (
+                "Com sugestão",
+                format_number(with_suggestion, 0),
+                "Algoritmo",
+            ),
+        ]
+    )
+
+    st.caption(
+        "Premissa operacional: o Executivo autoriza a tratativa em massa somente dos automáticos; "
+        "o Ajuste Manual fica para o técnico tratar registros problemáticos com evidências adicionais. "
+        f"RAW serviços: `{raw_path}`"
+    )
+
+    tabs = st.tabs(["Autorização em massa", "Fila técnica", "Resumo algoritmo", "Ranking RA 92/82", "Exportação"])
+    with tabs[0]:
+        st.markdown("### Automáticos para autorização executiva")
+        st.caption("Critério: `FONTE_SUGESTAO = SERVICO`, `NIVEL_EVIDENCIA = ROBUSTA` e par válido na referência IQS.")
+        if automaticos.empty:
+            st.info("Nenhum ajuste automático elegível.")
+        else:
+            st.dataframe(
+                automaticos.head(sample_limit),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "SCORE_SUGESTAO": st.column_config.ProgressColumn("Score", min_value=0, max_value=100),
+                    "DIC_OCORRENCIA": st.column_config.NumberColumn("DIC", format="%.3f"),
+                    "FIC_OCORRENCIA": st.column_config.NumberColumn("FIC", format="%.3f"),
+                },
+            )
+            st.warning(
+                "Ao autorizar, estes registros serão criados como ajustes aprovados na base do Ajuste Manual. "
+                "A geração do CSV IQS continua controlada na página `Ajuste Manual IQS`."
+            )
+            if st.button("Autorizar ajustes automáticos 92/82", type="primary"):
+                try:
+                    resultado = registrar_ajustes_automaticos_9282(anomes, db_path, raw_path)
+                    st.success(
+                        "Autorização concluída: "
+                        f"{resultado['criados']} ajuste(s) criado(s), "
+                        f"{resultado['ignorados']} duplicado(s) ignorado(s), "
+                        f"{resultado['manuais']} item(ns) permanecem na fila técnica."
+                    )
+                    st.cache_data.clear()
+                except Exception as error:
+                    st.error(f"Falha ao autorizar ajustes automáticos: {error}")
+
+    with tabs[1]:
+        st.markdown("### Fila técnica para Ajuste Manual")
+        st.caption("Casos com conflito de serviço ou evidência baseada em reclamação ficam para análise técnica.")
+        if manuais.empty:
+            st.success("Nenhum caso manual/problemático identificado.")
+        else:
+            st.dataframe(
+                manuais.head(sample_limit),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "SCORE_SUGESTAO": st.column_config.ProgressColumn("Score", min_value=0, max_value=100),
+                    "DIC_OCORRENCIA": st.column_config.NumberColumn("DIC", format="%.3f"),
+                    "FIC_OCORRENCIA": st.column_config.NumberColumn("FIC", format="%.3f"),
+                },
+            )
+            st.download_button(
+                "Baixar fila técnica 92/82",
+                manuais.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                file_name=f"correcao_ra_9282_{anomes}_fila_tecnica.csv",
+                mime="text/csv",
+            )
+
+    with tabs[2]:
+        resumo = resumo_correcao_9282(df)
+        st.dataframe(
+            resumo,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "DIC_TOTAL": st.column_config.NumberColumn("DIC total", format="%.3f"),
+            },
+        )
+        st.download_button(
+            "Baixar resumo 92/82",
+            resumo.to_csv(index=False, sep=";").encode("utf-8-sig"),
+            file_name=f"correcao_ra_9282_{anomes}_resumo.csv",
+            mime="text/csv",
+        )
+
+    with tabs[3]:
+        col_action, col_source, col_score = st.columns([2, 2, 1])
+        with col_action:
+            action = st.selectbox(
+                "Ação",
+                ["Todas"] + sorted(df["ACAO_RECOMENDADA"].dropna().astype(str).unique().tolist()),
+            )
+        with col_source:
+            source = st.selectbox(
+                "Fonte",
+                ["Todas"] + sorted(df["FONTE_SUGESTAO"].dropna().astype(str).unique().tolist()),
+            )
+        with col_score:
+            min_score = st.slider("Score mínimo", 0, 100, 0, step=5, key="executivo_9282_score")
+
+        filtered = df.copy()
+        if action != "Todas":
+            filtered = filtered[filtered["ACAO_RECOMENDADA"].astype(str).eq(action)]
+        if source != "Todas":
+            filtered = filtered[filtered["FONTE_SUGESTAO"].astype(str).eq(source)]
+        filtered = filtered[filtered["SCORE_SUGESTAO"].fillna(0).astype(float) >= min_score]
+        filtered = filtered.sort_values(
+            ["SCORE_SUGESTAO", "DIC_OCORRENCIA", "QTD_RECLAMACOES"],
+            ascending=[False, False, False],
+        ).head(int(sample_limit))
+
+        st.dataframe(
+            filtered,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "SCORE_SUGESTAO": st.column_config.ProgressColumn("Score", min_value=0, max_value=100),
+                "DIC_OCORRENCIA": st.column_config.NumberColumn("DIC", format="%.3f"),
+                "FIC_OCORRENCIA": st.column_config.NumberColumn("FIC", format="%.3f"),
+            },
+        )
+        st.download_button(
+            "Baixar ranking 92/82",
+            filtered.to_csv(index=False, sep=";").encode("utf-8-sig"),
+            file_name=f"correcao_ra_9282_{anomes}_ranking.csv",
+            mime="text/csv",
+        )
+
+    with tabs[4]:
+        st.markdown("Gera os arquivos em `data/export/correcao_9282` com detalhe, resumo e nota da regra.")
+        if st.button("Gerar arquivo correcao_9282", type="primary"):
+            result = gerar_exportacao_correcao_9282(anomes, db_path, raw_path)
+            st.success(
+                "Arquivos gerados: "
+                f"`{result['detalhe']}`, `{result['resumo']}`, `{result['nota']}`."
+            )
+
+
+def _show_executivo_geral(db_path: str, sample_limit: int) -> None:
     st.subheader("Dashboard Executivo")
     st.caption(
         "Resumo executivo da qualidade do tratamento, impacto em continuidade, "
@@ -487,3 +693,11 @@ def show_executivo(db_path: str, sample_limit: int) -> None:
             LIMIT {int(sample_limit)}
         """
         st.dataframe(query_df(db_path, dia_critico_sql), use_container_width=True, hide_index=True)
+
+
+def show_executivo(db_path: str, sample_limit: int, anomes: str | None = None) -> None:
+    tabs = st.tabs(["Executivo", "9282"])
+    with tabs[0]:
+        _show_executivo_geral(db_path, sample_limit)
+    with tabs[1]:
+        _show_correcao_9282(anomes or DEFAULT_ANOMES, db_path, sample_limit)

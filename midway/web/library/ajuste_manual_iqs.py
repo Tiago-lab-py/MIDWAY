@@ -740,8 +740,9 @@ def _render_evidencias(defaults: dict[str, str], db_path: str, raw_path: Path, s
 def show_ajuste_manual_iqs(anomes: str, db_path: str, sample_limit: int) -> None:
     st.subheader("Ajuste Manual IQS")
     st.caption(
-        "Registra decisões manuais da pós-operação, aplica alterações sobre `adms_iqs_export` "
-        "e gera CSV no layout IQS para carga controlada."
+        "Ambiente técnico para tratar exceções, conflitos e registros que exigem evidências adicionais. "
+        "Os ajustes automáticos em massa devem ser autorizados no Executivo; aqui ficam revisão, suporte "
+        "e geração controlada do CSV IQS."
     )
 
     if not table_exists(db_path, "adms_iqs_export"):

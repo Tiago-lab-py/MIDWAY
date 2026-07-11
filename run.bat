@@ -142,6 +142,13 @@ if /I "%~1"=="extrair_adms_servicos" (
     goto fim
 )
 
+if /I "%~1"=="correcao_9282" (
+    echo Gerando tratativa em massa RA 92/82...
+    "%PYTHON_EXE%" -m midway.auditoria.correcao_9282
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="testar_dados" (
     echo Executando testes automatizados dos dados tratados...
     "%PYTHON_EXE%" -m unittest discover -s "%SCRIPT_DIR%tests" -p "test_*.py"
@@ -333,6 +340,7 @@ echo   run.bat apuracao_parcial             Gera camada gold e BDO de apuracao p
 echo   run.bat extrair_dbguo_reclamacoes    Extrai reclamacoes DBGUO para data\raw
 echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclamacoes DBGUO
 echo   run.bat extrair_adms_servicos        Extrai servicos ADMS de backup para data\raw
+echo   run.bat correcao_9282                Gera arquivo de tratativa RA 92/82 em data\export\correcao_9282
 echo   run.bat testar_dados                 Executa testes automatizados dos dados tratados
 echo   run.bat validar_dados                Executa testes e metricas de qualidade
 echo   run.bat metricas_qualidade           Gera metricas estatisticas de qualidade
