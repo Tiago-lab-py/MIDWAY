@@ -260,6 +260,41 @@ if /I "%~1"=="postgres_validar" (
     goto fim
 )
 
+if /I "%~1"=="postgres_status" (
+    echo Verificando PostgreSQL local...
+    if not exist "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" (
+        echo pg_ctl nao encontrado em "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe".
+        goto erro
+    )
+    "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" status -D "C:\Program Files\PostgreSQL\18\data"
+    goto fim
+)
+
+if /I "%~1"=="postgres_start" (
+    echo Iniciando PostgreSQL local...
+    if not exist "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" (
+        echo pg_ctl nao encontrado em "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe".
+        goto erro
+    )
+    "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" start -D "C:\Program Files\PostgreSQL\18\data" -l "C:\Program Files\PostgreSQL\18\data\server.log"
+    if errorlevel 1 goto erro
+    goto fim
+)
+
+if /I "%~1"=="postgres_governanca" (
+    echo Aplicando SQL de governanca MIDWAY...
+    "%PYTHON_EXE%" -m midway.db.apply_sql 006_governanca.sql
+    if errorlevel 1 goto erro
+    goto fim
+)
+
+if /I "%~1"=="admin_bootstrap" (
+    echo Criando usuario ADM inicial, se ainda nao existir...
+    "%PYTHON_EXE%" -m midway.db.bootstrap_admin
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="reextrair_metas_uc" (
     echo Reextraindo metas UC IQS sob demanda...
     set "REEXTRAIR_METAS_UC=1"
@@ -365,6 +400,10 @@ echo   run.bat referencia_iqs               Extrai referencia grupo/componente/c
 echo   run.bat reextrair_referencia_iqs     Reextrai referencia IQS com REEXTRAIR_REFERENCIA_IQS=1
 echo   run.bat sincronizar_iqs_raw          Sincroniza data\raw\iqs_raw_^<ANOMES^>.duckdb para o processed
 echo   run.bat postgres_validar             Valida conexao PostgreSQL e schema ddcq do MIDWAY 7.0.0
+echo   run.bat postgres_status              Verifica se o PostgreSQL local esta rodando
+echo   run.bat postgres_start               Inicia PostgreSQL local na instalacao PostgreSQL 18
+echo   run.bat postgres_governanca          Aplica tabelas/views de governanca e login
+echo   run.bat admin_bootstrap              Cria usuario ADM inicial sem senha padrao fixa
 echo   run.bat apuracao_parcial             Gera camada gold e BDO de apuracao previa
 echo   run.bat extrair_dbguo_reclamacoes    Extrai reclamacoes DBGUO para data\raw
 echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclamacoes DBGUO

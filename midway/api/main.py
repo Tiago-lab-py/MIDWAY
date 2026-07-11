@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from midway.api.routes import executivo_9282, health
+from midway.api.routes import executivo_9282, governanca, health, iqs, qualidade
 
 
 def create_app() -> FastAPI:
@@ -25,7 +25,10 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(governanca.router)
     app.include_router(executivo_9282.router)
+    app.include_router(iqs.router)
+    app.include_router(qualidade.router)
     return app
 
 

@@ -16,15 +16,26 @@ DEFAULT_SCHEMA = "ddcq"
 
 REQUIRED_TABLES = [
     "midway_ajuste_iqs",
+    "midway_alteracao_registro",
     "midway_auditoria_evento",
     "midway_autorizacao_executiva",
     "midway_execucao_lote",
     "midway_exportacao_iqs",
     "midway_fila_tecnica",
+    "midway_iqs_geracao",
+    "midway_iqs_geracao_modelo",
     "midway_parametro",
+    "midway_sessao",
+    "midway_usuario",
 ]
 
 REQUIRED_VIEWS = [
+    "vw_midway_governanca_alteracoes",
+    "vw_midway_governanca_auditoria",
+    "vw_midway_governanca_sessoes_ativas",
+    "vw_midway_governanca_usuarios",
+    "vw_midway_iqs_geracao",
+    "vw_midway_iqs_geracao_modelo",
     "vw_midway_9282_ajustes_auto",
     "vw_midway_9282_auditoria",
     "vw_midway_9282_fila_tecnica",
