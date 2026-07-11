@@ -22,6 +22,25 @@ if /I "%~1"=="painel" (
     goto fim
 )
 
+if /I "%~1"=="api" (
+    echo Abrindo MIDWAY API FastAPI...
+    "%PYTHON_EXE%" -m uvicorn midway.api.main:app --host 127.0.0.1 --port 8000 --reload
+    if errorlevel 1 goto erro
+    goto fim
+)
+
+if /I "%~1"=="frontend" (
+    echo Abrindo frontend React...
+    pushd "%SCRIPT_DIR%frontend"
+    npm run dev
+    if errorlevel 1 (
+        popd
+        goto erro
+    )
+    popd
+    goto fim
+)
+
 if /I "%~1"=="extract" (
     echo Executando extracao...
     "%PYTHON_EXE%" -m midway.extract.adms
@@ -234,6 +253,13 @@ if /I "%~1"=="sincronizar_iqs_raw" (
     goto fim
 )
 
+if /I "%~1"=="postgres_validar" (
+    echo Validando PostgreSQL operacional MIDWAY...
+    "%PYTHON_EXE%" -m midway.db.postgres
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="reextrair_metas_uc" (
     echo Reextraindo metas UC IQS sob demanda...
     set "REEXTRAIR_METAS_UC=1"
@@ -315,6 +341,8 @@ goto uso
 echo Uso:
 echo   run.bat versao                       Mostra a versao atual do MIDWAY
 echo   run.bat painel                       Abre painel Streamlit para avaliar resultados
+echo   run.bat api                          Abre MIDWAY API FastAPI em http://127.0.0.1:8000
+echo   run.bat frontend                     Abre frontend React em http://localhost:5173
 echo   run.bat extract                      Executa apenas a extracao Oracle para DuckDB bruto
 echo   run.bat registrar                    Valida DuckDB bruto existente e cria controle de extracao
 echo   run.bat tratamento                   Executa apenas o tratamento e exportacao IQS principal
@@ -336,6 +364,7 @@ echo   run.bat reextrair_metas_uc           Reextrai metas UC IQS com REEXTRAIR_
 echo   run.bat referencia_iqs               Extrai referencia grupo/componente/causa para Envio IQS
 echo   run.bat reextrair_referencia_iqs     Reextrai referencia IQS com REEXTRAIR_REFERENCIA_IQS=1
 echo   run.bat sincronizar_iqs_raw          Sincroniza data\raw\iqs_raw_^<ANOMES^>.duckdb para o processed
+echo   run.bat postgres_validar             Valida conexao PostgreSQL e schema ddcq do MIDWAY 7.0.0
 echo   run.bat apuracao_parcial             Gera camada gold e BDO de apuracao previa
 echo   run.bat extrair_dbguo_reclamacoes    Extrai reclamacoes DBGUO para data\raw
 echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclamacoes DBGUO

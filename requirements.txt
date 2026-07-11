@@ -5,3 +5,7 @@ polars==1.42.1
 python-dotenv==1.0.1
 oracledb==4.0.1
 streamlit==1.41.1
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.12
+fastapi==0.115.6
+uvicorn[standard]==0.32.1

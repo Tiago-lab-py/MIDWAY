@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import json
 import unicodedata
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 import duckdb
 import pandas as pd
+from sqlalchemy import text
 
 
 ANOMES = os.getenv("ANOMES", "202606")
@@ -702,6 +705,74 @@ def candidatos_manuais_9282(df: pd.DataFrame) -> pd.DataFrame:
     ].copy()
 
 
+def _pg_table(schema: str, table: str) -> str:
+    if not schema.replace("_", "").isalnum() or not table.replace("_", "").isalnum():
+        raise ValueError("Nome de schema/tabela inválido para PostgreSQL.")
+    return f"{schema}.{table}"
+
+
+def _clean_db_value(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+    text_value = str(value).strip()
+    return text_value or None
+
+
+def _clean_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _justificativa_auto_9282(row: pd.Series) -> str:
+    justificativa = (
+        "AUTO 92/82 - Serviço ADMS com par componente/causa válido na referência IQS: "
+        f"{row.get('COD_COMP_SUGERIDO')}/{row.get('COD_CAUSA_SUGERIDA')} "
+        f"({row.get('DESC_COMP_SUGERIDO')} / {row.get('DESC_CAUSA_SUGERIDA')}). "
+        f"Serviços: {row.get('SERVICOS') or ''}. Pares serviço: {row.get('PARES_SERVICO') or ''}."
+    )
+    return justificativa[:4000]
+
+
+def _evidencia_manual_9282(row: pd.Series) -> str:
+    evidencia = (
+        f"Ação: {row.get('ACAO_RECOMENDADA')}; "
+        f"fonte: {row.get('FONTE_SUGESTAO')}; "
+        f"evidência: {row.get('NIVEL_EVIDENCIA')}; "
+        f"score: {row.get('SCORE_SUGESTAO')}; "
+        f"serviços: {row.get('SERVICOS') or ''}; "
+        f"pares serviço: {row.get('PARES_SERVICO') or ''}; "
+        f"termos: {row.get('TERMOS_COINCIDENTES') or ''}; "
+        f"justificativa algoritmo: {row.get('JUSTIFICATIVA_ALGORITMO') or ''}."
+    )
+    return evidencia[:4000]
+
+
+def _prioridade_manual_9282(row: pd.Series) -> int:
+    prioridade = 50
+    if str(row.get("NIVEL_EVIDENCIA") or "") == "ROBUSTA_COM_CONFLITO":
+        prioridade += 30
+    if str(row.get("FONTE_SUGESTAO") or "") == "RECLAMACAO":
+        prioridade += 10
+    score = _clean_float(row.get("SCORE_SUGESTAO")) or 0
+    dic = _clean_float(row.get("DIC_OCORRENCIA")) or 0
+    if score >= 70:
+        prioridade += 5
+    if dic >= 100:
+        prioridade += 5
+    return min(prioridade, 100)
+
+
 def registrar_ajustes_automaticos_9282(
     anomes: str = ANOMES,
     db_path: str | Path | None = None,
@@ -774,6 +845,282 @@ def registrar_ajustes_automaticos_9282(
         "criados": len(ids),
         "ignorados": ignorados,
         "manuais": len(candidatos_manuais_9282(df)),
+        "ids": ids,
+    }
+
+
+def registrar_ajustes_automaticos_9282_postgres(
+    anomes: str = ANOMES,
+    db_path: str | Path | None = None,
+    raw_path: str | Path | None = None,
+    responsavel: str = "EXECUTIVO_9282",
+) -> dict[str, object]:
+    from midway.db.postgres import create_postgres_engine, get_config
+
+    config = get_config()
+    engine = create_postgres_engine(config)
+    schema = config.schema
+
+    df = calcular_correcao_9282(anomes, db_path, raw_path)
+    automaticos = candidatos_automaticos_9282(df)
+    manuais = candidatos_manuais_9282(df)
+
+    if automaticos.empty:
+        return {
+            "id_autorizacao": None,
+            "candidatos": 0,
+            "criados": 0,
+            "ignorados": 0,
+            "manuais": len(manuais),
+            "manuais_criados": 0,
+            "manuais_ignorados": 0,
+            "ids": [],
+        }
+
+    ajustes_table = _pg_table(schema, "midway_ajuste_iqs")
+    autorizacao_table = _pg_table(schema, "midway_autorizacao_executiva")
+    fila_table = _pg_table(schema, "midway_fila_tecnica")
+    auditoria_table = _pg_table(schema, "midway_auditoria_evento")
+
+    with engine.begin() as con:
+        ajustes_existentes = {
+            (
+                _clean_db_value(row.num_seq_intrp) or "",
+                _clean_db_value(row.novo_cod_comp_intrp) or "",
+                _clean_db_value(row.novo_cod_causa_intrp) or "",
+            )
+            for row in con.execute(
+                text(
+                    f"""
+                    SELECT num_seq_intrp, novo_cod_comp_intrp, novo_cod_causa_intrp
+                    FROM {ajustes_table}
+                    WHERE anomes = :anomes
+                      AND origem_ajuste = 'AUTO_EXECUTIVO_9282'
+                    """
+                ),
+                {"anomes": anomes},
+            ).fetchall()
+        }
+
+        filas_existentes = {
+            (
+                _clean_db_value(row.num_seq_intrp) or "",
+                _clean_db_value(row.fonte_sugestao) or "",
+                _clean_db_value(row.nivel_evidencia) or "",
+            )
+            for row in con.execute(
+                text(
+                    f"""
+                    SELECT num_seq_intrp, fonte_sugestao, nivel_evidencia
+                    FROM {fila_table}
+                    WHERE anomes = :anomes
+                      AND tipo_fila = 'RA_9282'
+                      AND status_fila IN ('ABERTA', 'EM_ANALISE')
+                    """
+                ),
+                {"anomes": anomes},
+            ).fetchall()
+        }
+
+        ajuste_rows: list[dict[str, object]] = []
+        ids: list[str] = []
+        for _, row in automaticos.iterrows():
+            chave = (
+                _clean_db_value(row.get("NUM_SEQ_INTRP")) or "",
+                _clean_db_value(row.get("COD_COMP_SUGERIDO")) or "",
+                _clean_db_value(row.get("COD_CAUSA_SUGERIDA")) or "",
+            )
+            if chave in ajustes_existentes:
+                continue
+
+            id_ajuste = str(uuid4())
+            ids.append(id_ajuste)
+            ajuste_rows.append(
+                {
+                    "id_ajuste": id_ajuste,
+                    "anomes": anomes,
+                    "aprovado": True,
+                    "origem_ajuste": "AUTO_EXECUTIVO_9282",
+                    "escopo": "INTERRUPCAO",
+                    "num_ocorrencia_adms": _clean_db_value(row.get("NUM_OCORRENCIA_ADMS")),
+                    "num_seq_intrp": _clean_db_value(row.get("NUM_SEQ_INTRP")),
+                    "sigla_regional": _clean_db_value(row.get("REGIONAL")),
+                    "cod_causa_intrp_original": "82",
+                    "cod_comp_intrp_original": "92",
+                    "novo_cod_causa_intrp": _clean_db_value(row.get("COD_CAUSA_SUGERIDA")),
+                    "novo_cod_comp_intrp": _clean_db_value(row.get("COD_COMP_SUGERIDO")),
+                    "novo_valid_pos_operacao": "S",
+                    "justificativa": _justificativa_auto_9282(row),
+                    "criado_por": responsavel,
+                    "atualizado_por": responsavel,
+                }
+            )
+            ajustes_existentes.add(chave)
+
+        fila_rows: list[dict[str, object]] = []
+        for _, row in manuais.iterrows():
+            chave_fila = (
+                _clean_db_value(row.get("NUM_SEQ_INTRP")) or "",
+                _clean_db_value(row.get("FONTE_SUGESTAO")) or "",
+                _clean_db_value(row.get("NIVEL_EVIDENCIA")) or "",
+            )
+            if chave_fila in filas_existentes:
+                continue
+
+            fila_rows.append(
+                {
+                    "id_fila": str(uuid4()),
+                    "anomes": anomes,
+                    "tipo_fila": "RA_9282",
+                    "prioridade": _prioridade_manual_9282(row),
+                    "status_fila": "ABERTA",
+                    "num_ocorrencia_adms": _clean_db_value(row.get("NUM_OCORRENCIA_ADMS")),
+                    "num_seq_intrp": _clean_db_value(row.get("NUM_SEQ_INTRP")),
+                    "cod_causa_atual": "82",
+                    "cod_comp_atual": "92",
+                    "cod_causa_sugerida": _clean_db_value(row.get("COD_CAUSA_SUGERIDA")),
+                    "cod_comp_sugerido": _clean_db_value(row.get("COD_COMP_SUGERIDO")),
+                    "fonte_sugestao": _clean_db_value(row.get("FONTE_SUGESTAO")),
+                    "nivel_evidencia": _clean_db_value(row.get("NIVEL_EVIDENCIA")),
+                    "score_sugestao": _clean_float(row.get("SCORE_SUGESTAO")),
+                    "evidencia_resumo": _evidencia_manual_9282(row),
+                    "responsavel": responsavel,
+                }
+            )
+            filas_existentes.add(chave_fila)
+
+        id_autorizacao = str(uuid4())
+        ignorados = len(automaticos) - len(ajuste_rows)
+        manuais_ignorados = len(manuais) - len(fila_rows)
+        if not ajuste_rows and not fila_rows:
+            return {
+                "id_autorizacao": None,
+                "candidatos": len(automaticos),
+                "criados": 0,
+                "ignorados": ignorados,
+                "manuais": len(manuais),
+                "manuais_criados": 0,
+                "manuais_ignorados": manuais_ignorados,
+                "ids": [],
+            }
+
+        con.execute(
+            text(
+                f"""
+                INSERT INTO {autorizacao_table} (
+                    id_autorizacao, anomes, tipo_autorizacao, regra, status_autorizacao,
+                    qtd_candidatos, qtd_autorizados, qtd_rejeitados, justificativa,
+                    autorizado_por
+                )
+                VALUES (
+                    :id_autorizacao, :anomes, 'RA_9282_AUTO', 'SERVICO+ROBUSTA',
+                    'AUTORIZADA', :qtd_candidatos, :qtd_autorizados, :qtd_rejeitados,
+                    :justificativa, :autorizado_por
+                )
+                """
+            ),
+            {
+                "id_autorizacao": id_autorizacao,
+                "anomes": anomes,
+                "qtd_candidatos": len(automaticos),
+                "qtd_autorizados": len(ajuste_rows),
+                "qtd_rejeitados": ignorados,
+                "justificativa": (
+                    "Autorização executiva da tratativa automática RA 92/82. "
+                    "Critério: serviço ADMS com evidência robusta e par componente/causa válido."
+                ),
+                "autorizado_por": responsavel,
+            },
+        )
+
+        if ajuste_rows:
+            for row in ajuste_rows:
+                row["id_autorizacao"] = id_autorizacao
+            con.execute(
+                text(
+                    f"""
+                    INSERT INTO {ajustes_table} (
+                        id_ajuste, anomes, aprovado, origem_ajuste, escopo,
+                        num_ocorrencia_adms, num_seq_intrp, sigla_regional,
+                        cod_causa_intrp_original, cod_comp_intrp_original,
+                        novo_cod_causa_intrp, novo_cod_comp_intrp, novo_valid_pos_operacao,
+                        justificativa, id_autorizacao, criado_por, atualizado_por
+                    )
+                    VALUES (
+                        :id_ajuste, :anomes, :aprovado, :origem_ajuste, :escopo,
+                        :num_ocorrencia_adms, :num_seq_intrp, :sigla_regional,
+                        :cod_causa_intrp_original, :cod_comp_intrp_original,
+                        :novo_cod_causa_intrp, :novo_cod_comp_intrp, :novo_valid_pos_operacao,
+                        :justificativa, :id_autorizacao, :criado_por, :atualizado_por
+                    )
+                    """
+                ),
+                ajuste_rows,
+            )
+
+        if fila_rows:
+            con.execute(
+                text(
+                    f"""
+                    INSERT INTO {fila_table} (
+                        id_fila, anomes, tipo_fila, prioridade, status_fila,
+                        num_ocorrencia_adms, num_seq_intrp,
+                        cod_causa_atual, cod_comp_atual,
+                        cod_causa_sugerida, cod_comp_sugerido,
+                        fonte_sugestao, nivel_evidencia, score_sugestao,
+                        evidencia_resumo, responsavel
+                    )
+                    VALUES (
+                        :id_fila, :anomes, :tipo_fila, :prioridade, :status_fila,
+                        :num_ocorrencia_adms, :num_seq_intrp,
+                        :cod_causa_atual, :cod_comp_atual,
+                        :cod_causa_sugerida, :cod_comp_sugerido,
+                        :fonte_sugestao, :nivel_evidencia, :score_sugestao,
+                        :evidencia_resumo, :responsavel
+                    )
+                    """
+                ),
+                fila_rows,
+            )
+
+        con.execute(
+            text(
+                f"""
+                INSERT INTO {auditoria_table} (
+                    id_evento, anomes, tipo_evento, entidade, id_entidade, usuario, detalhe
+                )
+                VALUES (
+                    :id_evento, :anomes, 'AUTORIZACAO_9282', 'midway_autorizacao_executiva',
+                    :id_entidade, :usuario, CAST(:detalhe AS jsonb)
+                )
+                """
+            ),
+            {
+                "id_evento": str(uuid4()),
+                "anomes": anomes,
+                "id_entidade": id_autorizacao,
+                "usuario": responsavel,
+                "detalhe": json.dumps(
+                    {
+                        "candidatos_automaticos": len(automaticos),
+                        "ajustes_criados": len(ajuste_rows),
+                        "ajustes_ignorados": ignorados,
+                        "fila_tecnica_criada": len(fila_rows),
+                        "fila_tecnica_ignorada": manuais_ignorados,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        )
+
+    return {
+        "id_autorizacao": id_autorizacao,
+        "candidatos": len(automaticos),
+        "criados": len(ajuste_rows),
+        "ignorados": ignorados,
+        "manuais": len(manuais),
+        "manuais_criados": len(fila_rows),
+        "manuais_ignorados": manuais_ignorados,
         "ids": ids,
     }
 

@@ -8,7 +8,7 @@ from midway.auditoria.correcao_9282 import (
     candidatos_automaticos_9282,
     candidatos_manuais_9282,
     gerar_exportacao_correcao_9282,
-    registrar_ajustes_automaticos_9282,
+    registrar_ajustes_automaticos_9282_postgres,
     resumo_correcao_9282,
 )
 from midway.web.library.shared import *
@@ -422,17 +422,18 @@ def _show_correcao_9282(anomes: str, db_path: str, sample_limit: int) -> None:
                 },
             )
             st.warning(
-                "Ao autorizar, estes registros serão criados como ajustes aprovados na base do Ajuste Manual. "
-                "A geração do CSV IQS continua controlada na página `Ajuste Manual IQS`."
+                "Ao autorizar, estes registros serão gravados no PostgreSQL como ajustes aprovados "
+                "e os casos problemáticos serão enviados para a fila técnica."
             )
             if st.button("Autorizar ajustes automáticos 92/82", type="primary"):
                 try:
-                    resultado = registrar_ajustes_automaticos_9282(anomes, db_path, raw_path)
+                    resultado = registrar_ajustes_automaticos_9282_postgres(anomes, db_path, raw_path)
                     st.success(
                         "Autorização concluída: "
                         f"{resultado['criados']} ajuste(s) criado(s), "
                         f"{resultado['ignorados']} duplicado(s) ignorado(s), "
-                        f"{resultado['manuais']} item(ns) permanecem na fila técnica."
+                        f"{resultado['manuais_criados']} item(ns) incluído(s) na fila técnica. "
+                        f"ID autorização: {resultado['id_autorizacao']}."
                     )
                     st.cache_data.clear()
                 except Exception as error:
