@@ -596,6 +596,22 @@ Segunda implementação operacional:
 - pop-up/modal ao clicar na ocorrência com resumo, interrupções, serviços ADMS, apuração UC e reclamações vinculadas.
 - painel executivo com DEC/FEC antes e depois das tratativas, comparando RAW contra apuração prévia pós-correções.
 
+Terceira implementação operacional:
+
+- Dashboard reorganizado para exibir `DEC/FEC Antes e Depois das Tratativas` como primeiro bloco após o título da página;
+- status do banco reduzido e exibido ao lado de `ANOMES`;
+- painel `Ajustes de Componente/Causa` separado do painel de impacto regulatório;
+- abertura diagnóstica de filtros RAW no Dashboard:
+  - não faturados;
+  - manobra/remanejamento;
+  - motivo de tratamento diferenciado;
+  - manobra + motivo;
+- substituição da prévia `Fila Técnica 92/82` no Dashboard por `Busca`;
+- busca por ocorrência, interrupção ou UC;
+- resultados da busca em painéis expansíveis;
+- botão para abrir o pop-up completo da ocorrência a partir do resultado pesquisado;
+- endpoint protegido `GET /api/qualidade/busca`.
+
 Observação de evidência:
 
 - o serviço ADMS é buscado no RAW `adms_servicos_raw_{anomes}.duckdb`;
@@ -610,6 +626,13 @@ Observação metodológica DEC/FEC:
 - o cenário RAW usa `ESTADO_INTRP = 4`, duração mínima de 3 minutos e UC faturada;
 - o cenário pós-tratamento usa a apuração prévia já resultante das correções de sobreposição total, sobreposição parcial e interrupção sem UC remanescente;
 - bruto considera todos os protocolos e líquido considera `TIPO_PROTOC_JUSTIF_UCI = 0`.
+
+Observação da busca técnica:
+
+- a busca por ocorrência consulta diretamente a ocorrência informada e consolida evidências vinculadas;
+- a busca por interrupção localiza ocorrências por `NUM_SEQ_INTRP`;
+- a busca por UC localiza ocorrências por `gold_apuracao_uc`, `gold_interrupcao_tratada` e `gold_reclamacao_uc_vinculada`;
+- o resultado é uma visão resumida para triagem, enquanto o pop-up de ocorrência continua sendo a visão detalhada.
 
 Próxima implementação recomendada:
 

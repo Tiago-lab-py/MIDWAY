@@ -565,7 +565,7 @@ function FilaPreview({ anomes, token, onOpenOccurrence }) {
     <section className="panel">
       <div className="panel-title">
         <div>
-          <h2>Busca Técnica 92/82</h2>
+          <h2>Busca</h2>
           <p>Pesquise por ocorrência, interrupção ou UC e abra painéis expansíveis para investigação.</p>
         </div>
       </div>

@@ -1,5 +1,29 @@
 # Changelog
 
+## 7.0.0 - 2026-07-11
+
+Versao de transicao arquitetural para React + FastAPI + PostgreSQL `ddcq`, mantendo DuckDB como motor analitico.
+
+- Adiciona frontend React `MIDWAY 7.0.0` com navegação por páginas e visual executivo.
+- Adiciona backend FastAPI como fronteira única entre tela, PostgreSQL, DuckDB e exportações.
+- Cria base PostgreSQL operacional no schema `ddcq` para parâmetros, fila técnica, auditoria, autorização executiva e ajustes IQS.
+- Adiciona login local com perfis `ADM`, `GESTOR` e `ANALISTA`.
+- Implementa governança de alterações: analista propõe, gestor aprova/rejeita e auditoria registra os eventos.
+- Implementa geração IQS governada por pacote, com justificativa única para um ou vários modelos.
+- Adiciona modelos iniciais de geração IQS: sobreposição total, sobreposição parcial, interrupção sem UC remanescente, ajuste 92/82 por reclamação e regra rígida grupo/componente/causa.
+- Reorganiza o Dashboard Executivo para exibir `DEC/FEC Antes e Depois das Tratativas` como primeiro bloco após o título.
+- Move o status do banco para indicador compacto ao lado do `ANOMES`.
+- Adiciona painel de ajustes de componente/causa para RA `92/82`.
+- Adiciona comparação `DEC/FEC` RAW antes das tratativas contra `gold_apuracao_previa` após correções.
+- Adiciona abertura de ganhos por tratamento e diagnóstico de filtros RAW, incluindo não faturados, manobra/remanejamento e motivo de tratamento diferenciado.
+- Valida o ganho de sobreposição parcial por UC como ganho oficial faturado, separando duração total, ganho faturado e ganho não faturado.
+- Substitui a prévia da `Fila Técnica 92/82` no Dashboard por `Busca`.
+- Adiciona busca por ocorrência, interrupção ou UC em painéis expansíveis.
+- Adiciona endpoint `GET /api/qualidade/busca` para consolidar interrupções, UCs, reclamações, componente/causa, `CHI/CI` e score de reclamação.
+- Adiciona pop-up de ocorrência completa com resumo, interrupções distintas, serviços ADMS, apuração UC e reclamações vinculadas.
+- Corrige a associação de serviços ADMS por interrupção usando `PID_INTRP_SRVE = NUM_SEQ_INTRP`, evitando repetição indevida por UC.
+- Amplia documentação da versão `7.0.0` em `docs/31_plano_aperfeicoamento_telas_governanca.md`, `docs/32_dashboard_executivo_busca_tecnica_7_0_0.md` e `docs/sprint/03_MIDWAY_7_0_0_REACT_FASTAPI.md`.
+
 ## 6.2.1 - 2026-07-09
 
 Versao incremental com frontend de qualidade de interrupcoes.

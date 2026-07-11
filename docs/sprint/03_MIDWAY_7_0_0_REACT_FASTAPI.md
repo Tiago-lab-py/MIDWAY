@@ -51,6 +51,8 @@ Entregas:
 - endpoint de ajustes automaticos RA `92/82`;
 - endpoint da fila tecnica RA `92/82`;
 - endpoint para disparar autorizacao executiva RA `92/82`;
+- endpoint de busca técnica por ocorrência, interrupção ou UC;
+- endpoint de detalhe completo da ocorrência;
 - configuracao CORS para frontend local.
 
 Rotas planejadas:
@@ -61,6 +63,8 @@ GET  /api/executivo/9282/painel
 GET  /api/executivo/9282/ajustes-auto
 GET  /api/executivo/9282/fila-tecnica
 POST /api/executivo/9282/autorizar
+GET  /api/qualidade/busca
+GET  /api/qualidade/ocorrencias/{num_ocorrencia_adms}
 ```
 
 ### Frontend React
@@ -70,7 +74,10 @@ Entregas:
 - layout base com sidebar;
 - dashboard executivo;
 - cards principais da tratativa RA `92/82`;
-- tabela simples de fila tecnica;
+- painel `DEC/FEC Antes e Depois das Tratativas`;
+- painel de ajustes de componente/causa;
+- busca técnica por ocorrência, interrupção ou UC em painéis expansíveis;
+- pop-up de ocorrência completa com interrupções, serviços, apuração UC e reclamações;
 - estado visual da API/banco.
 
 Paginas planejadas:
@@ -135,6 +142,8 @@ A sprint sera considerada validada quando:
 - `GET /api/health` responder `ok`;
 - `GET /api/executivo/9282/painel` retornar os dados das views `ddcq`;
 - frontend React exibir os indicadores principais;
+- Dashboard exibir `DEC/FEC` como primeiro painel depois do título;
+- busca técnica retornar resultados por ocorrência, interrupção e UC;
 - Streamlit continuar funcional;
 - PostgreSQL validar `7` tabelas, `4` views e parametros esperados.
 
