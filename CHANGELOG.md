@@ -18,6 +18,7 @@ Versao de transicao arquitetural para React + FastAPI + PostgreSQL `ddcq`, mante
 - Reorganiza o Dashboard Executivo para exibir `DEC/FEC Antes e Depois das Tratativas` como primeiro bloco após o título.
 - Simplifica a navegação principal para quatro áreas: `Dashboard`, `Executivo`, `Análise Técnica` e `Administração`.
 - Adiciona na `Análise Técnica` a priorização por impacto com filtros de `CHI`, `CI`, ressarcimento, duração suspeita, `92/82` e violação rígida grupo/componente/causa.
+- Adiciona cache materializado `gold_analise_tecnica_impacto_base` para acelerar o ranking da `Análise Técnica`, com comando `run.bat analise_tecnica_cache [ANOMES]`.
 - Move o status do banco para indicador compacto ao lado do `ANOMES`.
 - Adiciona painel de ajustes de componente/causa para RA `92/82`.
 - Adiciona comparação `DEC/FEC` RAW antes das tratativas contra `gold_apuracao_previa` após correções.

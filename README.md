@@ -122,6 +122,14 @@ Abrir painel React `MIDWAY 7.0.0`:
 inicio.bat
 ```
 
+Preparar o núcleo de anomalias no PostgreSQL local usando RAW, SILVER e GOLD:
+
+```bat
+run.bat anomalias_setup
+```
+
+O comando carrega somente anomalias geradas a partir das tabelas reais do DuckDB processado.
+
 Abrir painel Streamlit de conferencia:
 
 ```bat
@@ -146,6 +154,9 @@ run.bat painel
 | `run.bat extrair_dbguo_reclamacoes` | Extrai reclamacoes DBGUO para `data/raw` |
 | `run.bat dbguo_reclamacoes` | Materializa silver/gold de reclamacoes DBGUO |
 | `run.bat extrair_adms_servicos` | Extrai servicos ADMS de backup para `data/raw` |
+| `run.bat analise_tecnica_cache [ANOMES]` | Materializa cache rapido do ranking da Analise Tecnica |
+| `run.bat anomalias_setup` | Aplica núcleo de anomalias e carrega anomalias RAW/SILVER/GOLD |
+| `run.bat anomalias_validar` | Valida testes unitários do núcleo de anomalias |
 | `run.bat vrc` | Extrai VRC IQS sob demanda |
 | `run.bat metas_uc` | Extrai metas UC IQS sob demanda |
 

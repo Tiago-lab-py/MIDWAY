@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from midway.db.postgres import create_postgres_engine, get_config
 
@@ -128,41 +129,49 @@ def get_current_user(authorization: str | None = Header(default=None)) -> AuthUs
     token = _bearer_token(authorization)
     schema = _schema()
     engine = create_postgres_engine()
-    with engine.begin() as con:
-        row = con.execute(
-            text(
-                f"""
-                SELECT
-                    u.id_usuario,
-                    u.login,
-                    u.nome,
-                    u.email,
-                    u.perfil
-                FROM {schema}.midway_sessao s
-                JOIN {schema}.midway_usuario u
-                    ON u.id_usuario = s.id_usuario
-                WHERE s.token_hash = :token_hash
-                  AND s.revogado_em IS NULL
-                  AND s.expira_em > now()
-                  AND u.status_usuario = 'ATIVO'
-                """
-            ),
-            {"token_hash": hash_token(token)},
-        ).mappings().first()
+    try:
+        with engine.begin() as con:
+            row = con.execute(
+                text(
+                    f"""
+                    SELECT
+                        u.id_usuario,
+                        u.login,
+                        u.nome,
+                        u.email,
+                        u.perfil
+                    FROM {schema}.midway_sessao s
+                    JOIN {schema}.midway_usuario u
+                        ON u.id_usuario = s.id_usuario
+                    WHERE s.token_hash = :token_hash
+                      AND s.revogado_em IS NULL
+                      AND s.expira_em > now()
+                      AND u.status_usuario = 'ATIVO'
+                    """
+                ),
+                {"token_hash": hash_token(token)},
+            ).mappings().first()
 
-        if not row:
-            raise HTTPException(status_code=401, detail="Sessão expirada ou inválida.")
+            if not row:
+                raise HTTPException(status_code=401, detail="Sessão expirada ou inválida.")
 
-        con.execute(
-            text(
-                f"""
-                UPDATE {schema}.midway_sessao
-                SET ultimo_uso_em = now()
-                WHERE token_hash = :token_hash
-                """
-            ),
-            {"token_hash": hash_token(token)},
-        )
+            con.execute(
+                text(
+                    f"""
+                    UPDATE {schema}.midway_sessao
+                    SET ultimo_uso_em = now()
+                    WHERE token_hash = :token_hash
+                    """
+                ),
+                {"token_hash": hash_token(token)},
+            )
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="PostgreSQL indisponível para validar a sessão. Inicie o banco local e faça login novamente.",
+        ) from exc
 
     return AuthUser(
         id_usuario=str(row["id_usuario"]),

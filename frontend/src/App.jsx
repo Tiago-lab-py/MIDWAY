@@ -5,12 +5,22 @@ const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8000'
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: 'D' },
   { id: 'executivo', label: 'Executivo', icon: 'E', profiles: ['GESTOR', 'ADM'] },
+  { id: 'anomalias', label: 'Anomalias', icon: '!' },
   { id: 'analise_tecnica', label: 'Análise Técnica', icon: 'A' },
   { id: 'administracao', label: 'Administração', icon: 'G', profiles: ['ADM'] },
 ]
 
 function numberFormat(value) {
   return new Intl.NumberFormat('pt-BR').format(Number(value || 0))
+}
+
+function normalizeDecimalParam(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (text.includes(',')) {
+    return text.replace(/\./g, '').replace(',', '.')
+  }
+  return text
 }
 
 function decimalFormat(value, digits = 4) {
@@ -20,9 +30,16 @@ function decimalFormat(value, digits = 4) {
   }).format(Number(value || 0))
 }
 
+function currencyFormat(value) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(Number(value || 0))
+}
+
 function percent(value, total) {
   if (!total) return '0%'
-  return `${((Number(value || 0) / Number(total)) * 100).toFixed(1)}%`
+  return `${decimalFormat((Number(value || 0) / Number(total)) * 100, 1)}%`
 }
 
 function dateTime(value) {
@@ -51,6 +68,24 @@ function Card({ label, value, hint, tone = 'blue' }) {
       <small>{hint}</small>
     </section>
   )
+}
+
+function SeverityBadge({ value }) {
+  const normalized = String(value || '').toLowerCase()
+  const tone = normalized.includes('crítica') ? 'critical' : normalized.includes('alta') ? 'danger' : normalized.includes('média') ? 'warning' : 'info'
+  return <span className={`pill pill-${tone}`}>{value || '—'}</span>
+}
+
+function ConfidenceBadge({ value }) {
+  const number = Number(value || 0)
+  const tone = number >= 0.9 ? 'success' : number >= 0.75 ? 'warning' : 'danger'
+  return <span className={`pill pill-${tone}`}>{decimalFormat(number * 100, 1)}%</span>
+}
+
+function StatusPill({ value }) {
+  const normalized = String(value || '').toLowerCase()
+  const tone = normalized.includes('pendente') ? 'warning' : normalized.includes('aprov') ? 'success' : 'info'
+  return <span className={`pill pill-${tone}`}>{value || '—'}</span>
 }
 
 function ImpactCard({ label, antes, depois, ganho, ganhoPct }) {
@@ -264,14 +299,14 @@ function OccurrenceModal({ detail, loading, onClose }) {
             <DataTable
               columns={[
                 { key: 'NUM_UC_UCI', label: 'UC' },
-                { key: 'DURACAO_HORA', label: 'Duração' },
-                { key: 'CHI_LIQUIDO', label: 'CHI Liq.' },
-                { key: 'CI_LIQUIDO', label: 'CI Liq.' },
-                { key: 'CHI_BRUTO', label: 'CHI Bruto' },
-                { key: 'CI_BRUTO', label: 'CI Bruto' },
+                { key: 'DURACAO_HORA', label: 'Duração', render: (item) => `${decimalFormat(item.DURACAO_HORA, 2)} h` },
+                { key: 'CHI_LIQUIDO', label: 'CHI Liq.', render: (item) => decimalFormat(item.CHI_LIQUIDO, 2) },
+                { key: 'CI_LIQUIDO', label: 'CI Liq.', render: (item) => numberFormat(item.CI_LIQUIDO) },
+                { key: 'CHI_BRUTO', label: 'CHI Bruto', render: (item) => decimalFormat(item.CHI_BRUTO, 2) },
+                { key: 'CI_BRUTO', label: 'CI Bruto', render: (item) => numberFormat(item.CI_BRUTO) },
                 { key: 'CLASSE_TENSAO_PRODIST', label: 'Classe' },
                 { key: 'GRUPO_TENSAO', label: 'Tensão' },
-                { key: 'VALOR_RESSARCIMENTO', label: 'Ressarcimento' },
+                { key: 'VALOR_RESSARCIMENTO', label: 'Ressarcimento', render: (item) => currencyFormat(item.VALOR_RESSARCIMENTO) },
               ]}
               rows={detail?.apuracao_uc || []}
             />
@@ -284,7 +319,7 @@ function OccurrenceModal({ detail, loading, onClose }) {
                 { key: 'UC', label: 'UC' },
                 { key: 'TIPO_RECLAMACAO_PROVAVEL', label: 'Tipo' },
                 { key: 'CAUSA_PROVAVEL_RECLAMACAO', label: 'Causa provável' },
-                { key: 'SCORE_VINCULO_RECLAMACAO', label: 'Score' },
+                { key: 'SCORE_VINCULO_RECLAMACAO', label: 'Score', render: (item) => numberFormat(item.SCORE_VINCULO_RECLAMACAO) },
                 { key: 'TEXTO_RECLAMACAO', label: 'Texto' },
               ]}
               rows={detail?.reclamacoes || []}
@@ -645,6 +680,174 @@ function FilaPreview({ anomes, token, onOpenOccurrence }) {
   )
 }
 
+function AnomalyDetailModal({ detail, loading, onClose, onRegisterDecision }) {
+  const suggestion = detail?.sugestao || {}
+  const impact = detail?.impacto || {}
+  return (
+    <Modal title={`Anomalia ${detail?.id_anomalia || ''}`} onClose={onClose}>
+      {loading && <div className="alert">Carregando anomalia...</div>}
+      {!loading && detail && (
+        <div className="modal-sections">
+          <section className="anomaly-detail-head">
+            <div>
+              <h3>{detail.nome}</h3>
+              <p>{detail.explicacao_simples}</p>
+              <div className="tag-list">
+                <SeverityBadge value={detail.severidade} />
+                <ConfidenceBadge value={detail.confianca} />
+                <StatusPill value={detail.status} />
+                <span className="pill pill-info">{detail.categoria}</span>
+              </div>
+            </div>
+            <div className="decision-box">
+              <strong>{suggestion.acao || 'sem sugestão'}</strong>
+              <span>{suggestion.justificativa || '—'}</span>
+              <div className="row-actions">
+                <button className="mini-button mini-button-success" onClick={() => onRegisterDecision(detail, 'aprovar')}>
+                  Propor aprovação
+                </button>
+                <button className="mini-button mini-button-danger" onClick={() => onRegisterDecision(detail, 'rejeitar')}>
+                  Propor rejeição
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="content-grid">
+            <div className="panel">
+              <div className="panel-title">
+                <div>
+                  <h3>Explicação técnica</h3>
+                  <p>{detail.explicacao_tecnica}</p>
+                </div>
+              </div>
+              <KeyValueGrid
+                data={{
+                  regra_violada: detail.regra_violada,
+                  impacto_possivel: detail.impacto_possivel,
+                  campos_envolvidos: (detail.campos_envolvidos || []).join(', '),
+                  registro_id: detail.registro_id,
+                  ocorrencia: detail.ocorrencia,
+                  interrupcao: detail.interrupcao,
+                }}
+              />
+            </div>
+
+            <div className="panel">
+              <div className="panel-title">
+                <div>
+                  <h3>Impacto estimado</h3>
+                  <p>Valores calculados a partir do processamento RAW, SILVER e GOLD.</p>
+                </div>
+              </div>
+              <div className="stat-list">
+                <span><strong>DEC</strong> {decimalFormat(impact.dec)}</span>
+                <span><strong>FEC</strong> {decimalFormat(impact.fec)}</span>
+                <span><strong>DIC</strong> {decimalFormat(impact.dic, 2)}</span>
+                <span><strong>FIC</strong> {decimalFormat(impact.fic, 2)}</span>
+                <span><strong>Ressarcimento</strong> {currencyFormat(impact.ressarcimento)}</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="comparison-grid">
+            <div className="panel">
+              <h3>Original</h3>
+              <KeyValueGrid data={detail.original} />
+            </div>
+            <div className="panel">
+              <h3>Sugerido</h3>
+              <KeyValueGrid data={detail.tratado_sugerido} />
+            </div>
+          </section>
+
+          <section className="content-grid">
+            <div className="panel">
+              <h3>Evidências</h3>
+              <DataTable
+                columns={[
+                  { key: 'campo', label: 'Campo' },
+                  { key: 'valor', label: 'Valor' },
+                  { key: 'origem', label: 'Origem' },
+                ]}
+                rows={detail.evidencias || []}
+              />
+            </div>
+            <div className="panel">
+              <h3>Linha do tempo</h3>
+              <div className="timeline-list">
+                {(detail.linha_tempo || []).map((item) => (
+                  <span key={`${item.momento}-${item.evento}`}>
+                    <small>{dateTime(item.momento)}</small>
+                    <strong>{item.evento}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
+  const total = Number(resumo?.total || 0)
+  return (
+    <>
+      <PageHero
+        eyebrow="MIDWAY"
+        title="Central de Anomalias"
+        description="Detecção estruturada sobre os dados reais processados: RAW, SILVER, GOLD, evidências, impacto e decisão humana auditável."
+        sideLabel="Fonte"
+        sideValue={resumo?.fonte || 'RAW/SILVER/GOLD'}
+      />
+
+      <div className="metrics-grid compact">
+        <Card label="Anomalias" value={numberFormat(total)} hint="dados processados" tone="blue" />
+        <Card label="Pendentes" value={numberFormat(resumo?.pendentes)} hint={`${percent(resumo?.pendentes, total)} da fila`} tone="orange" />
+        <Card label="Alto risco" value={numberFormat(resumo?.alto_risco)} hint="alta ou crítica" tone="purple" />
+        <Card label="Confiança média" value={`${decimalFormat(Number(resumo?.confianca_media || 0) * 100, 1)}%`} hint="detecção + evidência" tone="green" />
+      </div>
+
+      <section className="content-grid">
+        <div className="panel panel-large">
+          <div className="panel-title">
+            <div>
+              <h2>Fila de anomalias</h2>
+              <p>Abra uma anomalia para ver explicação simples, evidências, antes/depois e registrar proposta de decisão.</p>
+            </div>
+          </div>
+          {loading && <div className="alert">Carregando anomalias...</div>}
+          <DataTable
+            columns={[
+              { key: 'anomalia_codigo', label: 'Código' },
+              { key: 'nome', label: 'Nome' },
+              { key: 'categoria', label: 'Categoria' },
+              { key: 'severidade', label: 'Severidade', render: (item) => <SeverityBadge value={item.severidade} /> },
+              { key: 'confianca', label: 'Confiança', render: (item) => <ConfidenceBadge value={item.confianca} /> },
+              { key: 'status', label: 'Status', render: (item) => <StatusPill value={item.status} /> },
+              { key: 'ocorrencia', label: 'Ocorrência' },
+              { key: 'impacto_dec', label: 'DEC', render: (item) => decimalFormat(item.impacto_dec) },
+              { key: 'impacto_ressarcimento', label: 'Ressarc.', render: (item) => currencyFormat(item.impacto_ressarcimento) },
+              {
+                key: 'acoes',
+                label: 'Ações',
+                render: (item) => (
+                  <button className="mini-button" onClick={() => onOpenDetail(item.id_anomalia)}>
+                    Detalhar
+                  </button>
+                ),
+              },
+            ]}
+            rows={items}
+          />
+        </div>
+      </section>
+    </>
+  )
+}
+
 function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
   const filtrosPadrao = {
     min_chi: '',
@@ -660,6 +863,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
   const [filtros, setFiltros] = useState(filtrosPadrao)
   const [resumo, setResumo] = useState({})
   const [itens, setItens] = useState([])
+  const [fonte, setFonte] = useState('')
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -674,12 +878,18 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
       const params = new URLSearchParams({
         anomes: anomes || '202606',
         problema: filtrosAtuais.problema || 'impacto',
-        duracao_suspeita_min: filtrosAtuais.duracao_suspeita_min || '24',
+        duracao_suspeita_min: normalizeDecimalParam(filtrosAtuais.duracao_suspeita_min) || '24',
         limit: filtrosAtuais.limit || '50',
       })
-      ;['min_chi', 'min_ci', 'min_ressarcimento', 'componente', 'causa', 'grupo'].forEach((campo) => {
+      ;['componente', 'causa', 'grupo'].forEach((campo) => {
         if (String(filtrosAtuais[campo] || '').trim()) {
           params.set(campo, String(filtrosAtuais[campo]).trim())
+        }
+      })
+      ;['min_chi', 'min_ci', 'min_ressarcimento'].forEach((campo) => {
+        const valorNormalizado = normalizeDecimalParam(filtrosAtuais[campo])
+        if (valorNormalizado) {
+          params.set(campo, valorNormalizado)
         }
       })
       const response = await fetch(`${API_URL}/api/qualidade/analise-tecnica?${params.toString()}`, {
@@ -693,10 +903,12 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
       }
       setResumo(result.resumo || {})
       setItens(result.itens || [])
+      setFonte(result.fonte || '')
     } catch (requestError) {
       setErro(requestError.message)
       setResumo({})
       setItens([])
+      setFonte('')
     } finally {
       setLoading(false)
     }
@@ -744,19 +956,19 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
         </label>
         <label>
           CHI mín.
-          <input type="number" min="0" step="0.01" value={filtros.min_chi} onChange={(event) => updateFiltro('min_chi', event.target.value)} />
+          <input inputMode="decimal" value={filtros.min_chi} onChange={(event) => updateFiltro('min_chi', event.target.value)} placeholder="Ex.: 1.000,50" />
         </label>
         <label>
           CI mín.
-          <input type="number" min="0" step="1" value={filtros.min_ci} onChange={(event) => updateFiltro('min_ci', event.target.value)} />
+          <input inputMode="decimal" value={filtros.min_ci} onChange={(event) => updateFiltro('min_ci', event.target.value)} placeholder="Ex.: 1.000" />
         </label>
         <label>
           Ressarcimento mín.
-          <input type="number" min="0" step="0.01" value={filtros.min_ressarcimento} onChange={(event) => updateFiltro('min_ressarcimento', event.target.value)} />
+          <input inputMode="decimal" value={filtros.min_ressarcimento} onChange={(event) => updateFiltro('min_ressarcimento', event.target.value)} placeholder="Ex.: 10.000,00" />
         </label>
         <label>
           Duração suspeita ≥ h
-          <input type="number" min="0" step="0.1" value={filtros.duracao_suspeita_min} onChange={(event) => updateFiltro('duracao_suspeita_min', event.target.value)} />
+          <input inputMode="decimal" value={filtros.duracao_suspeita_min} onChange={(event) => updateFiltro('duracao_suspeita_min', event.target.value)} placeholder="Ex.: 24,5" />
         </label>
         <label>
           Grupo
@@ -795,14 +1007,14 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
         <Card label="Ocorrências" value={numberFormat(resumo.QTD_OCORRENCIAS)} hint="após filtros" tone="blue" />
         <Card label="CHI líquido" value={decimalFormat(resumo.CHI_LIQUIDO_TOTAL, 1)} hint="impacto filtrado" tone="orange" />
         <Card label="CI líquido" value={numberFormat(resumo.CI_LIQUIDO_TOTAL)} hint="impacto filtrado" tone="purple" />
-        <Card label="Ressarcimento" value={decimalFormat(resumo.RESSARCIMENTO_ESTIMADO_TOTAL, 2)} hint="estimado PRODIST" tone="green" />
+        <Card label="Ressarcimento" value={currencyFormat(resumo.RESSARCIMENTO_ESTIMADO_TOTAL)} hint="estimado PRODIST" tone="green" />
       </section>
 
       <div className="analysis-summary-strip">
         <span><strong>{numberFormat(resumo.QTD_OCORRENCIAS_COM_VIOLACAO)}</strong> ocorrência(s) com violação componente/causa</span>
         <span><strong>{numberFormat(resumo.QTD_OCORRENCIAS_9282)}</strong> ocorrência(s) 92/82</span>
         <span><strong>{numberFormat(resumo.QTD_DURACAO_SUSPEITA)}</strong> ocorrência(s) com duração suspeita</span>
-        <span><strong>{decimalFormat(resumo.MAIOR_IMPACTO_SCORE, 1)}</strong> maior score de impacto</span>
+        <span><strong>{fonte === 'cache' ? 'Cache' : 'Ao vivo'}</strong> fonte · score máx. {decimalFormat(resumo.MAIOR_IMPACTO_SCORE, 1)}</span>
       </div>
 
       <DataTable
@@ -820,7 +1032,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
           },
           { key: 'CHI_LIQUIDO', label: 'CHI Líq.', render: (item) => decimalFormat(item.CHI_LIQUIDO, 2) },
           { key: 'CI_LIQUIDO', label: 'CI Líq.', render: (item) => numberFormat(item.CI_LIQUIDO) },
-          { key: 'RESSARCIMENTO_ESTIMADO', label: 'Ressarc.', render: (item) => decimalFormat(item.RESSARCIMENTO_ESTIMADO, 2) },
+          { key: 'RESSARCIMENTO_ESTIMADO', label: 'Ressarc.', render: (item) => currencyFormat(item.RESSARCIMENTO_ESTIMADO) },
           { key: 'DURACAO_MAX_HORA', label: 'Duração máx.', render: (item) => `${decimalFormat(item.DURACAO_MAX_HORA, 2)} h` },
           { key: 'principal', label: 'Grupo/Comp/Causa', render: (item) => `${item.COD_GRUPO_PRINCIPAL || '—'}/${item.COD_COMP_PRINCIPAL || '—'}/${item.COD_CAUSA_PRINCIPAL || '—'}` },
           { key: 'PARES_COMPONENTE_CAUSA', label: 'Pares', render: (item) => textValue(item.PARES_COMPONENTE_CAUSA) },
@@ -1820,6 +2032,8 @@ export default function App() {
   const [decFec, setDecFec] = useState(null)
   const [modelosIqs, setModelosIqs] = useState([])
   const [geracoesIqs, setGeracoesIqs] = useState([])
+  const [anomaliasResumo, setAnomaliasResumo] = useState(null)
+  const [anomalias, setAnomalias] = useState([])
   const [verificacoes, setVerificacoes] = useState(null)
   const [sqlScripts, setSqlScripts] = useState([])
   const [alteracoes, setAlteracoes] = useState([])
@@ -1833,6 +2047,8 @@ export default function App() {
   const [generatingIqs, setGeneratingIqs] = useState(false)
   const [occurrenceDetail, setOccurrenceDetail] = useState(null)
   const [occurrenceLoading, setOccurrenceLoading] = useState(false)
+  const [anomalyDetail, setAnomalyDetail] = useState(null)
+  const [anomalyLoading, setAnomalyLoading] = useState(false)
   const [error, setError] = useState('')
   const [actionMessage, setActionMessage] = useState('')
 
@@ -1873,6 +2089,7 @@ export default function App() {
           fetch(`${API_URL}/api/governanca/reset-senha`, { headers: authHeaders }),
           fetch(`${API_URL}/api/iqs/modelos`, { headers: authHeaders }),
           fetch(`${API_URL}/api/iqs/geracoes`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/anomalias`, { headers: authHeaders }),
         ]
         const [
           verificacoesResponse,
@@ -1883,6 +2100,7 @@ export default function App() {
           resetSenhaResponse,
           modelosIqsResponse,
           geracoesIqsResponse,
+          anomaliasResponse,
         ] =
           await Promise.all(protectedRequests)
 
@@ -1894,6 +2112,11 @@ export default function App() {
         if (resetSenhaResponse.ok) setResetSenhaEventos(await resetSenhaResponse.json())
         if (modelosIqsResponse.ok) setModelosIqs(await modelosIqsResponse.json())
         if (geracoesIqsResponse.ok) setGeracoesIqs(await geracoesIqsResponse.json())
+        if (anomaliasResponse.ok) {
+          const anomalyPayload = await anomaliasResponse.json()
+          setAnomaliasResumo(anomalyPayload.resumo)
+          setAnomalias(anomalyPayload.items || [])
+        }
       }
       setError('')
     } catch (requestError) {
@@ -2043,6 +2266,46 @@ export default function App() {
     }
   }
 
+  async function handleOpenAnomalyDetail(idAnomalia) {
+    if (!idAnomalia) return
+    try {
+      setAnomalyLoading(true)
+      setAnomalyDetail({ id_anomalia: idAnomalia })
+      const response = await fetch(`${API_URL}/api/anomalias/${encodeURIComponent(idAnomalia)}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao consultar anomalia.')
+      }
+      setAnomalyDetail(result)
+    } catch (requestError) {
+      setError(requestError.message)
+      setAnomalyDetail(null)
+    } finally {
+      setAnomalyLoading(false)
+    }
+  }
+
+  async function handleRegisterAnomalyDecision(detail, decision) {
+    const label = decision === 'aprovar' ? 'aprovação' : 'rejeição'
+    const justificativa = window.prompt(`Justificativa para propor ${label} da sugestão:`)
+    if (!justificativa) return
+    await handleCreateAlteracao({
+      anomes: '202606',
+      modulo: 'MIDWAY_ANOMALIAS',
+      entidade: 'anomalia_v7',
+      id_entidade: detail.id_anomalia,
+      tipo_alteracao: decision === 'aprovar' ? 'APROVACAO' : 'REJEICAO',
+      status_alteracao: 'PENDENTE',
+      justificativa: `${justificativa}\n\nAnomalia: ${detail.anomalia_codigo} · Sugestão: ${detail.sugestao?.acao || '—'}`,
+      antes: detail.original || {},
+      depois: decision === 'aprovar' ? detail.tratado_sugerido || {} : detail.original || {},
+    })
+  }
+
   async function decideAlteracao(item, decision) {
     const label = decision === 'aprovar' ? 'aprovação' : 'rejeição'
     const justificativa = window.prompt(`Justificativa da ${label}:`)
@@ -2140,6 +2403,14 @@ export default function App() {
         generatingIqs={generatingIqs}
       />
     ),
+    anomalias: (
+      <AnomaliasPage
+        resumo={anomaliasResumo}
+        items={anomalias}
+        loading={loading}
+        onOpenDetail={handleOpenAnomalyDetail}
+      />
+    ),
     analise_tecnica: (
       <AnaliseTecnicaPage
         resumo={resumo}
@@ -2197,6 +2468,14 @@ export default function App() {
             detail={occurrenceDetail}
             loading={occurrenceLoading}
             onClose={() => setOccurrenceDetail(null)}
+          />
+        )}
+        {anomalyDetail && (
+          <AnomalyDetailModal
+            detail={anomalyDetail}
+            loading={anomalyLoading}
+            onClose={() => setAnomalyDetail(null)}
+            onRegisterDecision={handleRegisterAnomalyDecision}
           />
         )}
       </main>

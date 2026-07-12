@@ -168,6 +168,17 @@ if /I "%~1"=="correcao_9282" (
     goto fim
 )
 
+if /I "%~1"=="analise_tecnica_cache" (
+    echo Materializando cache da Analise Tecnica...
+    if "%~2"=="" (
+        "%PYTHON_EXE%" -m midway.qualidade.analise_tecnica_cache
+    ) else (
+        "%PYTHON_EXE%" -m midway.qualidade.analise_tecnica_cache %~2
+    )
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="testar_dados" (
     echo Executando testes automatizados dos dados tratados...
     "%PYTHON_EXE%" -m unittest discover -s "%SCRIPT_DIR%tests" -p "test_*.py"
@@ -288,6 +299,38 @@ if /I "%~1"=="postgres_governanca" (
     goto fim
 )
 
+if /I "%~1"=="anomalias_setup" (
+    echo Preparando nucleo funcional de anomalias MIDWAY...
+    "%PYTHON_EXE%" -m midway.db.apply_sql 008_nucleo_anomalias_v7.sql
+    if errorlevel 1 goto erro
+
+    echo Carregando anomalias a partir de RAW, SILVER e GOLD...
+    "%PYTHON_EXE%" -m midway.v7.generate_real_anomalies
+    if errorlevel 1 goto erro
+
+    echo Validando PostgreSQL operacional MIDWAY...
+    "%PYTHON_EXE%" -m midway.db.postgres
+    if errorlevel 1 goto erro
+    goto fim
+)
+
+if /I "%~1"=="v7_setup" (
+    call "%SCRIPT_DIR%run.bat" anomalias_setup
+    goto fim
+)
+
+if /I "%~1"=="anomalias_validar" (
+    echo Validando nucleo de anomalias MIDWAY...
+    "%PYTHON_EXE%" -m unittest tests.test_v7_real_anomalies
+    if errorlevel 1 goto erro
+    goto fim
+)
+
+if /I "%~1"=="v7_validar" (
+    call "%SCRIPT_DIR%run.bat" anomalias_validar
+    goto fim
+)
+
 if /I "%~1"=="admin_bootstrap" (
     echo Criando usuario ADM inicial, se ainda nao existir...
     "%PYTHON_EXE%" -m midway.db.bootstrap_admin
@@ -403,12 +446,15 @@ echo   run.bat postgres_validar             Valida conexao PostgreSQL e schema d
 echo   run.bat postgres_status              Verifica se o PostgreSQL local esta rodando
 echo   run.bat postgres_start               Inicia PostgreSQL local na instalacao PostgreSQL 18
 echo   run.bat postgres_governanca          Aplica tabelas/views de governanca e login
+echo   run.bat anomalias_setup              Aplica nucleo e carrega anomalias RAW/SILVER/GOLD
+echo   run.bat anomalias_validar            Valida testes unitarios do nucleo de anomalias
 echo   run.bat admin_bootstrap              Cria usuario ADM inicial sem senha padrao fixa
 echo   run.bat apuracao_parcial             Gera camada gold e BDO de apuracao previa
 echo   run.bat extrair_dbguo_reclamacoes    Extrai reclamacoes DBGUO para data\raw
 echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclamacoes DBGUO
 echo   run.bat extrair_adms_servicos        Extrai servicos ADMS de backup para data\raw
 echo   run.bat correcao_9282                Gera arquivo de tratativa RA 92/82 em data\export\correcao_9282
+echo   run.bat analise_tecnica_cache [ANOMES] Materializa cache rapido da Analise Tecnica
 echo   run.bat testar_dados                 Executa testes automatizados dos dados tratados
 echo   run.bat validar_dados                Executa testes e metricas de qualidade
 echo   run.bat metricas_qualidade           Gera metricas estatisticas de qualidade

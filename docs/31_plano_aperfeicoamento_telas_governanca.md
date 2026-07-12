@@ -669,6 +669,14 @@ Sétima implementação operacional:
 - tabela exibe ocorrência, CHI, CI, ressarcimento, duração máxima, grupo/componente/causa principal, pares encontrados e sinais de atenção;
 - clique na ocorrência abre o pop-up completo para correção e proposta manual.
 
+O ranking usa cache materializado quando a tabela `gold_analise_tecnica_impacto_base` existir no DuckDB processado. Para atualizar:
+
+```bat
+run.bat analise_tecnica_cache 202606
+```
+
+Se a tabela ainda não existir, a API calcula ao vivo como fallback, porém a abertura da tela pode ficar mais lenta.
+
 Observação de evidência:
 
 - o serviço ADMS é buscado no RAW `adms_servicos_raw_{anomes}.duckdb`;

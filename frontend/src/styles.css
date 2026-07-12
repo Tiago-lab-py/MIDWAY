@@ -1061,6 +1061,86 @@ th {
   font-weight: 700;
 }
 
+.pill-success {
+  background: rgba(34, 197, 94, 0.14);
+  color: #86efac;
+}
+
+.pill-warning {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+}
+
+.pill-info {
+  background: rgba(96, 165, 250, 0.14);
+  color: #93c5fd;
+}
+
+.pill-critical {
+  background: rgba(168, 85, 247, 0.18);
+  color: #d8b4fe;
+}
+
+.anomaly-detail-head,
+.comparison-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.anomaly-detail-head {
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.75fr);
+  align-items: stretch;
+}
+
+.comparison-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.decision-box {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.22), transparent 45%),
+    rgba(15, 23, 42, 0.66);
+  padding: 1rem;
+}
+
+.decision-box strong {
+  color: #e8eefc;
+  font-size: 1rem;
+}
+
+.decision-box span {
+  color: #94a3b8;
+  line-height: 1.45;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.timeline-list span {
+  position: relative;
+  display: grid;
+  gap: 0.25rem;
+  border-left: 3px solid rgba(96, 165, 250, 0.62);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.28);
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+}
+
+.timeline-list small {
+  color: #93c5fd;
+  font-size: 0.72rem;
+}
+
+.timeline-list strong {
+  color: #e8eefc;
+}
+
 @media (max-width: 1100px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -1073,6 +1153,8 @@ th {
   .metrics-grid,
   .content-grid,
   .impact-grid,
+  .comparison-grid,
+  .anomaly-detail-head,
   .hero-side,
   .result-grid,
   .analysis-filter-grid,
@@ -1109,6 +1191,8 @@ th {
   .metrics-grid,
   .content-grid,
   .impact-grid,
+  .comparison-grid,
+  .anomaly-detail-head,
   .hero-side,
   .result-grid,
   .search-panel,

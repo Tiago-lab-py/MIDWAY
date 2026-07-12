@@ -28,6 +28,10 @@ REQUIRED_TABLES = [
     "midway_reset_senha",
     "midway_sessao",
     "midway_usuario",
+    "midway_v7_anomalia",
+    "midway_v7_decisao",
+    "midway_v7_evidencia",
+    "midway_v7_sugestao",
 ]
 
 REQUIRED_VIEWS = [
@@ -48,6 +52,7 @@ REQUIRED_PARAMETERS = [
     "exportacao.iqs.apenas_aprovados",
     "midway.env",
     "midway.schema",
+    "midway.v7.anomalias.fonte",
     "midway.version.target",
     "regra.9282.automatico",
     "regra.9282.manual",
