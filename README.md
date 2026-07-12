@@ -116,7 +116,13 @@ run.bat apuracao_parcial
 run.bat validar_dados
 ```
 
-Abrir painel de conferencia:
+Abrir painel React `MIDWAY 7.0.0`:
+
+```bat
+inicio.bat
+```
+
+Abrir painel Streamlit de conferencia:
 
 ```bat
 run.bat painel
@@ -132,6 +138,7 @@ run.bat painel
 | `run.bat reprocessar` | Reexecuta o tratamento com `REPROCESSAR=1` |
 | `run.bat apuracao_parcial` | Gera camadas gold, BDO e previa de ressarcimento |
 | `run.bat validar_dados` | Executa testes automatizados e metricas |
+| `inicio.bat` | Inicia PostgreSQL local, API FastAPI e frontend React |
 | `run.bat painel` | Abre painel Streamlit |
 | `run.bat exportar` | Regenera CSVs finais sem refazer tratamento |
 | `run.bat exportacoes_auxiliares` | Gera exportacoes separadas de sobreposicao e sem UC |

@@ -17,9 +17,9 @@ def main() -> None:
     if not schema.replace("_", "").isalnum():
         raise RuntimeError("Schema PostgreSQL inválido.")
 
-    login = os.getenv("MIDWAY_BOOTSTRAP_LOGIN", "admin").strip()
-    nome = os.getenv("MIDWAY_BOOTSTRAP_NOME", "Administrador MIDWAY").strip()
     email = os.getenv("MIDWAY_BOOTSTRAP_EMAIL", "admin@midway.local").strip()
+    login = email.lower()
+    nome = os.getenv("MIDWAY_BOOTSTRAP_NOME", "Administrador MIDWAY").strip()
     password = os.getenv("MIDWAY_BOOTSTRAP_PASSWORD")
     generated = False
     if not password:
@@ -34,8 +34,8 @@ def main() -> None:
     with engine.begin() as con:
         total_users = con.execute(text(f"SELECT COUNT(*) FROM {schema}.midway_usuario")).scalar_one()
         existing = con.execute(
-            text(f"SELECT id_usuario FROM {schema}.midway_usuario WHERE login = :login"),
-            {"login": login},
+            text(f"SELECT id_usuario FROM {schema}.midway_usuario WHERE lower(coalesce(email, login)) = :email"),
+            {"email": login},
         ).scalar_one_or_none()
 
         if existing:
@@ -81,7 +81,7 @@ def main() -> None:
 
     print("BOOTSTRAP ADMIN MIDWAY")
     print(f"Usuarios anteriores: {total_users}")
-    print(f"Login: {login}")
+    print(f"E-mail/login: {login}")
     print(f"Perfil: ADM")
     if generated:
         print(f"Senha temporaria gerada: {password}")

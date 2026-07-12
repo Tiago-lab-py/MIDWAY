@@ -167,6 +167,256 @@ def busca_qualidade(
         )
 
 
+@router.get("/analise-tecnica")
+def analise_tecnica_impacto(
+    anomes: str = "202606",
+    min_chi: float | None = Query(None, ge=0),
+    min_ci: float | None = Query(None, ge=0),
+    min_ressarcimento: float | None = Query(None, ge=0),
+    componente: str | None = None,
+    causa: str | None = None,
+    grupo: str | None = None,
+    problema: str = Query(
+        "todos",
+        pattern="^(todos|impacto|9282|violacao_componente_causa|duracao_suspeita|ressarcimento)$",
+    ),
+    duracao_suspeita_min: float = Query(24, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA")),
+) -> dict[str, object]:
+    db_path = _processed_path(anomes)
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail=f"DuckDB processado não encontrado: {db_path}")
+
+    filters: list[str] = []
+    params: list[object] = []
+    if min_chi is not None:
+        filters.append("CHI_LIQUIDO >= ?")
+        params.append(min_chi)
+    if min_ci is not None:
+        filters.append("CI_LIQUIDO >= ?")
+        params.append(min_ci)
+    if min_ressarcimento is not None:
+        filters.append("RESSARCIMENTO_ESTIMADO >= ?")
+        params.append(min_ressarcimento)
+    if componente and componente.strip():
+        filters.append("COD_COMP_PRINCIPAL = ?")
+        params.append(componente.strip())
+    if causa and causa.strip():
+        filters.append("COD_CAUSA_PRINCIPAL = ?")
+        params.append(causa.strip().zfill(2))
+    if grupo and grupo.strip():
+        filters.append("COD_GRUPO_PRINCIPAL = ?")
+        params.append(grupo.strip())
+    if problema == "9282":
+        filters.append("TEM_9282 = 1")
+    elif problema == "violacao_componente_causa":
+        filters.append("QTD_VIOLACAO_COMP_CAUSA > 0")
+    elif problema == "duracao_suspeita":
+        filters.append("DURACAO_MAX_HORA >= ?")
+        params.append(duracao_suspeita_min)
+    elif problema == "ressarcimento":
+        filters.append("RESSARCIMENTO_ESTIMADO > 0")
+
+    where_sql = "WHERE " + " AND ".join(filters) if filters else ""
+    ranking_params = [duracao_suspeita_min, *params, limit]
+    resumo_params = [duracao_suspeita_min, *params, duracao_suspeita_min]
+
+    cte_sql = f"""
+        WITH apuracao AS (
+            SELECT
+                TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                COUNT(*) AS QTD_LINHAS_APURACAO,
+                COUNT(DISTINCT TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR))) AS QTD_INTERRUPCOES,
+                COUNT(DISTINCT TRIM(CAST(NUM_UC_UCI AS VARCHAR))) AS QTD_UCS,
+                MIN(DATA_HORA_INIC_INTRP) AS PRIMEIRO_INICIO,
+                MAX(DATA_HORA_FIM_INTRP) AS ULTIMO_FIM,
+                SUM(COALESCE(CHI_BRUTO, 0)) AS CHI_BRUTO,
+                SUM(COALESCE(CI_BRUTO, 0)) AS CI_BRUTO,
+                SUM(COALESCE(CHI_LIQUIDO, 0)) AS CHI_LIQUIDO,
+                SUM(COALESCE(CI_LIQUIDO, 0)) AS CI_LIQUIDO,
+                MAX(COALESCE(DURACAO_HORA, 0)) AS DURACAO_MAX_HORA
+            FROM gold_apuracao_uc
+            WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+            GROUP BY TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR))
+        ),
+        classificacao AS (
+            SELECT
+                TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                COUNT(DISTINCT TRIM(CAST(COD_COMP_INTRP AS VARCHAR)) || '/' || LPAD(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), 2, '0')) AS QTD_PARES_COMP_CAUSA,
+                STRING_AGG(
+                    DISTINCT TRIM(CAST(COD_COMP_INTRP AS VARCHAR)) || '/' || LPAD(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), 2, '0'),
+                    ', '
+                ) AS PARES_COMPONENTE_CAUSA,
+                MAX(CASE
+                    WHEN TRIM(CAST(COD_COMP_INTRP AS VARCHAR)) = '92'
+                     AND LPAD(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), 2, '0') = '82'
+                    THEN 1 ELSE 0 END
+                ) AS TEM_9282,
+                MODE(TRIM(CAST(COD_COMP_INTRP AS VARCHAR))) AS COD_COMP_PRINCIPAL,
+                MODE(LPAD(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), 2, '0')) AS COD_CAUSA_PRINCIPAL,
+                MODE(TRIM(CAST(COD_GRUPO_COMP_INTRP AS VARCHAR))) AS COD_GRUPO_PRINCIPAL
+            FROM gold_interrupcao_tratada
+            WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+            GROUP BY TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR))
+        ),
+        validacao_comp_causa AS (
+            SELECT
+                TRIM(CAST(a.NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                COUNT(DISTINCT CASE
+                    WHEN ref.CHAVE_COMP_CAUSA IS NULL
+                    THEN TRIM(CAST(a.COD_GRUPO_COMP_INTRP AS VARCHAR)) || '/'
+                      || TRIM(CAST(a.COD_COMP_INTRP AS VARCHAR)) || '/'
+                      || LPAD(TRIM(CAST(a.COD_CAUSA_INTRP AS VARCHAR)), 2, '0')
+                END) AS QTD_VIOLACAO_COMP_CAUSA,
+                STRING_AGG(
+                    DISTINCT CASE
+                        WHEN ref.CHAVE_COMP_CAUSA IS NULL
+                        THEN TRIM(CAST(a.COD_GRUPO_COMP_INTRP AS VARCHAR)) || '/'
+                          || TRIM(CAST(a.COD_COMP_INTRP AS VARCHAR)) || '/'
+                          || LPAD(TRIM(CAST(a.COD_CAUSA_INTRP AS VARCHAR)), 2, '0')
+                    END,
+                    ', '
+                ) AS VIOLACOES_COMPONENTE_CAUSA
+            FROM gold_interrupcao_tratada a
+            LEFT JOIN gold_iqs_referencia_componente_causa ref
+              ON TRIM(CAST(a.COD_GRUPO_COMP_INTRP AS VARCHAR)) = TRIM(CAST(ref.COD_GRUPO_GCR AS VARCHAR))
+             AND TRIM(CAST(a.COD_COMP_INTRP AS VARCHAR)) = TRIM(CAST(ref.COD_COMP AS VARCHAR))
+             AND LPAD(TRIM(CAST(a.COD_CAUSA_INTRP AS VARCHAR)), 2, '0') = LPAD(TRIM(CAST(ref.COD_CAUSA AS VARCHAR)), 2, '0')
+            WHERE NULLIF(TRIM(CAST(a.NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+            GROUP BY TRIM(CAST(a.NUM_OCORRENCIA_ADMS AS VARCHAR))
+        ),
+        ressarcimento AS (
+            SELECT
+                u.NUM_OCORRENCIA_ADMS,
+                SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS RESSARCIMENTO_ESTIMADO,
+                COUNT(DISTINCT CASE WHEN COALESCE(r.COMP_TOTAL_PRODIST, 0) > 0 THEN u.NUM_UC_UCI END) AS QTD_UCS_RESSARCIMENTO
+            FROM (
+                SELECT DISTINCT
+                    TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                    TRIM(CAST(NUM_UC_UCI AS VARCHAR)) AS NUM_UC_UCI
+                FROM gold_apuracao_uc
+                WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+                  AND NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') IS NOT NULL
+            ) u
+            LEFT JOIN gold_ressarcimento_prodist r
+              ON u.NUM_UC_UCI = TRIM(CAST(r.UC AS VARCHAR))
+            GROUP BY u.NUM_OCORRENCIA_ADMS
+        ),
+        reclamacoes AS (
+            SELECT
+                NUM_OCORRENCIA_ADMS,
+                QTD_RECLAMACOES,
+                MAX_SCORE_VINCULO_RECLAMACAO,
+                TIPOS_RECLAMACAO_PROVAVEIS,
+                CAUSAS_PROVAVEIS_RECLAMACAO,
+                GRUPOS_COMPONENTE_IQS,
+                GRUPOS_CAUSA_IQS
+            FROM gold_reclamacao_ocorrencia_resumo
+        ),
+        base AS (
+            SELECT
+                a.NUM_OCORRENCIA_ADMS,
+                a.QTD_LINHAS_APURACAO,
+                a.QTD_INTERRUPCOES,
+                a.QTD_UCS,
+                a.PRIMEIRO_INICIO,
+                a.ULTIMO_FIM,
+                a.CHI_BRUTO,
+                a.CI_BRUTO,
+                a.CHI_LIQUIDO,
+                a.CI_LIQUIDO,
+                a.DURACAO_MAX_HORA,
+                COALESCE(c.QTD_PARES_COMP_CAUSA, 0) AS QTD_PARES_COMP_CAUSA,
+                c.PARES_COMPONENTE_CAUSA,
+                COALESCE(c.TEM_9282, 0) AS TEM_9282,
+                c.COD_COMP_PRINCIPAL,
+                c.COD_CAUSA_PRINCIPAL,
+                c.COD_GRUPO_PRINCIPAL,
+                COALESCE(v.QTD_VIOLACAO_COMP_CAUSA, 0) AS QTD_VIOLACAO_COMP_CAUSA,
+                v.VIOLACOES_COMPONENTE_CAUSA,
+                COALESCE(rs.RESSARCIMENTO_ESTIMADO, 0) AS RESSARCIMENTO_ESTIMADO,
+                COALESCE(rs.QTD_UCS_RESSARCIMENTO, 0) AS QTD_UCS_RESSARCIMENTO,
+                COALESCE(r.QTD_RECLAMACOES, 0) AS QTD_RECLAMACOES,
+                COALESCE(r.MAX_SCORE_VINCULO_RECLAMACAO, 0) AS MAX_SCORE_RECLAMACAO,
+                r.TIPOS_RECLAMACAO_PROVAVEIS,
+                r.CAUSAS_PROVAVEIS_RECLAMACAO,
+                r.GRUPOS_COMPONENTE_IQS,
+                r.GRUPOS_CAUSA_IQS,
+                (
+                    LEAST(LN(1 + COALESCE(a.CHI_LIQUIDO, 0)) * 8, 60)
+                  + LEAST(LN(1 + COALESCE(a.CI_LIQUIDO, 0)) * 6, 35)
+                  + LEAST(LN(1 + COALESCE(rs.RESSARCIMENTO_ESTIMADO, 0)) * 5, 35)
+                  + CASE WHEN COALESCE(v.QTD_VIOLACAO_COMP_CAUSA, 0) > 0 THEN 35 ELSE 0 END
+                  + CASE WHEN COALESCE(c.TEM_9282, 0) = 1 THEN 15 ELSE 0 END
+                  + CASE WHEN a.DURACAO_MAX_HORA >= ? THEN 20 ELSE 0 END
+                  + LEAST(COALESCE(r.MAX_SCORE_VINCULO_RECLAMACAO, 0) / 5, 20)
+                ) AS IMPACTO_SCORE
+            FROM apuracao a
+            LEFT JOIN classificacao c
+              ON a.NUM_OCORRENCIA_ADMS = c.NUM_OCORRENCIA_ADMS
+            LEFT JOIN validacao_comp_causa v
+              ON a.NUM_OCORRENCIA_ADMS = v.NUM_OCORRENCIA_ADMS
+            LEFT JOIN ressarcimento rs
+              ON a.NUM_OCORRENCIA_ADMS = rs.NUM_OCORRENCIA_ADMS
+            LEFT JOIN reclamacoes r
+              ON a.NUM_OCORRENCIA_ADMS = r.NUM_OCORRENCIA_ADMS
+        ),
+        filtrado AS (
+            SELECT *
+            FROM base
+            {where_sql}
+        )
+    """
+
+    with duckdb.connect(str(db_path), read_only=True) as con:
+        rows = _fetch_rows(
+            con,
+            f"""
+            {cte_sql}
+            SELECT *
+            FROM filtrado
+            ORDER BY IMPACTO_SCORE DESC, CHI_LIQUIDO DESC, CI_LIQUIDO DESC, NUM_OCORRENCIA_ADMS
+            LIMIT ?
+            """,
+            ranking_params,
+        )
+        resumo_rows = _fetch_rows(
+            con,
+            f"""
+            {cte_sql}
+            SELECT
+                COUNT(*) AS QTD_OCORRENCIAS,
+                SUM(COALESCE(CHI_LIQUIDO, 0)) AS CHI_LIQUIDO_TOTAL,
+                SUM(COALESCE(CI_LIQUIDO, 0)) AS CI_LIQUIDO_TOTAL,
+                SUM(COALESCE(RESSARCIMENTO_ESTIMADO, 0)) AS RESSARCIMENTO_ESTIMADO_TOTAL,
+                SUM(CASE WHEN QTD_VIOLACAO_COMP_CAUSA > 0 THEN 1 ELSE 0 END) AS QTD_OCORRENCIAS_COM_VIOLACAO,
+                SUM(CASE WHEN TEM_9282 = 1 THEN 1 ELSE 0 END) AS QTD_OCORRENCIAS_9282,
+                SUM(CASE WHEN DURACAO_MAX_HORA >= ? THEN 1 ELSE 0 END) AS QTD_DURACAO_SUSPEITA,
+                MAX(IMPACTO_SCORE) AS MAIOR_IMPACTO_SCORE
+            FROM filtrado
+            """,
+            resumo_params,
+        )
+
+    return {
+        "anomes": anomes,
+        "filtros": {
+            "min_chi": min_chi,
+            "min_ci": min_ci,
+            "min_ressarcimento": min_ressarcimento,
+            "componente": componente,
+            "causa": causa,
+            "grupo": grupo,
+            "problema": problema,
+            "duracao_suspeita_min": duracao_suspeita_min,
+            "limit": limit,
+        },
+        "resumo": resumo_rows[0] if resumo_rows else {},
+        "itens": rows,
+    }
+
+
 @router.get("/ocorrencias/{num_ocorrencia_adms}")
 def detalhe_ocorrencia(
     num_ocorrencia_adms: str,

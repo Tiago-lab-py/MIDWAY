@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 from uuid import uuid4
 
@@ -24,16 +25,21 @@ router = APIRouter(prefix="/api", tags=["governanca"])
 
 
 class LoginRequest(BaseModel):
-    login: str
+    email: str
     senha: str
 
 
 class UsuarioCreateRequest(BaseModel):
-    login: str
     nome: str
-    email: str | None = None
+    email: str
     perfil: str
     senha: str
+
+
+class ResetSenhaConfirmRequest(BaseModel):
+    codigo: str
+    nova_senha: str
+    justificativa: str
 
 
 class AlteracaoRequest(BaseModel):
@@ -60,18 +66,27 @@ def _schema() -> str:
 
 
 def _public_user(row: dict[str, object]) -> dict[str, object]:
+    email = row.get("email") or row["login"]
     return {
         "id_usuario": str(row["id_usuario"]),
-        "login": row["login"],
+        "login": email,
         "nome": row["nome"],
-        "email": row.get("email"),
+        "email": email,
         "perfil": row["perfil"],
     }
+
+
+def _normalize_email(value: str) -> str:
+    email = value.strip().lower()
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        raise HTTPException(status_code=400, detail="E-mail inválido.")
+    return email
 
 
 @router.post("/auth/login")
 def login(payload: LoginRequest, request: Request) -> dict[str, object]:
     schema = _schema()
+    email = _normalize_email(payload.email)
     engine = create_postgres_engine()
     with engine.begin() as con:
         row = con.execute(
@@ -79,10 +94,10 @@ def login(payload: LoginRequest, request: Request) -> dict[str, object]:
                 f"""
                 SELECT id_usuario, login, nome, email, perfil, senha_hash, status_usuario, bloqueado_ate
                 FROM {schema}.midway_usuario
-                WHERE login = :login
+                WHERE lower(coalesce(email, login)) = :email
                 """
             ),
-            {"login": payload.login.strip()},
+            {"email": email},
         ).mappings().first()
 
         if not row or row["status_usuario"] != "ATIVO":
@@ -151,7 +166,7 @@ def listar_usuarios(
     engine = create_postgres_engine()
     with engine.connect() as con:
         rows = con.execute(
-            text(f"SELECT * FROM {schema}.vw_midway_governanca_usuarios ORDER BY login")
+            text(f"SELECT * FROM {schema}.vw_midway_governanca_usuarios ORDER BY email")
         ).mappings().all()
     return api_rows([dict(row) for row in rows])
 
@@ -162,6 +177,7 @@ def criar_usuario(
     user: AuthUser = Depends(require_profiles("ADM")),
 ) -> dict[str, object]:
     perfil = payload.perfil.upper().strip()
+    email = _normalize_email(payload.email)
     if perfil not in {"ADM", "GESTOR", "ANALISTA"}:
         raise HTTPException(status_code=400, detail="Perfil inválido.")
     if len(payload.senha) < 12:
@@ -184,9 +200,9 @@ def criar_usuario(
             ),
             {
                 "id_usuario": id_usuario,
-                "login": payload.login.strip(),
+                "login": email,
                 "nome": payload.nome.strip(),
-                "email": payload.email,
+                "email": email,
                 "perfil": perfil,
                 "senha_hash": hash_password(payload.senha),
                 "criado_por": user.login,
@@ -199,9 +215,240 @@ def criar_usuario(
         "midway_usuario",
         id_usuario,
         user.login,
-        {"login": payload.login, "perfil": perfil},
+        {"email": email, "perfil": perfil},
     )
     return {"id_usuario": id_usuario, "status": "criado"}
+
+
+@router.post("/governanca/usuarios/{id_usuario}/reset-senha/preparar")
+def preparar_reset_senha(
+    id_usuario: str,
+    request: Request,
+    user: AuthUser = Depends(require_profiles("ADM")),
+) -> dict[str, object]:
+    schema = _schema()
+    codigo = f"{secrets.randbelow(10000):04d}"
+    id_reset = str(uuid4())
+    ip_origem = request.client.host if request and request.client else None
+
+    engine = create_postgres_engine()
+    with engine.begin() as con:
+        usuario = con.execute(
+            text(
+                f"""
+                SELECT id_usuario, login, email, perfil, status_usuario
+                FROM {schema}.midway_usuario
+                WHERE id_usuario = :id_usuario
+                """
+            ),
+            {"id_usuario": id_usuario},
+        ).mappings().first()
+        if not usuario:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+        con.execute(
+            text(
+                f"""
+                UPDATE {schema}.midway_reset_senha
+                SET status_reset = 'CANCELADO',
+                    atualizado_em = now()
+                WHERE id_usuario = :id_usuario
+                  AND status_reset = 'PENDENTE'
+                """
+            ),
+            {"id_usuario": id_usuario},
+        )
+        con.execute(
+            text(
+                f"""
+                INSERT INTO {schema}.midway_reset_senha (
+                    id_reset, id_usuario, solicitado_por, codigo_hash, expira_em, ip_origem
+                )
+                VALUES (
+                    :id_reset, :id_usuario, :solicitado_por, :codigo_hash, now() + interval '10 minutes', :ip_origem
+                )
+                """
+            ),
+            {
+                "id_reset": id_reset,
+                "id_usuario": id_usuario,
+                "solicitado_por": user.login,
+                "codigo_hash": hash_password(codigo),
+                "ip_origem": ip_origem,
+            },
+        )
+        reset_row = con.execute(
+            text(
+                f"""
+                SELECT id_reset, expira_em
+                FROM {schema}.midway_reset_senha
+                WHERE id_reset = :id_reset
+                """
+            ),
+            {"id_reset": id_reset},
+        ).mappings().one()
+
+    audit_event(
+        "RESET_SENHA_PREPARADO",
+        "midway_usuario",
+        id_usuario,
+        user.login,
+        {"email": usuario.get("email") or usuario["login"], "perfil": usuario["perfil"], "id_reset": id_reset},
+    )
+    return {
+        "id_reset": id_reset,
+        "id_usuario": id_usuario,
+        "login": usuario.get("email") or usuario["login"],
+        "codigo": codigo,
+        "expira_em": reset_row["expira_em"],
+        "status": "pendente",
+    }
+
+
+@router.post("/governanca/reset-senha/{id_reset}/confirmar")
+def confirmar_reset_senha(
+    id_reset: str,
+    payload: ResetSenhaConfirmRequest,
+    user: AuthUser = Depends(require_profiles("ADM")),
+) -> dict[str, object]:
+    codigo = payload.codigo.strip()
+    if len(codigo) != 4 or not codigo.isdigit():
+        raise HTTPException(status_code=400, detail="Código deve conter 4 dígitos.")
+    if len(payload.nova_senha) < 12:
+        raise HTTPException(status_code=400, detail="Nova senha deve ter no mínimo 12 caracteres.")
+    if len(payload.justificativa.strip()) < 8:
+        raise HTTPException(status_code=400, detail="Informe uma justificativa para o reset.")
+
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.begin() as con:
+        reset_row = con.execute(
+            text(
+                f"""
+                SELECT
+                    r.id_reset,
+                    r.id_usuario,
+                    r.codigo_hash,
+                    r.status_reset,
+                    r.expira_em,
+                    (r.expira_em < now()) AS expirado,
+                    r.tentativas,
+                    u.login,
+                    u.email,
+                    u.perfil
+                FROM {schema}.midway_reset_senha r
+                JOIN {schema}.midway_usuario u
+                  ON u.id_usuario = r.id_usuario
+                WHERE r.id_reset = :id_reset
+                FOR UPDATE
+                """
+            ),
+            {"id_reset": id_reset},
+        ).mappings().first()
+        if not reset_row:
+            raise HTTPException(status_code=404, detail="Reset de senha não encontrado.")
+        if reset_row["status_reset"] != "PENDENTE":
+            raise HTTPException(status_code=400, detail="Reset de senha não está pendente.")
+
+        if reset_row["expirado"]:
+            con.execute(
+                text(
+                    f"""
+                    UPDATE {schema}.midway_reset_senha
+                    SET status_reset = 'EXPIRADO',
+                        atualizado_em = now()
+                    WHERE id_reset = :id_reset
+                    """
+                ),
+                {"id_reset": id_reset},
+            )
+            raise HTTPException(status_code=400, detail="Código expirado. Gere um novo reset.")
+
+        if not verify_password(codigo, str(reset_row["codigo_hash"])):
+            tentativas = int(reset_row["tentativas"] or 0) + 1
+            status = "CANCELADO" if tentativas >= 3 else "PENDENTE"
+            con.execute(
+                text(
+                    f"""
+                    UPDATE {schema}.midway_reset_senha
+                    SET tentativas = :tentativas,
+                        status_reset = :status_reset,
+                        atualizado_em = now()
+                    WHERE id_reset = :id_reset
+                    """
+                ),
+                {"tentativas": tentativas, "status_reset": status, "id_reset": id_reset},
+            )
+            raise HTTPException(status_code=400, detail="Código inválido.")
+
+        con.execute(
+            text(
+                f"""
+                UPDATE {schema}.midway_usuario
+                SET senha_hash = :senha_hash,
+                    tentativas_invalidas = 0,
+                    bloqueado_ate = NULL,
+                    status_usuario = 'ATIVO',
+                    atualizado_por = :atualizado_por,
+                    atualizado_em = now()
+                WHERE id_usuario = :id_usuario
+                """
+            ),
+            {
+                "senha_hash": hash_password(payload.nova_senha),
+                "atualizado_por": user.login,
+                "id_usuario": reset_row["id_usuario"],
+            },
+        )
+        con.execute(
+            text(
+                f"""
+                UPDATE {schema}.midway_sessao
+                SET revogado_em = now()
+                WHERE id_usuario = :id_usuario
+                  AND revogado_em IS NULL
+                """
+            ),
+            {"id_usuario": reset_row["id_usuario"]},
+        )
+        con.execute(
+            text(
+                f"""
+                UPDATE {schema}.midway_reset_senha
+                SET status_reset = 'CONFIRMADO',
+                    confirmado_por = :confirmado_por,
+                    confirmado_em = now(),
+                    justificativa = :justificativa,
+                    atualizado_em = now()
+                WHERE id_reset = :id_reset
+                """
+            ),
+            {
+                "confirmado_por": user.login,
+                "justificativa": payload.justificativa.strip(),
+                "id_reset": id_reset,
+            },
+        )
+
+    audit_event(
+        "RESET_SENHA_CONFIRMADO",
+        "midway_usuario",
+        str(reset_row["id_usuario"]),
+        user.login,
+        {"email": reset_row.get("email") or reset_row["login"], "perfil": reset_row["perfil"], "id_reset": id_reset},
+    )
+    return {"status": "confirmado", "id_reset": id_reset, "login": reset_row.get("email") or reset_row["login"]}
+
+
+@router.get("/governanca/reset-senha")
+def listar_reset_senha(user: AuthUser = Depends(require_profiles("ADM"))) -> list[dict[str, object]]:
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.connect() as con:
+        rows = con.execute(
+            text(f"SELECT * FROM {schema}.vw_midway_governanca_reset_senha ORDER BY criado_em DESC LIMIT 100")
+        ).mappings().all()
+    return api_rows([dict(row) for row in rows])
 
 
 @router.get("/governanca/sessoes")

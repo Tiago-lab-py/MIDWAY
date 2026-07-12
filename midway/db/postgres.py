@@ -25,6 +25,7 @@ REQUIRED_TABLES = [
     "midway_iqs_geracao",
     "midway_iqs_geracao_modelo",
     "midway_parametro",
+    "midway_reset_senha",
     "midway_sessao",
     "midway_usuario",
 ]
@@ -32,6 +33,7 @@ REQUIRED_TABLES = [
 REQUIRED_VIEWS = [
     "vw_midway_governanca_alteracoes",
     "vw_midway_governanca_auditoria",
+    "vw_midway_governanca_reset_senha",
     "vw_midway_governanca_sessoes_ativas",
     "vw_midway_governanca_usuarios",
     "vw_midway_iqs_geracao",

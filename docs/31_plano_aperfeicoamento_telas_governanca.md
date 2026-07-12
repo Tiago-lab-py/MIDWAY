@@ -106,7 +106,7 @@ pagina
 Exemplo:
 
 ```text
-Executivo 92/82
+Executivo
   leitura_painel_9282: ANALISTA, GESTOR, ADM
   propor_ajuste_9282: ANALISTA, GESTOR
   aprovar_ajuste_9282: GESTOR
@@ -611,6 +611,63 @@ Terceira implementação operacional:
 - resultados da busca em painéis expansíveis;
 - botão para abrir o pop-up completo da ocorrência a partir do resultado pesquisado;
 - endpoint protegido `GET /api/qualidade/busca`.
+
+Quarta implementação operacional:
+
+- tela `Governança` com formulário de inclusão de usuário para `ADM`;
+- cadastro com e-mail como login, nome, perfil e senha inicial;
+- reset de senha iniciado por `ADM` a partir da tabela de usuários;
+- geração de código de 4 dígitos exibido na tela como fator de confirmação;
+- confirmação do reset com código, nova senha e justificativa;
+- revogação das sessões ativas do usuário após reset confirmado;
+- monitoramento de resets com status, tentativas, solicitante, confirmação e expiração;
+- tabela `midway_reset_senha` e view `vw_midway_governanca_reset_senha`.
+
+Quinta implementação operacional:
+
+- página `Executivo 92/82` reposicionada como mesa operacional do perfil `GESTOR`;
+- fluxo único para o gestor:
+  - aprovar em massa as alterações automáticas RA `92/82`;
+  - revisar pendências técnicas antes da implantação;
+  - aprovar a geração do pacote/arquivo para envio ao IQS;
+- geração IQS incorporada ao `Executivo 92/82` com justificativa única;
+- ações sensíveis continuam restritas a `GESTOR` e `ADM`;
+- atalho separado `Geração IQS` fica restrito ao `ADM`.
+
+Sexta implementação operacional:
+
+- menu lateral simplificado para quatro áreas:
+  - `Dashboard`;
+  - `Executivo`;
+  - `Análise Técnica`;
+  - `Administração`;
+- páginas técnicas deixam de ser janelas separadas no menu principal;
+- `Análise Técnica` consolida:
+  - busca por ocorrência/interrupção/UC;
+  - fila técnica;
+  - ajustes IQS;
+  - propostas manuais;
+- `Administração` consolida:
+  - usuários;
+  - reset de senha;
+  - sessões;
+  - auditoria;
+  - SQL/scripts;
+  - verificação/configurações.
+
+Sétima implementação operacional:
+
+- `Análise Técnica` passa a iniciar pela priorização por impacto;
+- filtros disponíveis:
+  - `CHI` mínimo;
+  - `CI` mínimo;
+  - ressarcimento mínimo;
+  - grupo, componente e causa;
+  - tipo de problema: maior impacto, `92/82`, violação componente/causa, duração suspeita e ressarcimento;
+- ranking técnico ordenado por `impacto_score`;
+- `impacto_score` combina CHI, CI, ressarcimento, violação rígida grupo/componente/causa, `92/82`, duração suspeita e score de reclamação;
+- tabela exibe ocorrência, CHI, CI, ressarcimento, duração máxima, grupo/componente/causa principal, pares encontrados e sinais de atenção;
+- clique na ocorrência abre o pop-up completo para correção e proposta manual.
 
 Observação de evidência:
 

@@ -47,14 +47,56 @@ Responsável por:
 
 ### Login
 
-Valida usuário e senha pela FastAPI.
+Valida e-mail e senha pela FastAPI.
 
 Características:
 
+- o e-mail é a credencial de entrada do usuário;
 - senha armazenada somente como hash PBKDF2 no PostgreSQL;
 - token de sessão armazenado no banco apenas como hash;
 - sessão com expiração;
 - logout revoga a sessão.
+
+### Administração de Usuários
+
+O perfil `ADM` possui controle local de usuários no frontend React:
+
+- incluir usuário;
+- definir senha inicial;
+- usar e-mail como login;
+- selecionar perfil `ADM`, `GESTOR` ou `ANALISTA`;
+- consultar usuários cadastrados;
+- consultar sessões ativas;
+- acompanhar resets de senha.
+
+Regras:
+
+- senha inicial deve ter no mínimo 12 caracteres;
+- senha nunca é gravada em texto puro;
+- a API grava apenas `senha_hash`;
+- ações administrativas são registradas em auditoria.
+
+### Reset de Senha com Código
+
+O reset de senha é exclusivo do perfil `ADM`.
+
+Fluxo:
+
+1. ADM seleciona o usuário.
+2. Sistema gera um código de 4 dígitos.
+3. Código aparece na tela por operação governada.
+4. ADM digita o código exibido, a nova senha e uma justificativa.
+5. API valida código, prazo e perfil.
+6. Senha é atualizada como hash.
+7. Sessões ativas do usuário são revogadas.
+8. Evento fica disponível no monitoramento de reset.
+
+Controles:
+
+- código expira em 10 minutos;
+- três tentativas inválidas cancelam o reset;
+- códigos e hashes não aparecem em views de monitoramento;
+- tabela `midway_reset_senha` mantém status, solicitante, confirmação e justificativa.
 
 ### Dashboard
 
@@ -66,7 +108,7 @@ Visão executiva da regra RA `92/82`:
 - reclamações;
 - saúde do banco.
 
-### Executivo 92/82
+### Executivo
 
 Página de autorização em massa.
 
@@ -184,9 +226,10 @@ Criar primeiro usuário ADM:
 run.bat admin_bootstrap
 ```
 
-Opcionalmente definir senha inicial:
+Opcionalmente definir e-mail e senha inicial:
 
 ```bat
+set MIDWAY_BOOTSTRAP_EMAIL=admin@empresa.com
 set MIDWAY_BOOTSTRAP_PASSWORD=senha_forte_com_12_ou_mais_caracteres
 run.bat admin_bootstrap
 ```

@@ -42,6 +42,27 @@ CREATE TABLE IF NOT EXISTS midway_sessao (
 COMMENT ON TABLE midway_sessao IS
     'Sessoes autenticadas da API MIDWAY. Tokens sao armazenados apenas como hash.';
 
+CREATE TABLE IF NOT EXISTS midway_reset_senha (
+    id_reset uuid PRIMARY KEY,
+    id_usuario uuid NOT NULL REFERENCES midway_usuario(id_usuario),
+    solicitado_por varchar(120) NOT NULL,
+    codigo_hash text NOT NULL,
+    status_reset varchar(30) NOT NULL DEFAULT 'PENDENTE',
+    tentativas integer NOT NULL DEFAULT 0,
+    expira_em timestamp NOT NULL,
+    confirmado_por varchar(120),
+    confirmado_em timestamp,
+    ip_origem varchar(80),
+    justificativa text,
+    criado_em timestamp NOT NULL DEFAULT now(),
+    atualizado_em timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT ck_midway_reset_senha_status
+        CHECK (status_reset IN ('PENDENTE', 'CONFIRMADO', 'EXPIRADO', 'CANCELADO'))
+);
+
+COMMENT ON TABLE midway_reset_senha IS
+    'Controle governado de reset de senha com codigo de confirmacao de 4 digitos.';
+
 CREATE TABLE IF NOT EXISTS midway_alteracao_registro (
     id_alteracao uuid PRIMARY KEY,
     anomes varchar(6),
@@ -69,11 +90,21 @@ COMMENT ON TABLE midway_alteracao_registro IS
 CREATE INDEX IF NOT EXISTS idx_midway_usuario_login
     ON midway_usuario(login);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_midway_usuario_email_unique
+    ON midway_usuario(lower(email))
+    WHERE email IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_midway_usuario_perfil_status
     ON midway_usuario(perfil, status_usuario);
 
 CREATE INDEX IF NOT EXISTS idx_midway_sessao_usuario_expira
     ON midway_sessao(id_usuario, expira_em);
+
+CREATE INDEX IF NOT EXISTS idx_midway_reset_senha_usuario_status
+    ON midway_reset_senha(id_usuario, status_reset, criado_em);
+
+CREATE INDEX IF NOT EXISTS idx_midway_reset_senha_solicitante
+    ON midway_reset_senha(solicitado_por, criado_em);
 
 CREATE INDEX IF NOT EXISTS idx_midway_alteracao_modulo_status
     ON midway_alteracao_registro(modulo, status_alteracao, criado_em);
@@ -110,7 +141,8 @@ SELECT
     s.ip_origem,
     s.criado_em,
     s.expira_em,
-    s.ultimo_uso_em
+    s.ultimo_uso_em,
+    COALESCE(u.email, u.login) AS email
 FROM midway_sessao s
 JOIN midway_usuario u
     ON u.id_usuario = s.id_usuario
@@ -119,6 +151,31 @@ WHERE s.revogado_em IS NULL
 
 COMMENT ON VIEW vw_midway_governanca_sessoes_ativas IS
     'Sessoes ativas de usuarios autenticados no MIDWAY.';
+
+CREATE OR REPLACE VIEW vw_midway_governanca_reset_senha AS
+SELECT
+    r.id_reset,
+    r.id_usuario,
+    u.login,
+    u.nome,
+    u.perfil,
+    r.solicitado_por,
+    r.status_reset,
+    r.tentativas,
+    r.expira_em,
+    r.confirmado_por,
+    r.confirmado_em,
+    r.ip_origem,
+    r.justificativa,
+    r.criado_em,
+    r.atualizado_em,
+    COALESCE(u.email, u.login) AS email
+FROM midway_reset_senha r
+JOIN midway_usuario u
+    ON u.id_usuario = r.id_usuario;
+
+COMMENT ON VIEW vw_midway_governanca_reset_senha IS
+    'Monitoramento de resets de senha sem exposicao do codigo/hash.';
 
 CREATE OR REPLACE VIEW vw_midway_governanca_alteracoes AS
 SELECT

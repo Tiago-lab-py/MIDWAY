@@ -6,12 +6,18 @@ Versao de transicao arquitetural para React + FastAPI + PostgreSQL `ddcq`, mante
 
 - Adiciona frontend React `MIDWAY 7.0.0` com navegação por páginas e visual executivo.
 - Adiciona backend FastAPI como fronteira única entre tela, PostgreSQL, DuckDB e exportações.
+- Adiciona `inicio.bat` para iniciar PostgreSQL local, API FastAPI e frontend React em fluxo único.
 - Cria base PostgreSQL operacional no schema `ddcq` para parâmetros, fila técnica, auditoria, autorização executiva e ajustes IQS.
-- Adiciona login local com perfis `ADM`, `GESTOR` e `ANALISTA`.
+- Adiciona login local por e-mail com perfis `ADM`, `GESTOR` e `ANALISTA`.
+- Adiciona administração de usuários para perfil `ADM`, com inclusão de usuário e senha inicial.
+- Adiciona reset de senha governado com código de confirmação de 4 dígitos, expiração, revogação de sessões e monitoramento.
 - Implementa governança de alterações: analista propõe, gestor aprova/rejeita e auditoria registra os eventos.
 - Implementa geração IQS governada por pacote, com justificativa única para um ou vários modelos.
+- Consolida no `Executivo 92/82` o fluxo do `GESTOR`: autorização em massa das alterações e geração do pacote/arquivo de envio ao IQS.
 - Adiciona modelos iniciais de geração IQS: sobreposição total, sobreposição parcial, interrupção sem UC remanescente, ajuste 92/82 por reclamação e regra rígida grupo/componente/causa.
 - Reorganiza o Dashboard Executivo para exibir `DEC/FEC Antes e Depois das Tratativas` como primeiro bloco após o título.
+- Simplifica a navegação principal para quatro áreas: `Dashboard`, `Executivo`, `Análise Técnica` e `Administração`.
+- Adiciona na `Análise Técnica` a priorização por impacto com filtros de `CHI`, `CI`, ressarcimento, duração suspeita, `92/82` e violação rígida grupo/componente/causa.
 - Move o status do banco para indicador compacto ao lado do `ANOMES`.
 - Adiciona painel de ajustes de componente/causa para RA `92/82`.
 - Adiciona comparação `DEC/FEC` RAW antes das tratativas contra `gold_apuracao_previa` após correções.
