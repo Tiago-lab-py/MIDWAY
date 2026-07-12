@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+import os
 import secrets
+import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -36,10 +40,26 @@ class UsuarioCreateRequest(BaseModel):
     senha: str
 
 
+class UsuarioUpdateRequest(BaseModel):
+    nome: str
+    email: str
+    perfil: str
+    status_usuario: str = "ATIVO"
+
+
 class ResetSenhaConfirmRequest(BaseModel):
     codigo: str
     nova_senha: str
     justificativa: str
+
+
+class ResetSenhaPublicRequest(BaseModel):
+    email: str
+
+
+class ResetSenhaPublicConfirmRequest(BaseModel):
+    codigo: str
+    nova_senha: str
 
 
 class AlteracaoRequest(BaseModel):
@@ -56,6 +76,219 @@ class AlteracaoRequest(BaseModel):
 
 class DecisaoAlteracaoRequest(BaseModel):
     justificativa: str
+
+
+class ExecucaoRequest(BaseModel):
+    tipo_lote: str
+    anomes: str = "202606"
+    parametros: dict[str, object] | None = None
+
+
+class PerfilPermissaoUpdateRequest(BaseModel):
+    pode_visualizar: bool
+    pode_editar: bool
+
+
+PERFIS_VALIDOS = {"ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR"}
+STATUS_USUARIO_VALIDOS = {"ATIVO", "BLOQUEADO", "INATIVO"}
+
+PERFIS_DESCRICOES = {
+    "ADM": "Administração completa da plataforma.",
+    "GESTOR": "Decisão executiva, aprovações e acompanhamento operacional.",
+    "ANALISTA": "Tratamento técnico, análise e propostas de correção.",
+    "CONSULTA": "Acesso de leitura a painéis e evidências.",
+    "AUDITOR": "Leitura de trilhas, execuções e evidências auditáveis.",
+}
+
+PAGINAS_PERMISSAO = {
+    "dashboard": "Dashboard",
+    "executivo": "Executivo",
+    "anomalias": "Anomalias",
+    "analise_tecnica": "Análise Técnica",
+    "administracao": "Administração",
+}
+
+EXECUCOES_PERMITIDAS = {
+    "extract": {
+        "titulo": "run.bat extract — Atualizar RAW ADMS",
+        "descricao": "Extrai dados do ADMS para DuckDB RAW.",
+        "etapas": [{"module": "midway.extract.adms", "env": {}}],
+    },
+    "registrar": {
+        "titulo": "run.bat registrar — Registrar RAW existente",
+        "descricao": "Registra DuckDB RAW já existente sem reextrair.",
+        "etapas": [{"module": "midway.extract.adms", "env": {"REGISTRAR_RAW": "1"}}],
+    },
+    "reextrair": {
+        "titulo": "run.bat reextrair — Reextrair RAW ADMS",
+        "descricao": "Refaz extração ADMS com REEXTRAIR=1.",
+        "etapas": [{"module": "midway.extract.adms", "env": {"REEXTRAIR": "1"}}],
+    },
+    "tratamento": {
+        "titulo": "run.bat tratamento — Processar RAW para SILVER",
+        "descricao": "Executa tratamento e materializa base processada.",
+        "etapas": [{"module": "midway.transform.tratamento", "env": {}}],
+    },
+    "reprocessar": {
+        "titulo": "run.bat reprocessar — Reprocessar SILVER",
+        "descricao": "Refaz tratamento com REPROCESSAR=1.",
+        "etapas": [{"module": "midway.transform.tratamento", "env": {"REPROCESSAR": "1"}}],
+    },
+    "full": {
+        "titulo": "run.bat full — Extração + tratamento",
+        "descricao": "Executa extração RAW e tratamento SILVER em sequência.",
+        "etapas": [
+            {"module": "midway.extract.adms", "env": {}},
+            {"module": "midway.transform.tratamento", "env": {}},
+        ],
+    },
+    "full_mais_apuracao": {
+        "titulo": "run.bat full_mais_apuracao — Pipeline completo",
+        "descricao": "Executa extração, tratamento, bases auxiliares, GOLD e exportações auxiliares.",
+        "etapas": [
+            {"module": "midway.extract.adms", "env": {}},
+            {"module": "midway.transform.tratamento", "env": {}},
+            {"module": "midway.extract.consumidores", "env": {}},
+            {"module": "midway.extract.uc_fatura", "env": {}},
+            {"module": "midway.apuracao.previa", "env": {}},
+            {"module": "midway.analytics.outlier_uc", "env": {}},
+            {"module": "midway.auditoria.sobreposicoes", "env": {}},
+        ],
+    },
+    "exportar": {
+        "titulo": "run.bat exportar — Gerar CSVs IQS",
+        "descricao": "Regenera CSVs finais sem refazer tratamento.",
+        "etapas": [{"module": "midway.export.csv_iqs", "env": {}}],
+    },
+    "apuracao_parcial": {
+        "titulo": "run.bat apuracao_parcial — Gerar GOLD",
+        "descricao": "Gera camadas GOLD e outliers usados pela análise.",
+        "etapas": [
+            {"module": "midway.apuracao.previa", "env": {}},
+            {"module": "midway.analytics.outlier_uc", "env": {}},
+        ],
+    },
+    "consumidores": {
+        "titulo": "run.bat consumidores — Extrair consumidores IQS",
+        "descricao": "Extrai consumidores IQS para uso nas camadas GOLD.",
+        "etapas": [{"module": "midway.extract.consumidores", "env": {}}],
+    },
+    "uc_fatura": {
+        "titulo": "run.bat uc_fatura — Extrair UCs faturadas",
+        "descricao": "Extrai UCs consideradas na apuração.",
+        "etapas": [{"module": "midway.extract.uc_fatura", "env": {}}],
+    },
+    "vrc": {
+        "titulo": "run.bat vrc — Extrair VRC",
+        "descricao": "Extrai VRC IQS sob demanda.",
+        "etapas": [{"module": "midway.extract.vrc", "env": {}}],
+    },
+    "reextrair_vrc": {
+        "titulo": "run.bat reextrair_vrc — Reextrair VRC",
+        "descricao": "Reextrai VRC IQS sob demanda com REEXTRAIR_VRC=1.",
+        "etapas": [{"module": "midway.extract.vrc", "env": {"REEXTRAIR_VRC": "1"}}],
+    },
+    "metas_uc": {
+        "titulo": "run.bat metas_uc — Extrair metas UC",
+        "descricao": "Extrai metas UC IQS sob demanda.",
+        "etapas": [{"module": "midway.extract.metas_uc", "env": {}}],
+    },
+    "reextrair_metas_uc": {
+        "titulo": "run.bat reextrair_metas_uc — Reextrair metas UC",
+        "descricao": "Reextrai metas UC IQS sob demanda com REEXTRAIR_METAS_UC=1.",
+        "etapas": [{"module": "midway.extract.metas_uc", "env": {"REEXTRAIR_METAS_UC": "1"}}],
+    },
+    "referencia_iqs": {
+        "titulo": "run.bat referencia_iqs — Referência componente/causa",
+        "descricao": "Extrai referência de componente/causa IQS.",
+        "etapas": [{"module": "midway.extract.referencia_componente_causa", "env": {}}],
+    },
+    "reextrair_referencia_iqs": {
+        "titulo": "run.bat reextrair_referencia_iqs — Reextrair referência IQS",
+        "descricao": "Reextrai referência componente/causa com REEXTRAIR_REFERENCIA_IQS=1.",
+        "etapas": [
+            {"module": "midway.extract.referencia_componente_causa", "env": {"REEXTRAIR_REFERENCIA_IQS": "1"}}
+        ],
+    },
+    "sincronizar_iqs_raw": {
+        "titulo": "run.bat sincronizar_iqs_raw — Sincronizar IQS RAW",
+        "descricao": "Sincroniza data/raw/iqs_raw_<ANOMES>.duckdb para o processado.",
+        "etapas": [{"script": "tools/sincronizar_iqs_raw.py", "env": {}}],
+    },
+    "extrair_dbguo_reclamacoes": {
+        "titulo": "run.bat extrair_dbguo_reclamacoes — Extrair reclamações",
+        "descricao": "Extrai reclamações DBGUO para data/raw.",
+        "etapas": [{"module": "midway.extract.reclamacoes_dbguo", "env": {}}],
+    },
+    "extrair_adms_servicos": {
+        "titulo": "run.bat extrair_adms_servicos — Atualizar RAW serviços",
+        "descricao": "Extrai serviços ADMS usados nas correções 9282.",
+        "etapas": [{"module": "midway.extract.adms_servicos", "env": {}}],
+    },
+    "dbguo_reclamacoes": {
+        "titulo": "run.bat dbguo_reclamacoes — Processar reclamações",
+        "descricao": "Materializa SILVER/GOLD de reclamações DBGUO.",
+        "etapas": [{"module": "midway.transform.dbguo_reclamacoes_silver", "env": {}}],
+    },
+    "correcao_9282": {
+        "titulo": "run.bat correcao_9282 — Tratativa em massa",
+        "descricao": "Gera tratativa em massa de correção operacional.",
+        "etapas": [{"module": "midway.auditoria.correcao_9282", "env": {}}],
+    },
+    "analise_tecnica_cache": {
+        "titulo": "run.bat analise_tecnica_cache — Cache análise técnica",
+        "descricao": "Materializa cache da Análise Técnica.",
+        "etapas": [{"module": "midway.qualidade.analise_tecnica_cache", "env": {}}],
+    },
+    "exportacao_sobreposicao": {
+        "titulo": "run.bat exportacao_sobreposicao — Sobreposição UC",
+        "descricao": "Processa exportação separada de sobreposição total/parcial por UC.",
+        "etapas": [{"module": "midway.auditoria.sobreposicoes", "env": {}}],
+    },
+    "interrupcao_sem_uc": {
+        "titulo": "run.bat interrupcao_sem_uc — Interrupções sem UC",
+        "descricao": "Exporta interrupções sem UC para análise de ESTADO 7.",
+        "etapas": [{"module": "midway.auditoria.interrupcao_sem_uc", "env": {}}],
+    },
+    "auditar_ajuste_inicio_manobra": {
+        "titulo": "run.bat auditar_ajuste_inicio_manobra — Auditoria manobra",
+        "descricao": "Gera auditoria de ajuste de início de manobra.",
+        "etapas": [{"module": "midway.auditoria.ajuste_inicio_manobra", "env": {}}],
+    },
+    "exportacoes_auxiliares": {
+        "titulo": "run.bat exportacoes_auxiliares — Exportações auxiliares",
+        "descricao": "Gera sobreposições, interrupções sem UC e normalização de datas.",
+        "etapas": [
+            {"module": "midway.auditoria.sobreposicoes", "env": {}},
+            {"module": "midway.auditoria.interrupcao_sem_uc", "env": {}},
+            {"module": "midway.export.normalizar_datas_iqs", "env": {}},
+        ],
+    },
+    "metricas_qualidade": {
+        "titulo": "run.bat metricas_qualidade — Métricas de qualidade",
+        "descricao": "Gera métricas de qualidade dos dados tratados.",
+        "etapas": [{"script": "tools/gerar_metricas_qualidade.py", "env": {}}],
+    },
+    "amostras_auditoria": {
+        "titulo": "run.bat amostras_auditoria — Amostras de auditoria",
+        "descricao": "Exporta amostras de auditoria orientadas por risco.",
+        "etapas": [{"script": "tools/exportar_amostras_auditoria.py", "env": {}}],
+    },
+    "anomalias": {
+        "titulo": "run.bat anomalias_setup — Atualizar Anomalias",
+        "descricao": "Recarrega anomalias a partir de RAW/SILVER/GOLD.",
+        "etapas": [
+            {"module": "midway.db.apply_sql", "args": ["008_nucleo_anomalias_v7.sql"], "env": {}},
+            {"module": "midway.v7.generate_real_anomalies", "env": {}},
+            {"module": "midway.db.postgres", "env": {}},
+        ],
+    },
+    "anomalias_validar": {
+        "titulo": "run.bat anomalias_validar — Validar Anomalias",
+        "descricao": "Executa teste do núcleo funcional de anomalias.",
+        "etapas": [{"module": "unittest", "args": ["tests.test_v7_real_anomalies"], "env": {}}],
+    },
+}
 
 
 def _schema() -> str:
@@ -81,6 +314,87 @@ def _normalize_email(value: str) -> str:
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
         raise HTTPException(status_code=400, detail="E-mail inválido.")
     return email
+
+
+def _normalize_perfil(value: str) -> str:
+    perfil = value.upper().strip()
+    if perfil not in PERFIS_VALIDOS:
+        raise HTTPException(status_code=400, detail="Perfil inválido.")
+    return perfil
+
+
+def _normalize_status_usuario(value: str) -> str:
+    status = value.upper().strip()
+    if status not in STATUS_USUARIO_VALIDOS:
+        raise HTTPException(status_code=400, detail="Status de usuário inválido.")
+    return status
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _atualizar_lote(id_lote: str, status: str, mensagem: str) -> None:
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.begin() as con:
+        con.execute(
+            text(
+                f"""
+                UPDATE {schema}.midway_execucao_lote
+                SET status_lote = :status_lote,
+                    mensagem = :mensagem,
+                    finalizado_em = CASE
+                        WHEN :status_lote IN ('CONCLUIDO', 'ERRO', 'CANCELADO') THEN now()
+                        ELSE finalizado_em
+                    END
+                WHERE id_lote = :id_lote
+                """
+            ),
+            {"id_lote": id_lote, "status_lote": status, "mensagem": mensagem[-6000:]},
+        )
+
+
+def _executar_lote_background(id_lote: str, tipo_lote: str, anomes: str) -> None:
+    config = EXECUCOES_PERMITIDAS[tipo_lote]
+    root = _repo_root()
+    env_base = os.environ.copy()
+    env_base["ANOMES"] = anomes
+    _atualizar_lote(id_lote, "PROCESSANDO", f"Processamento iniciado: {config['titulo']}.")
+    saidas: list[str] = []
+    try:
+        for etapa in config["etapas"]:
+            env = {**env_base, **etapa.get("env", {})}
+            args = [str(arg) for arg in etapa.get("args", [])]
+            module = etapa.get("module")
+            script = etapa.get("script")
+            if module:
+                command = [sys.executable, "-m", str(module), *args]
+                command_label = f"python -m {module}" + (f" {' '.join(args)}" if args else "")
+            elif script:
+                script_path = root / str(script)
+                command = [sys.executable, str(script_path), *args]
+                command_label = f"python {script}" + (f" {' '.join(args)}" if args else "")
+            else:
+                raise RuntimeError("Etapa de processamento sem módulo ou script.")
+            process = subprocess.run(
+                command,
+                cwd=str(root),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=60 * 60 * 6,
+                check=False,
+            )
+            saida = "\n".join([process.stdout.strip(), process.stderr.strip()]).strip()
+            if saida:
+                saidas.append(f"$ {command_label}\n{saida}")
+            if process.returncode != 0:
+                _atualizar_lote(id_lote, "ERRO", "\n\n".join(saidas) or f"Falha em {command_label}.")
+                return
+        _atualizar_lote(id_lote, "CONCLUIDO", "\n\n".join(saidas) or "Processamento concluído.")
+    except Exception as exc:
+        _atualizar_lote(id_lote, "ERRO", f"Erro ao executar processamento: {exc}")
 
 
 @router.post("/auth/login")
@@ -158,6 +472,105 @@ def me(user: AuthUser = Depends(get_current_user)) -> dict[str, object]:
     return api_row(user.__dict__)
 
 
+@router.post("/auth/reset-senha/solicitar")
+def solicitar_reset_senha_publico(
+    payload: ResetSenhaPublicRequest,
+    request: Request,
+) -> dict[str, object]:
+    schema = _schema()
+    email = _normalize_email(payload.email)
+    codigo = f"{secrets.randbelow(10000):04d}"
+    id_reset = str(uuid4())
+    ip_origem = request.client.host if request and request.client else None
+
+    engine = create_postgres_engine()
+    with engine.begin() as con:
+        usuario = con.execute(
+            text(
+                f"""
+                SELECT id_usuario, login, email, perfil, status_usuario
+                FROM {schema}.midway_usuario
+                WHERE lower(coalesce(email, login)) = :email
+                """
+            ),
+            {"email": email},
+        ).mappings().first()
+        if not usuario or usuario["status_usuario"] != "ATIVO":
+            raise HTTPException(status_code=404, detail="Usuário ativo não encontrado para este e-mail.")
+
+        con.execute(
+            text(
+                f"""
+                UPDATE {schema}.midway_reset_senha
+                SET status_reset = 'CANCELADO',
+                    atualizado_em = now()
+                WHERE id_usuario = :id_usuario
+                  AND status_reset = 'PENDENTE'
+                """
+            ),
+            {"id_usuario": usuario["id_usuario"]},
+        )
+        con.execute(
+            text(
+                f"""
+                INSERT INTO {schema}.midway_reset_senha (
+                    id_reset, id_usuario, solicitado_por, codigo_hash, expira_em, ip_origem, justificativa
+                )
+                VALUES (
+                    :id_reset, :id_usuario, :solicitado_por, :codigo_hash, now() + interval '10 minutes',
+                    :ip_origem, :justificativa
+                )
+                """
+            ),
+            {
+                "id_reset": id_reset,
+                "id_usuario": usuario["id_usuario"],
+                "solicitado_por": email,
+                "codigo_hash": hash_password(codigo),
+                "ip_origem": ip_origem,
+                "justificativa": "Solicitação realizada na tela inicial.",
+            },
+        )
+        reset_row = con.execute(
+            text(
+                f"""
+                SELECT id_reset, expira_em
+                FROM {schema}.midway_reset_senha
+                WHERE id_reset = :id_reset
+                """
+            ),
+            {"id_reset": id_reset},
+        ).mappings().one()
+
+    audit_event(
+        "RESET_SENHA_SOLICITADO_LOGIN",
+        "midway_usuario",
+        str(usuario["id_usuario"]),
+        email,
+        {"perfil": usuario["perfil"], "id_reset": id_reset},
+    )
+    return {
+        "id_reset": id_reset,
+        "login": usuario.get("email") or usuario["login"],
+        "codigo": codigo,
+        "expira_em": reset_row["expira_em"],
+        "status": "pendente",
+    }
+
+
+@router.post("/auth/reset-senha/{id_reset}/confirmar")
+def confirmar_reset_senha_publico(
+    id_reset: str,
+    payload: ResetSenhaPublicConfirmRequest,
+) -> dict[str, object]:
+    request_payload = ResetSenhaConfirmRequest(
+        codigo=payload.codigo,
+        nova_senha=payload.nova_senha,
+        justificativa="Reset confirmado na tela inicial pelo próprio usuário.",
+    )
+    return _confirmar_reset_senha(id_reset, request_payload, confirmado_por="autoatendimento")
+
+
 @router.get("/governanca/usuarios")
 def listar_usuarios(
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR")),
@@ -176,10 +589,8 @@ def criar_usuario(
     payload: UsuarioCreateRequest,
     user: AuthUser = Depends(require_profiles("ADM")),
 ) -> dict[str, object]:
-    perfil = payload.perfil.upper().strip()
+    perfil = _normalize_perfil(payload.perfil)
     email = _normalize_email(payload.email)
-    if perfil not in {"ADM", "GESTOR", "ANALISTA"}:
-        raise HTTPException(status_code=400, detail="Perfil inválido.")
     if len(payload.senha) < 12:
         raise HTTPException(status_code=400, detail="Senha deve ter no mínimo 12 caracteres.")
 
@@ -218,6 +629,243 @@ def criar_usuario(
         {"email": email, "perfil": perfil},
     )
     return {"id_usuario": id_usuario, "status": "criado"}
+
+
+@router.patch("/governanca/usuarios/{id_usuario}")
+def atualizar_usuario(
+    id_usuario: str,
+    payload: UsuarioUpdateRequest,
+    user: AuthUser = Depends(require_profiles("ADM")),
+) -> dict[str, object]:
+    perfil = _normalize_perfil(payload.perfil)
+    status_usuario = _normalize_status_usuario(payload.status_usuario)
+    email = _normalize_email(payload.email)
+    nome = payload.nome.strip()
+    if len(nome) < 3:
+        raise HTTPException(status_code=400, detail="Nome deve ter no mínimo 3 caracteres.")
+
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.begin() as con:
+        row = con.execute(
+            text(
+                f"""
+                SELECT id_usuario, login, email, perfil, status_usuario
+                FROM {schema}.midway_usuario
+                WHERE id_usuario = :id_usuario
+                """
+            ),
+            {"id_usuario": id_usuario},
+        ).mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+        if str(row["id_usuario"]) == user.id_usuario and status_usuario != "ATIVO":
+            raise HTTPException(status_code=400, detail="Não é permitido inativar ou bloquear o próprio usuário.")
+
+        con.execute(
+            text(
+                f"""
+                UPDATE {schema}.midway_usuario
+                SET login = :email,
+                    nome = :nome,
+                    email = :email,
+                    perfil = :perfil,
+                    status_usuario = :status_usuario,
+                    atualizado_por = :atualizado_por,
+                    atualizado_em = now()
+                WHERE id_usuario = :id_usuario
+                """
+            ),
+            {
+                "id_usuario": id_usuario,
+                "email": email,
+                "nome": nome,
+                "perfil": perfil,
+                "status_usuario": status_usuario,
+                "atualizado_por": user.login,
+            },
+        )
+        if status_usuario != "ATIVO":
+            con.execute(
+                text(
+                    f"""
+                    UPDATE {schema}.midway_sessao
+                    SET revogado_em = now()
+                    WHERE id_usuario = :id_usuario
+                      AND revogado_em IS NULL
+                    """
+                ),
+                {"id_usuario": id_usuario},
+            )
+
+    audit_event(
+        "USUARIO_ATUALIZADO",
+        "midway_usuario",
+        id_usuario,
+        user.login,
+        {"email": email, "perfil": perfil, "status_usuario": status_usuario},
+    )
+    return {"id_usuario": id_usuario, "status": "atualizado"}
+
+
+@router.delete("/governanca/usuarios/{id_usuario}")
+def inativar_usuario(
+    id_usuario: str,
+    user: AuthUser = Depends(require_profiles("ADM")),
+) -> dict[str, object]:
+    if id_usuario == user.id_usuario:
+        raise HTTPException(status_code=400, detail="Não é permitido inativar o próprio usuário.")
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.begin() as con:
+        row = con.execute(
+            text(
+                f"""
+                SELECT id_usuario, login, email, perfil
+                FROM {schema}.midway_usuario
+                WHERE id_usuario = :id_usuario
+                """
+            ),
+            {"id_usuario": id_usuario},
+        ).mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+        con.execute(
+            text(
+                f"""
+                UPDATE {schema}.midway_usuario
+                SET status_usuario = 'INATIVO',
+                    atualizado_por = :atualizado_por,
+                    atualizado_em = now()
+                WHERE id_usuario = :id_usuario
+                """
+            ),
+            {"id_usuario": id_usuario, "atualizado_por": user.login},
+        )
+        con.execute(
+            text(
+                f"""
+                UPDATE {schema}.midway_sessao
+                SET revogado_em = now()
+                WHERE id_usuario = :id_usuario
+                  AND revogado_em IS NULL
+                """
+            ),
+            {"id_usuario": id_usuario},
+        )
+    audit_event(
+        "USUARIO_INATIVADO",
+        "midway_usuario",
+        id_usuario,
+        user.login,
+        {"email": row.get("email") or row["login"], "perfil": row["perfil"]},
+    )
+    return {"id_usuario": id_usuario, "status": "inativado"}
+
+
+@router.get("/governanca/perfis")
+def listar_perfis(user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "AUDITOR"))) -> list[dict[str, object]]:
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.connect() as con:
+        rows = con.execute(
+            text(
+                f"""
+                SELECT perfil, pagina, pode_visualizar, pode_editar, atualizado_por, atualizado_em
+                FROM {schema}.vw_midway_governanca_permissoes
+                ORDER BY perfil, pagina
+                """
+            )
+        ).mappings().all()
+
+    permissoes_por_perfil: dict[str, list[dict[str, object]]] = {perfil: [] for perfil in sorted(PERFIS_VALIDOS)}
+    for row in rows:
+        item = dict(row)
+        pagina = str(item["pagina"])
+        permissoes_por_perfil.setdefault(str(item["perfil"]), []).append(
+            {
+                "pagina": pagina,
+                "pagina_label": PAGINAS_PERMISSAO.get(pagina, pagina),
+                "pode_visualizar": bool(item["pode_visualizar"]),
+                "pode_editar": bool(item["pode_editar"]),
+                "atualizado_por": item.get("atualizado_por"),
+                "atualizado_em": item.get("atualizado_em"),
+            }
+        )
+
+    return api_rows(
+        [
+            {
+                "perfil": perfil,
+                "descricao": PERFIS_DESCRICOES.get(perfil, perfil),
+                "permissoes": permissoes_por_perfil.get(perfil, []),
+            }
+            for perfil in sorted(PERFIS_VALIDOS)
+        ]
+    )
+
+
+@router.patch("/governanca/perfis/{perfil}/permissoes/{pagina}")
+def atualizar_permissao_perfil(
+    perfil: str,
+    pagina: str,
+    payload: PerfilPermissaoUpdateRequest,
+    user: AuthUser = Depends(require_profiles("ADM")),
+) -> dict[str, object]:
+    perfil_normalizado = _normalize_perfil(perfil)
+    pagina_normalizada = pagina.strip().lower()
+    if pagina_normalizada not in PAGINAS_PERMISSAO:
+        raise HTTPException(status_code=400, detail="Página inválida.")
+    if perfil_normalizado == "ADM" and (not payload.pode_visualizar or not payload.pode_editar):
+        raise HTTPException(status_code=400, detail="O perfil ADM deve manter visualizar e editar ativos.")
+
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.begin() as con:
+        con.execute(
+            text(
+                f"""
+                INSERT INTO {schema}.midway_perfil_permissao (
+                    perfil, pagina, pode_visualizar, pode_editar, atualizado_por, atualizado_em
+                )
+                VALUES (
+                    :perfil, :pagina, :pode_visualizar, :pode_editar, :atualizado_por, now()
+                )
+                ON CONFLICT (perfil, pagina)
+                DO UPDATE SET
+                    pode_visualizar = EXCLUDED.pode_visualizar,
+                    pode_editar = EXCLUDED.pode_editar,
+                    atualizado_por = EXCLUDED.atualizado_por,
+                    atualizado_em = now()
+                """
+            ),
+            {
+                "perfil": perfil_normalizado,
+                "pagina": pagina_normalizada,
+                "pode_visualizar": payload.pode_visualizar,
+                "pode_editar": payload.pode_editar,
+                "atualizado_por": user.login,
+            },
+        )
+    audit_event(
+        "PERFIL_PERMISSAO_ATUALIZADA",
+        "midway_perfil_permissao",
+        f"{perfil_normalizado}:{pagina_normalizada}",
+        user.login,
+        {
+            "perfil": perfil_normalizado,
+            "pagina": pagina_normalizada,
+            "pode_visualizar": payload.pode_visualizar,
+            "pode_editar": payload.pode_editar,
+        },
+    )
+    return {
+        "perfil": perfil_normalizado,
+        "pagina": pagina_normalizada,
+        "pode_visualizar": payload.pode_visualizar,
+        "pode_editar": payload.pode_editar,
+        "status": "atualizado",
+    }
 
 
 @router.post("/governanca/usuarios/{id_usuario}/reset-senha/preparar")
@@ -305,11 +953,10 @@ def preparar_reset_senha(
     }
 
 
-@router.post("/governanca/reset-senha/{id_reset}/confirmar")
-def confirmar_reset_senha(
+def _confirmar_reset_senha(
     id_reset: str,
     payload: ResetSenhaConfirmRequest,
-    user: AuthUser = Depends(require_profiles("ADM")),
+    confirmado_por: str,
 ) -> dict[str, object]:
     codigo = payload.codigo.strip()
     if len(codigo) != 4 or not codigo.isdigit():
@@ -424,7 +1071,7 @@ def confirmar_reset_senha(
                 """
             ),
             {
-                "confirmado_por": user.login,
+                "confirmado_por": confirmado_por,
                 "justificativa": payload.justificativa.strip(),
                 "id_reset": id_reset,
             },
@@ -434,10 +1081,19 @@ def confirmar_reset_senha(
         "RESET_SENHA_CONFIRMADO",
         "midway_usuario",
         str(reset_row["id_usuario"]),
-        user.login,
+        confirmado_por,
         {"email": reset_row.get("email") or reset_row["login"], "perfil": reset_row["perfil"], "id_reset": id_reset},
     )
     return {"status": "confirmado", "id_reset": id_reset, "login": reset_row.get("email") or reset_row["login"]}
+
+
+@router.post("/governanca/reset-senha/{id_reset}/confirmar")
+def confirmar_reset_senha(
+    id_reset: str,
+    payload: ResetSenhaConfirmRequest,
+    user: AuthUser = Depends(require_profiles("ADM")),
+) -> dict[str, object]:
+    return _confirmar_reset_senha(id_reset, payload, confirmado_por=user.login)
 
 
 @router.get("/governanca/reset-senha")
@@ -460,6 +1116,91 @@ def listar_sessoes(user: AuthUser = Depends(require_profiles("ADM"))) -> list[di
             text(f"SELECT * FROM {schema}.vw_midway_governanca_sessoes_ativas ORDER BY expira_em DESC")
         ).mappings().all()
     return api_rows([dict(row) for row in rows])
+
+
+@router.get("/governanca/execucoes/tipos")
+def listar_tipos_execucao(user: AuthUser = Depends(require_profiles("ADM", "GESTOR"))) -> list[dict[str, object]]:
+    return api_rows(
+        [
+            {
+                "tipo_lote": tipo_lote,
+                "titulo": config["titulo"],
+                "descricao": config["descricao"],
+                "comando": f"run.bat {tipo_lote}",
+            }
+            for tipo_lote, config in EXECUCOES_PERMITIDAS.items()
+        ]
+    )
+
+
+@router.get("/governanca/execucoes")
+def listar_execucoes(user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "AUDITOR"))) -> list[dict[str, object]]:
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.connect() as con:
+        rows = con.execute(
+            text(
+                f"""
+                SELECT id_lote, anomes, tipo_lote, status_lote, origem, parametros,
+                       iniciado_em, finalizado_em, criado_por, mensagem
+                FROM {schema}.midway_execucao_lote
+                ORDER BY iniciado_em DESC
+                LIMIT 100
+                """
+            )
+        ).mappings().all()
+    return api_rows([dict(row) for row in rows])
+
+
+@router.post("/governanca/execucoes")
+def iniciar_execucao(
+    payload: ExecucaoRequest,
+    background_tasks: BackgroundTasks,
+    user: AuthUser = Depends(require_profiles("ADM")),
+) -> dict[str, object]:
+    tipo_lote = payload.tipo_lote.strip().lower()
+    anomes = payload.anomes.strip()
+    if tipo_lote not in EXECUCOES_PERMITIDAS:
+        raise HTTPException(status_code=400, detail="Tipo de processamento inválido.")
+    if len(anomes) != 6 or not anomes.isdigit():
+        raise HTTPException(status_code=400, detail="ANOMES deve ter 6 dígitos.")
+
+    schema = _schema()
+    id_lote = str(uuid4())
+    parametros = payload.parametros or {}
+    engine = create_postgres_engine()
+    with engine.begin() as con:
+        con.execute(
+            text(
+                f"""
+                INSERT INTO {schema}.midway_execucao_lote (
+                    id_lote, anomes, tipo_lote, status_lote, origem, parametros, criado_por, mensagem
+                )
+                VALUES (
+                    :id_lote, :anomes, :tipo_lote, 'ABERTO', 'api_admin',
+                    CAST(:parametros AS jsonb), :criado_por, :mensagem
+                )
+                """
+            ),
+            {
+                "id_lote": id_lote,
+                "anomes": anomes,
+                "tipo_lote": tipo_lote,
+                "parametros": json.dumps(parametros, ensure_ascii=False),
+                "criado_por": user.login,
+                "mensagem": f"Solicitado pela Administração: {EXECUCOES_PERMITIDAS[tipo_lote]['titulo']}.",
+            },
+        )
+
+    background_tasks.add_task(_executar_lote_background, id_lote, tipo_lote, anomes)
+    audit_event(
+        "EXECUCAO_LOTE_SOLICITADA",
+        "midway_execucao_lote",
+        id_lote,
+        user.login,
+        {"tipo_lote": tipo_lote, "anomes": anomes},
+    )
+    return {"id_lote": id_lote, "status": "ABERTO", "tipo_lote": tipo_lote}
 
 
 @router.get("/governanca/alteracoes")

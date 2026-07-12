@@ -13,6 +13,10 @@ def api_value(value: Any) -> Any:
         return float(value)
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, dict):
+        return {key: api_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [api_value(item) for item in value]
     return value
 
 

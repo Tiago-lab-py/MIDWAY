@@ -19,13 +19,20 @@ CREATE TABLE IF NOT EXISTS midway_usuario (
     atualizado_por varchar(120),
     atualizado_em timestamp NOT NULL DEFAULT now(),
     CONSTRAINT ck_midway_usuario_perfil
-        CHECK (perfil IN ('ADM', 'GESTOR', 'ANALISTA')),
+        CHECK (perfil IN ('ADM', 'GESTOR', 'ANALISTA', 'CONSULTA', 'AUDITOR')),
     CONSTRAINT ck_midway_usuario_status
         CHECK (status_usuario IN ('ATIVO', 'BLOQUEADO', 'INATIVO'))
 );
 
 COMMENT ON TABLE midway_usuario IS
-    'Usuarios da aplicacao MIDWAY com perfis de governanca ADM, GESTOR e ANALISTA.';
+    'Usuarios da aplicacao MIDWAY com perfis de governanca ADM, GESTOR, ANALISTA, CONSULTA e AUDITOR.';
+
+ALTER TABLE midway_usuario
+    DROP CONSTRAINT IF EXISTS ck_midway_usuario_perfil;
+
+ALTER TABLE midway_usuario
+    ADD CONSTRAINT ck_midway_usuario_perfil
+        CHECK (perfil IN ('ADM', 'GESTOR', 'ANALISTA', 'CONSULTA', 'AUDITOR'));
 
 CREATE TABLE IF NOT EXISTS midway_sessao (
     id_sessao uuid PRIMARY KEY,
@@ -62,6 +69,23 @@ CREATE TABLE IF NOT EXISTS midway_reset_senha (
 
 COMMENT ON TABLE midway_reset_senha IS
     'Controle governado de reset de senha com codigo de confirmacao de 4 digitos.';
+
+CREATE TABLE IF NOT EXISTS midway_perfil_permissao (
+    perfil varchar(30) NOT NULL,
+    pagina varchar(60) NOT NULL,
+    pode_visualizar boolean NOT NULL DEFAULT false,
+    pode_editar boolean NOT NULL DEFAULT false,
+    atualizado_por varchar(120),
+    atualizado_em timestamp NOT NULL DEFAULT now(),
+    PRIMARY KEY (perfil, pagina),
+    CONSTRAINT ck_midway_perfil_permissao_perfil
+        CHECK (perfil IN ('ADM', 'GESTOR', 'ANALISTA', 'CONSULTA', 'AUDITOR')),
+    CONSTRAINT ck_midway_perfil_permissao_pagina
+        CHECK (pagina IN ('dashboard', 'executivo', 'anomalias', 'analise_tecnica', 'administracao'))
+);
+
+COMMENT ON TABLE midway_perfil_permissao IS
+    'Matriz de permissoes por perfil e pagina, separando visualizar e editar.';
 
 CREATE TABLE IF NOT EXISTS midway_alteracao_registro (
     id_alteracao uuid PRIMARY KEY,
@@ -106,6 +130,9 @@ CREATE INDEX IF NOT EXISTS idx_midway_reset_senha_usuario_status
 CREATE INDEX IF NOT EXISTS idx_midway_reset_senha_solicitante
     ON midway_reset_senha(solicitado_por, criado_em);
 
+CREATE INDEX IF NOT EXISTS idx_midway_perfil_permissao_pagina
+    ON midway_perfil_permissao(pagina);
+
 CREATE INDEX IF NOT EXISTS idx_midway_alteracao_modulo_status
     ON midway_alteracao_registro(modulo, status_alteracao, criado_em);
 
@@ -131,6 +158,49 @@ FROM midway_usuario;
 
 COMMENT ON VIEW vw_midway_governanca_usuarios IS
     'Usuarios e perfis de governanca sem exposicao de senha/hash.';
+
+INSERT INTO midway_perfil_permissao (perfil, pagina, pode_visualizar, pode_editar, atualizado_por)
+VALUES
+    ('ADM', 'dashboard', true, true, 'bootstrap'),
+    ('ADM', 'executivo', true, true, 'bootstrap'),
+    ('ADM', 'anomalias', true, true, 'bootstrap'),
+    ('ADM', 'analise_tecnica', true, true, 'bootstrap'),
+    ('ADM', 'administracao', true, true, 'bootstrap'),
+    ('GESTOR', 'dashboard', true, false, 'bootstrap'),
+    ('GESTOR', 'executivo', true, true, 'bootstrap'),
+    ('GESTOR', 'anomalias', true, true, 'bootstrap'),
+    ('GESTOR', 'analise_tecnica', true, false, 'bootstrap'),
+    ('GESTOR', 'administracao', false, false, 'bootstrap'),
+    ('ANALISTA', 'dashboard', true, false, 'bootstrap'),
+    ('ANALISTA', 'executivo', false, false, 'bootstrap'),
+    ('ANALISTA', 'anomalias', true, true, 'bootstrap'),
+    ('ANALISTA', 'analise_tecnica', true, true, 'bootstrap'),
+    ('ANALISTA', 'administracao', false, false, 'bootstrap'),
+    ('CONSULTA', 'dashboard', true, false, 'bootstrap'),
+    ('CONSULTA', 'executivo', false, false, 'bootstrap'),
+    ('CONSULTA', 'anomalias', true, false, 'bootstrap'),
+    ('CONSULTA', 'analise_tecnica', true, false, 'bootstrap'),
+    ('CONSULTA', 'administracao', false, false, 'bootstrap'),
+    ('AUDITOR', 'dashboard', true, false, 'bootstrap'),
+    ('AUDITOR', 'executivo', false, false, 'bootstrap'),
+    ('AUDITOR', 'anomalias', true, false, 'bootstrap'),
+    ('AUDITOR', 'analise_tecnica', true, false, 'bootstrap'),
+    ('AUDITOR', 'administracao', true, false, 'bootstrap')
+ON CONFLICT (perfil, pagina) DO NOTHING;
+
+CREATE OR REPLACE VIEW vw_midway_governanca_permissoes AS
+SELECT
+    perfil,
+    pagina,
+    pode_visualizar,
+    pode_editar,
+    atualizado_por,
+    atualizado_em
+FROM midway_perfil_permissao
+ORDER BY perfil, pagina;
+
+COMMENT ON VIEW vw_midway_governanca_permissoes IS
+    'Matriz de permissoes por perfil e pagina para exibicao na Administracao.';
 
 CREATE OR REPLACE VIEW vw_midway_governanca_sessoes_ativas AS
 SELECT

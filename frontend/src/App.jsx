@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8000'
+const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8001'
 
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: 'D' },
@@ -334,10 +334,80 @@ function OccurrenceModal({ detail, loading, onClose }) {
 function LoginPage({ onLogin, error, loading }) {
   const [email, setEmail] = useState('admin@midway.local')
   const [senha, setSenha] = useState('')
+  const [authMode, setAuthMode] = useState('login')
+  const [resetPreparadoLogin, setResetPreparadoLogin] = useState(null)
+  const [resetFormLogin, setResetFormLogin] = useState({
+    codigo: '',
+    nova_senha: '',
+  })
+  const [resetMessage, setResetMessage] = useState('')
+  const [resetError, setResetError] = useState('')
+  const [resetLoading, setResetLoading] = useState(false)
 
   function submit(event) {
     event.preventDefault()
     onLogin(email, senha)
+  }
+
+  function voltarLogin() {
+    setAuthMode('login')
+    setResetPreparadoLogin(null)
+    setResetFormLogin({ codigo: '', nova_senha: '' })
+    setResetMessage('')
+    setResetError('')
+  }
+
+  async function solicitarResetLogin(event) {
+    event.preventDefault()
+    try {
+      setResetLoading(true)
+      setResetError('')
+      setResetMessage('')
+      const response = await fetch(`${API_URL}/api/auth/reset-senha/solicitar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao solicitar troca de senha.')
+      }
+      setResetPreparadoLogin(result)
+      setResetFormLogin({ codigo: '', nova_senha: '' })
+      setResetMessage(`Código gerado para ${result.login}.`)
+    } catch (requestError) {
+      setResetError(requestError.message)
+    } finally {
+      setResetLoading(false)
+    }
+  }
+
+  async function confirmarResetLogin(event) {
+    event.preventDefault()
+    if (!resetPreparadoLogin?.id_reset) return
+    try {
+      setResetLoading(true)
+      setResetError('')
+      setResetMessage('')
+      const response = await fetch(`${API_URL}/api/auth/reset-senha/${resetPreparadoLogin.id_reset}/confirmar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(resetFormLogin),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao confirmar troca de senha.')
+      }
+      setSenha('')
+      setResetMessage(`Senha redefinida para ${result.login}. Entre com a nova senha.`)
+      setResetPreparadoLogin(null)
+      setResetFormLogin({ codigo: '', nova_senha: '' })
+      setAuthMode('login')
+    } catch (requestError) {
+      setResetError(requestError.message)
+    } finally {
+      setResetLoading(false)
+    }
   }
 
   return (
@@ -350,27 +420,86 @@ function LoginPage({ onLogin, error, loading }) {
             <span>Governança operacional</span>
           </div>
         </div>
-        <h1>Entrar</h1>
-        <p>Use seu e-mail MIDWAY. Perfis: ADM, GESTOR ou ANALISTA.</p>
-        {error && <div className="alert">Erro: {error}</div>}
-        <form onSubmit={submit} className="login-form">
-          <label>
-            E-mail
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="username" />
-          </label>
-          <label>
-            Senha
-            <input
-              value={senha}
-              onChange={(event) => setSenha(event.target.value)}
-              type="password"
-              autoComplete="current-password"
-            />
-          </label>
-          <button className="primary-button" disabled={loading} type="submit">
-            {loading ? 'Entrando...' : 'Entrar'}
-          </button>
-        </form>
+        <div className="login-mode-tabs">
+          <button className={authMode === 'login' ? 'active' : ''} type="button" onClick={voltarLogin}>Entrar</button>
+          <button className={authMode === 'reset' ? 'active' : ''} type="button" onClick={() => setAuthMode('reset')}>Trocar senha</button>
+        </div>
+        {authMode === 'login' ? (
+          <>
+            <h1>Entrar</h1>
+            <p>Use seu e-mail MIDWAY. Perfis: ADM, GESTOR ou ANALISTA.</p>
+            {error && <div className="alert">Erro: {error}</div>}
+            {resetMessage && <div className="alert alert-success">{resetMessage}</div>}
+            <form onSubmit={submit} className="login-form">
+              <label>
+                E-mail
+                <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="username" />
+              </label>
+              <label>
+                Senha
+                <input
+                  value={senha}
+                  onChange={(event) => setSenha(event.target.value)}
+                  type="password"
+                  autoComplete="current-password"
+                />
+              </label>
+              <button className="primary-button" disabled={loading} type="submit">
+                {loading ? 'Entrando...' : 'Entrar'}
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <h1>Trocar senha</h1>
+            <p>Informe seu e-mail, gere o código de confirmação e cadastre uma nova senha.</p>
+            {resetError && <div className="alert">Erro: {resetError}</div>}
+            {resetMessage && <div className="alert alert-success">{resetMessage}</div>}
+            {!resetPreparadoLogin ? (
+              <form onSubmit={solicitarResetLogin} className="login-form">
+                <label>
+                  E-mail
+                  <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="username" required />
+                </label>
+                <button className="primary-button" disabled={resetLoading} type="submit">
+                  {resetLoading ? 'Gerando...' : 'Gerar código'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={confirmarResetLogin} className="login-form">
+                <div className="reset-code-card">
+                  <span>Código exibido</span>
+                  <strong>{resetPreparadoLogin.codigo}</strong>
+                  <small>E-mail: {resetPreparadoLogin.login} · expira em {dateTime(resetPreparadoLogin.expira_em)}</small>
+                </div>
+                <label>
+                  Confirmar código
+                  <input
+                    value={resetFormLogin.codigo}
+                    onChange={(event) => setResetFormLogin((current) => ({ ...current, codigo: event.target.value }))}
+                    maxLength={4}
+                    inputMode="numeric"
+                    required
+                  />
+                </label>
+                <label>
+                  Nova senha
+                  <input
+                    value={resetFormLogin.nova_senha}
+                    onChange={(event) => setResetFormLogin((current) => ({ ...current, nova_senha: event.target.value }))}
+                    type="password"
+                    minLength={12}
+                    autoComplete="new-password"
+                    required
+                  />
+                </label>
+                <button className="primary-button" disabled={resetLoading} type="submit">
+                  {resetLoading ? 'Confirmando...' : 'Confirmar troca'}
+                </button>
+              </form>
+            )}
+          </>
+        )}
         <small>
           Primeiro acesso: rode `run.bat postgres_governanca` e depois `run.bat admin_bootstrap`.
         </small>
@@ -385,7 +514,7 @@ function DashboardPage({ cards, resumo, health, decFec, token, onOpenOccurrence 
     <>
       <PageHero
         title="Dashboard Executivo"
-        description="Tratativa RA 92/82 com autorização em massa, fila técnica e auditoria PostgreSQL."
+        description="Visão executiva das tratativas, autorização em massa, fila técnica e auditoria PostgreSQL."
         sideLabel="ANOMES"
         sideValue={resumo.anomes}
         sideContent={<MiniDatabaseStatus health={health} />}
@@ -467,7 +596,7 @@ function DashboardPage({ cards, resumo, health, decFec, token, onOpenOccurrence 
         <div className="panel-title">
           <div>
             <h2>Painel de Ajustes de Componente/Causa</h2>
-            <p>Resumo executivo das tratativas RA 92/82 para reclassificação e autorização governada.</p>
+            <p>Resumo executivo das tratativas para reclassificação e autorização governada.</p>
           </div>
         </div>
         <section className="metrics-grid compact">
@@ -506,8 +635,8 @@ function ExecutivoPage({
   return (
     <>
       <PageHero
-        title="Executivo 92/82"
-        description="Mesa do Gestor para aprovação em massa das alterações e autorização do pacote de envio ao IQS."
+        title="Executivo"
+        description="Mesa do gestor para revisar impacto, autorizar alterações governadas e aprovar o pacote de envio ao IQS."
         sideLabel="Perfil"
         sideValue={user?.perfil}
       />
@@ -516,21 +645,21 @@ function ExecutivoPage({
         <div className="alert">Seu perfil pode consultar esta página, mas apenas GESTOR/ADM executa autorização em massa e geração IQS.</div>
       )}
 
-      <section className="metrics-grid">
+      <section className="metrics-grid compact">
         {cards.map((card) => (
           <Card key={card.label} {...card} />
         ))}
       </section>
 
-      <section className="content-grid">
-        <article className="panel panel-large">
+      <section className="executive-layout">
+        <article className="panel executive-action-panel">
           <div className="panel-title">
             <div>
-              <h2>1. Aprovação em Massa das Alterações</h2>
-              <p>Autoriza registros automáticos RA 92/82 com regra `SERVICO + ROBUSTA`. Duplicidades são ignoradas pela API.</p>
+              <h2>Aprovação das Alterações</h2>
+              <p>Autoriza alterações automáticas com evidência robusta. Duplicidades são ignoradas pela API.</p>
             </div>
             <button className="primary-button" disabled={!canManage || authorizing} onClick={onAutorizar}>
-              {authorizing ? 'Autorizando...' : 'Autorizar alterações 92/82'}
+              {authorizing ? 'Autorizando...' : 'Autorizar alterações'}
             </button>
           </div>
           <div className="stat-list">
@@ -544,14 +673,14 @@ function ExecutivoPage({
         <article className="panel">
           <div className="panel-title">
             <div>
-              <h2>Fluxo Gestor</h2>
-              <p>O gestor fecha o lote operacional antes da implantação no IQS.</p>
+              <h2>Fluxo de Decisão</h2>
+              <p>Sequência recomendada para fechar o lote operacional antes da implantação no IQS.</p>
             </div>
           </div>
-          <div className="stacked-notes">
-            <span><strong>1. Autorizar massa</strong> Aprova as alterações automáticas com evidência robusta.</span>
-            <span><strong>2. Revisar pendências</strong> Mantém conflitos e reclamações para apoio técnico/manual.</span>
-            <span><strong>3. Gerar IQS</strong> Aprova o pacote de arquivos/modelos com justificativa única.</span>
+          <div className="decision-steps">
+            <span><strong>1</strong><em>Autorizar alterações</em><small>Aprovar itens automáticos com evidência robusta.</small></span>
+            <span><strong>2</strong><em>Revisar pendências</em><small>Manter conflitos para apoio técnico ou análise manual.</small></span>
+            <span><strong>3</strong><em>Gerar IQS</em><small>Aprovar pacote de arquivos/modelos com justificativa única.</small></span>
           </div>
         </article>
       </section>
@@ -564,7 +693,7 @@ function ExecutivoPage({
         user={user}
         onCreate={onCreateGeracaoIqs}
         generating={generatingIqs}
-        title="2. Geração do Arquivo para IQS"
+        title="Geração do Arquivo para IQS"
         description="Após a autorização em massa, selecione os modelos que compõem o pacote de envio ao IQS."
       />
     </>
@@ -947,7 +1076,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
           Problema
           <select value={filtros.problema} onChange={(event) => updateFiltro('problema', event.target.value)}>
             <option value="impacto">Maior impacto</option>
-            <option value="9282">Componente 92 / Causa 82</option>
+            <option value="9282">Componente/Causa crítica</option>
             <option value="violacao_componente_causa">Violação componente/causa</option>
             <option value="duracao_suspeita">Duração suspeita</option>
             <option value="ressarcimento">Com ressarcimento</option>
@@ -1012,7 +1141,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
 
       <div className="analysis-summary-strip">
         <span><strong>{numberFormat(resumo.QTD_OCORRENCIAS_COM_VIOLACAO)}</strong> ocorrência(s) com violação componente/causa</span>
-        <span><strong>{numberFormat(resumo.QTD_OCORRENCIAS_9282)}</strong> ocorrência(s) 92/82</span>
+        <span><strong>{numberFormat(resumo.QTD_OCORRENCIAS_9282)}</strong> ocorrência(s) com componente/causa crítica</span>
         <span><strong>{numberFormat(resumo.QTD_DURACAO_SUSPEITA)}</strong> ocorrência(s) com duração suspeita</span>
         <span><strong>{fonte === 'cache' ? 'Cache' : 'Ao vivo'}</strong> fonte · score máx. {decimalFormat(resumo.MAIOR_IMPACTO_SCORE, 1)}</span>
       </div>
@@ -1041,7 +1170,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
             label: 'Sinais',
             render: (item) => (
               <div className="tag-list">
-                {Number(item.TEM_9282 || 0) > 0 && <span className="pill">92/82</span>}
+                {Number(item.TEM_9282 || 0) > 0 && <span className="pill">Comp/Causa</span>}
                 {Number(item.QTD_VIOLACAO_COMP_CAUSA || 0) > 0 && <span className="pill pill-danger">Violação</span>}
                 {Number(item.RESSARCIMENTO_ESTIMADO || 0) > 0 && <span className="pill pill-money">R$</span>}
               </div>
@@ -1100,7 +1229,7 @@ function FilaPage({ fila, resumo, onOpenOccurrence, embedded = false }) {
             sideValue={numberFormat(resumo.fila_aberta)}
           />
           <section className="metrics-grid compact">
-            <Card label="Total na fila" value={numberFormat(resumo.fila_tecnica_total)} hint="RA 92/82" tone="orange" />
+            <Card label="Total na fila" value={numberFormat(resumo.fila_tecnica_total)} hint="revisão técnica" tone="orange" />
             <Card label="Conflito de serviço" value={numberFormat(resumo.fila_servico_conflito)} hint="revisão técnica prioritária" tone="purple" />
             <Card label="Por reclamação" value={numberFormat(resumo.fila_reclamacao)} hint="melhor classificação textual" tone="blue" />
             <Card label="Tratados" value={numberFormat(resumo.fila_tratada)} hint="baixados da fila" tone="green" />
@@ -1126,7 +1255,7 @@ function AjustesPage({ ajustes, resumo, onOpenOccurrence, embedded = false }) {
       {!embedded && (
         <PageHero
           title="Ajustes IQS"
-          description="Registros automáticos RA 92/82 autorizados pelo Executivo e prontos para exportação controlada."
+          description="Registros automáticos autorizados pelo Executivo e prontos para exportação controlada."
           sideLabel="Ajustes"
           sideValue={numberFormat(resumo.ajustes_auto_9282)}
         />
@@ -1135,7 +1264,7 @@ function AjustesPage({ ajustes, resumo, onOpenOccurrence, embedded = false }) {
         <div className="panel-title">
           <div>
             <h2>Ajustes Automáticos</h2>
-            <p>Origem `AUTO_EXECUTIVO_9282`.</p>
+            <p>Origem automática governada.</p>
           </div>
         </div>
         <DataTable
@@ -1358,7 +1487,7 @@ function AuditoriaPage({ auditoria, embedded = false }) {
       <section className="panel">
         <div className="panel-title">
           <div>
-            <h2>Eventos 92/82</h2>
+            <h2>Eventos de Autorização</h2>
             <p>Trilha de auditoria da autorização executiva.</p>
           </div>
         </div>
@@ -1535,7 +1664,7 @@ function AlteracoesPage({ alteracoes, user, onCreate, onApprove, onReject, savin
               <select value={form.modulo} onChange={(event) => updateForm('modulo', event.target.value)}>
                 <option value="QUALIDADE_INTERRUPCOES">Qualidade de Interrupções</option>
                 <option value="AJUSTE_MANUAL_IQS">Ajuste Manual IQS</option>
-                <option value="EXECUTIVO_9282">Executivo 92/82</option>
+                <option value="EXECUTIVO_9282">Executivo</option>
                 <option value="EXPORTACAO_IQS">Exportação IQS</option>
               </select>
             </label>
@@ -1639,23 +1768,43 @@ function AlteracoesPage({ alteracoes, user, onCreate, onApprove, onReject, savin
   )
 }
 
-function GovernancaPage({ usuarios, sessoes, resetSenhaEventos, user, token, onRefresh, embedded = false }) {
+function GovernancaPage({
+  usuarios,
+  sessoes,
+  resetSenhaEventos,
+  perfisFuncoes,
+  execucoes,
+  tiposExecucao,
+  activeSection = 'usuarios',
+  user,
+  token,
+  onRefresh,
+  embedded = false,
+}) {
   const [usuarioForm, setUsuarioForm] = useState({
     nome: '',
     email: '',
     perfil: 'ANALISTA',
     senha: '',
   })
+  const [usuarioEditando, setUsuarioEditando] = useState(null)
   const [resetPreparado, setResetPreparado] = useState(null)
   const [resetForm, setResetForm] = useState({
     codigo: '',
     nova_senha: '',
     justificativa: '',
   })
+  const [execucaoForm, setExecucaoForm] = useState({
+    tipo_lote: 'extract',
+    anomes: '202606',
+  })
   const [governancaMessage, setGovernancaMessage] = useState('')
   const [governancaError, setGovernancaError] = useState('')
   const [savingGovernanca, setSavingGovernanca] = useState(false)
+  const [startingExecucao, setStartingExecucao] = useState(false)
+  const [savingPermissao, setSavingPermissao] = useState('')
   const isAdmin = user?.perfil === 'ADM'
+  const selectedExecucao = tiposExecucao.find((item) => item.tipo_lote === execucaoForm.tipo_lote)
 
   function updateUsuarioForm(field, value) {
     setUsuarioForm((current) => ({ ...current, [field]: value }))
@@ -1663,6 +1812,24 @@ function GovernancaPage({ usuarios, sessoes, resetSenhaEventos, user, token, onR
 
   function updateResetForm(field, value) {
     setResetForm((current) => ({ ...current, [field]: value }))
+  }
+
+  function updateUsuarioEditando(field, value) {
+    setUsuarioEditando((current) => ({ ...current, [field]: value }))
+  }
+
+  function updateExecucaoForm(field, value) {
+    setExecucaoForm((current) => ({ ...current, [field]: value }))
+  }
+
+  function editarUsuario(item) {
+    setUsuarioEditando({
+      id_usuario: item.id_usuario,
+      nome: item.nome || '',
+      email: item.email || item.login || '',
+      perfil: item.perfil || 'ANALISTA',
+      status_usuario: item.status_usuario || 'ATIVO',
+    })
   }
 
   async function criarUsuario(event) {
@@ -1685,6 +1852,63 @@ function GovernancaPage({ usuarios, sessoes, resetSenhaEventos, user, token, onR
       }
       setUsuarioForm({ nome: '', email: '', perfil: 'ANALISTA', senha: '' })
       setGovernancaMessage(`Usuário criado: ${result.id_usuario}`)
+      await onRefresh()
+    } catch (requestError) {
+      setGovernancaError(requestError.message)
+    } finally {
+      setSavingGovernanca(false)
+    }
+  }
+
+  async function salvarUsuario(event) {
+    event.preventDefault()
+    if (!usuarioEditando?.id_usuario) return
+    try {
+      setSavingGovernanca(true)
+      setGovernancaError('')
+      setGovernancaMessage('')
+      const response = await fetch(`${API_URL}/api/governanca/usuarios/${usuarioEditando.id_usuario}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          nome: usuarioEditando.nome,
+          email: usuarioEditando.email,
+          perfil: usuarioEditando.perfil,
+          status_usuario: usuarioEditando.status_usuario,
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao atualizar usuário.')
+      }
+      setUsuarioEditando(null)
+      setGovernancaMessage(`Usuário atualizado: ${result.id_usuario}`)
+      await onRefresh()
+    } catch (requestError) {
+      setGovernancaError(requestError.message)
+    } finally {
+      setSavingGovernanca(false)
+    }
+  }
+
+  async function inativarUsuario(item) {
+    if (!window.confirm(`Inativar o usuário ${item.email || item.login}?`)) return
+    try {
+      setSavingGovernanca(true)
+      setGovernancaError('')
+      setGovernancaMessage('')
+      const response = await fetch(`${API_URL}/api/governanca/usuarios/${item.id_usuario}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao inativar usuário.')
+      }
+      setGovernancaMessage(`Usuário inativado: ${result.id_usuario}`)
       await onRefresh()
     } catch (requestError) {
       setGovernancaError(requestError.message)
@@ -1749,6 +1973,70 @@ function GovernancaPage({ usuarios, sessoes, resetSenhaEventos, user, token, onR
     }
   }
 
+  async function iniciarExecucao(event) {
+    event.preventDefault()
+    try {
+      setStartingExecucao(true)
+      setGovernancaError('')
+      setGovernancaMessage('')
+      const response = await fetch(`${API_URL}/api/governanca/execucoes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(execucaoForm),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao iniciar processamento.')
+      }
+      setGovernancaMessage(`Processamento enviado para backend: ${result.tipo_lote}.`)
+      await onRefresh()
+    } catch (requestError) {
+      setGovernancaError(requestError.message)
+    } finally {
+      setStartingExecucao(false)
+    }
+  }
+
+  async function atualizarPermissao(perfil, permissao, campo, value) {
+    const next = {
+      pode_visualizar: campo === 'pode_visualizar' ? value : Boolean(permissao.pode_visualizar),
+      pode_editar: campo === 'pode_editar' ? value : Boolean(permissao.pode_editar),
+    }
+    if (next.pode_editar) {
+      next.pode_visualizar = true
+    }
+    if (!next.pode_visualizar) {
+      next.pode_editar = false
+    }
+    const savingKey = `${perfil}:${permissao.pagina}:${campo}`
+    try {
+      setSavingPermissao(savingKey)
+      setGovernancaError('')
+      setGovernancaMessage('')
+      const response = await fetch(`${API_URL}/api/governanca/perfis/${perfil}/permissoes/${permissao.pagina}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(next),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao atualizar permissão.')
+      }
+      setGovernancaMessage(`Permissão atualizada: ${perfil} / ${permissao.pagina_label}.`)
+      await onRefresh()
+    } catch (requestError) {
+      setGovernancaError(requestError.message)
+    } finally {
+      setSavingPermissao('')
+    }
+  }
+
   return (
     <>
       {!embedded && (
@@ -1761,7 +2049,7 @@ function GovernancaPage({ usuarios, sessoes, resetSenhaEventos, user, token, onR
       )}
       {governancaMessage && <div className="alert alert-success">{governancaMessage}</div>}
       {governancaError && <div className="alert">{governancaError}</div>}
-      {isAdmin && (
+      {activeSection === 'usuarios' && isAdmin && (
         <section className="content-grid">
           <article className="panel panel-large">
             <div className="panel-title">
@@ -1784,6 +2072,8 @@ function GovernancaPage({ usuarios, sessoes, resetSenhaEventos, user, token, onR
                 <select value={usuarioForm.perfil} onChange={(event) => updateUsuarioForm('perfil', event.target.value)}>
                   <option value="ANALISTA">ANALISTA</option>
                   <option value="GESTOR">GESTOR</option>
+                  <option value="CONSULTA">CONSULTA</option>
+                  <option value="AUDITOR">AUDITOR</option>
                   <option value="ADM">ADM</option>
                 </select>
               </label>
@@ -1804,69 +2094,63 @@ function GovernancaPage({ usuarios, sessoes, resetSenhaEventos, user, token, onR
               </div>
             </form>
           </article>
+        </section>
+      )}
+      {activeSection === 'usuarios' && isAdmin && usuarioEditando && (
+        <section className="content-grid">
           <article className="panel panel-large">
             <div className="panel-title">
               <div>
-                <h2>Reset de Senha com Código</h2>
-                <p>Gere um código de 4 dígitos, digite o código exibido e informe a nova senha.</p>
+                <h2>Editar Usuário</h2>
+                <p>Atualiza dados, perfil e status. Inativação revoga sessões ativas.</p>
               </div>
             </div>
-            {resetPreparado ? (
-              <form className="governed-form" onSubmit={confirmarReset}>
-                <div className="reset-code-card">
-                  <span>Código exibido</span>
-                  <strong>{resetPreparado.codigo}</strong>
-                  <small>E-mail: {resetPreparado.login} · expira em {dateTime(resetPreparado.expira_em)}</small>
-                </div>
-                <label>
-                  Confirmar código
-                  <input
-                    value={resetForm.codigo}
-                    onChange={(event) => updateResetForm('codigo', event.target.value)}
-                    maxLength={4}
-                    inputMode="numeric"
-                    required
-                  />
-                </label>
-                <label>
-                  Nova senha
-                  <input
-                    value={resetForm.nova_senha}
-                    onChange={(event) => updateResetForm('nova_senha', event.target.value)}
-                    type="password"
-                    minLength={12}
-                    required
-                  />
-                </label>
-                <label className="form-wide">
-                  Justificativa
-                  <textarea
-                    value={resetForm.justificativa}
-                    onChange={(event) => updateResetForm('justificativa', event.target.value)}
-                    required
-                  />
-                </label>
-                <div className="form-actions">
-                  <button className="secondary-button" type="button" onClick={() => setResetPreparado(null)}>
-                    Cancelar
-                  </button>
-                  <button className="primary-button" type="submit" disabled={savingGovernanca}>
-                    {savingGovernanca ? 'Confirmando...' : 'Confirmar reset'}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="alert">Selecione um usuário na tabela abaixo e clique em `Reset senha`.</div>
-            )}
+            <form className="governed-form" onSubmit={salvarUsuario}>
+              <label>
+                Nome
+                <input value={usuarioEditando.nome} onChange={(event) => updateUsuarioEditando('nome', event.target.value)} required />
+              </label>
+              <label>
+                E-mail
+                <input value={usuarioEditando.email} onChange={(event) => updateUsuarioEditando('email', event.target.value)} type="email" required />
+              </label>
+              <label>
+                Perfil
+                <select value={usuarioEditando.perfil} onChange={(event) => updateUsuarioEditando('perfil', event.target.value)}>
+                  <option value="ANALISTA">ANALISTA</option>
+                  <option value="GESTOR">GESTOR</option>
+                  <option value="CONSULTA">CONSULTA</option>
+                  <option value="AUDITOR">AUDITOR</option>
+                  <option value="ADM">ADM</option>
+                </select>
+              </label>
+              <label>
+                Status
+                <select value={usuarioEditando.status_usuario} onChange={(event) => updateUsuarioEditando('status_usuario', event.target.value)}>
+                  <option value="ATIVO">ATIVO</option>
+                  <option value="BLOQUEADO">BLOQUEADO</option>
+                  <option value="INATIVO">INATIVO</option>
+                </select>
+              </label>
+              <div className="form-actions">
+                <button className="secondary-button" type="button" onClick={() => setUsuarioEditando(null)}>
+                  Cancelar
+                </button>
+                <button className="primary-button" type="submit" disabled={savingGovernanca}>
+                  {savingGovernanca ? 'Salvando...' : 'Salvar alterações'}
+                </button>
+              </div>
+            </form>
           </article>
         </section>
       )}
+      {activeSection === 'usuarios' && (
       <section className="content-grid">
         <article className="panel panel-large">
           <div className="panel-title">
             <div>
-              <h2>Usuários</h2>
-              <p>Perfis disponíveis: ADM, GESTOR e ANALISTA.</p>
+              <h2>Usuários e Acessos</h2>
+              <p>Perfis disponíveis: ADM, GESTOR, ANALISTA, CONSULTA e AUDITOR.</p>
             </div>
           </div>
           <DataTable
@@ -1880,9 +2164,14 @@ function GovernancaPage({ usuarios, sessoes, resetSenhaEventos, user, token, onR
                 key: 'acoes',
                 label: 'Ações',
                 render: (item) => (
-                  <button className="mini-button" disabled={savingGovernanca} onClick={() => prepararReset(item)}>
-                    Reset senha
-                  </button>
+                  <div className="row-actions">
+                    <button className="mini-button" disabled={savingGovernanca} onClick={() => editarUsuario(item)}>
+                      Editar
+                    </button>
+                    <button className="mini-button mini-button-danger" disabled={savingGovernanca} onClick={() => inativarUsuario(item)}>
+                      Inativar
+                    </button>
+                  </div>
                 ),
               }] : []),
             ]}
@@ -1929,6 +2218,131 @@ function GovernancaPage({ usuarios, sessoes, resetSenhaEventos, user, token, onR
           </article>
         )}
       </section>
+      )}
+      {activeSection === 'perfis' && (
+      <section className="content-grid">
+        <article className="panel panel-large">
+          <div className="panel-title">
+            <div>
+              <h2>Perfis e Funções</h2>
+              <p>Defina o que cada perfil pode visualizar ou editar em cada página.</p>
+            </div>
+          </div>
+          <div className="permission-grid">
+            {perfisFuncoes.map((perfilItem) => (
+              <section className="permission-card" key={perfilItem.perfil}>
+                <div className="permission-card-title">
+                  <span className="pill">{perfilItem.perfil}</span>
+                  <small>{perfilItem.descricao}</small>
+                </div>
+                <div className="permission-rows">
+                  {(perfilItem.permissoes || []).map((permissao) => {
+                    const disabled = !isAdmin || savingPermissao.startsWith(`${perfilItem.perfil}:${permissao.pagina}`) || perfilItem.perfil === 'ADM'
+                    return (
+                      <div className="permission-row" key={`${perfilItem.perfil}-${permissao.pagina}`}>
+                        <strong>{permissao.pagina_label}</strong>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(permissao.pode_visualizar)}
+                            disabled={disabled}
+                            onChange={(event) => atualizarPermissao(perfilItem.perfil, permissao, 'pode_visualizar', event.target.checked)}
+                          />
+                          Visualizar
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(permissao.pode_editar)}
+                            disabled={disabled || !permissao.pode_visualizar}
+                            onChange={(event) => atualizarPermissao(perfilItem.perfil, permissao, 'pode_editar', event.target.checked)}
+                          />
+                          Editar
+                        </label>
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+          {!perfisFuncoes.length && (
+            <div className="alert">
+              Matriz de permissões não carregada. Clique em `Atualizar`; se continuar vazio, reinicie a API para carregar as novas rotas de governança.
+            </div>
+          )}
+          {!isAdmin && <p className="panel-note">Seu perfil pode visualizar a matriz, mas somente ADM altera permissões.</p>}
+        </article>
+      </section>
+      )}
+      {activeSection === 'processamentos' && (
+      <section className="content-grid">
+        {isAdmin && (
+          <article className="panel">
+            <div className="panel-title">
+              <div>
+                <h2>Processamentos Backend</h2>
+                <p>Dispare cargas pesadas sem travar a utilização da tela.</p>
+              </div>
+            </div>
+            <form className="governed-form governed-form-compact" onSubmit={iniciarExecucao}>
+              <label>
+                Processamento
+                <select
+                  value={execucaoForm.tipo_lote}
+                  onChange={(event) => updateExecucaoForm('tipo_lote', event.target.value)}
+                  disabled={!tiposExecucao.length}
+                >
+                  {!tiposExecucao.length && <option value="">Lista do run.bat não carregada</option>}
+                  {tiposExecucao.map((item) => (
+                    <option key={item.tipo_lote} value={item.tipo_lote}>{item.titulo}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                ANOMES
+                <input value={execucaoForm.anomes} onChange={(event) => updateExecucaoForm('anomes', event.target.value)} maxLength={6} required />
+              </label>
+              <div className="form-actions">
+                <button className="primary-button" type="submit" disabled={startingExecucao || !tiposExecucao.length}>
+                  {startingExecucao ? 'Enviando...' : 'Executar no backend'}
+                </button>
+              </div>
+            </form>
+            {selectedExecucao && (
+              <p className="panel-note">
+                Comando: <strong>{selectedExecucao.comando || `run.bat ${selectedExecucao.tipo_lote}`}</strong> · {selectedExecucao.descricao}
+              </p>
+            )}
+            {!tiposExecucao.length && (
+              <div className="alert">
+                A lista de processamentos do `run.bat` não foi carregada. Clique em `Atualizar`; se continuar vazio, reinicie a API.
+              </div>
+            )}
+          </article>
+        )}
+        <article className={isAdmin ? 'panel' : 'panel panel-large'}>
+          <div className="panel-title">
+            <div>
+              <h2>Fila de Execuções</h2>
+              <p>Status dos lotes executados pelo backend.</p>
+            </div>
+          </div>
+          <DataTable
+            columns={[
+              { key: 'tipo_lote', label: 'Tipo' },
+              { key: 'anomes', label: 'ANOMES' },
+              { key: 'status_lote', label: 'Status', render: (item) => <StatusPill value={item.status_lote} /> },
+              { key: 'criado_por', label: 'Solicitado por' },
+              { key: 'iniciado_em', label: 'Início', render: (item) => dateTime(item.iniciado_em) },
+              { key: 'finalizado_em', label: 'Fim', render: (item) => dateTime(item.finalizado_em) },
+              { key: 'mensagem', label: 'Mensagem', render: (item) => String(item.mensagem || '—').slice(0, 180) },
+            ]}
+            rows={execucoes}
+          />
+        </article>
+      </section>
+      )}
     </>
   )
 }
@@ -1983,6 +2397,9 @@ function AdministracaoPage({
   usuarios,
   sessoes,
   resetSenhaEventos,
+  perfisFuncoes,
+  execucoes,
+  tiposExecucao,
   auditoria,
   sqlScripts,
   verificacoes,
@@ -1991,28 +2408,60 @@ function AdministracaoPage({
   token,
   onRefresh,
 }) {
+  const [activeAdminTab, setActiveAdminTab] = useState('usuarios')
+  const adminTabs = [
+    { id: 'usuarios', label: 'Usuários' },
+    { id: 'perfis', label: 'Perfis e Funções' },
+    { id: 'processamentos', label: 'Processamentos' },
+    { id: 'auditoria', label: 'Auditoria' },
+    { id: 'sistema', label: 'Sistema' },
+  ]
+
   return (
     <>
       <PageHero
         title="Administração"
-        description="Controle administrativo: usuários, reset de senha, sessões, auditoria, SQL/scripts e configurações."
+        description="Controle administrativo organizado por áreas: acessos, funções, processamentos, auditoria e sistema."
         sideLabel="Perfil"
         sideValue={user?.perfil}
       />
 
-      <GovernancaPage
-        usuarios={usuarios}
-        sessoes={sessoes}
-        resetSenhaEventos={resetSenhaEventos}
-        user={user}
-        token={token}
-        onRefresh={onRefresh}
-        embedded
-      />
-      <AuditoriaPage auditoria={auditoria} embedded />
-      <SqlPage scripts={sqlScripts} embedded />
-      <VerificacaoPage verificacoes={verificacoes} health={health} embedded />
-      <ConfiguracoesPage health={health} embedded />
+      <nav className="admin-tabs" aria-label="Seções da administração">
+        {adminTabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={activeAdminTab === tab.id ? 'active' : ''}
+            type="button"
+            onClick={() => setActiveAdminTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {['usuarios', 'perfis', 'processamentos'].includes(activeAdminTab) && (
+        <GovernancaPage
+          usuarios={usuarios}
+          sessoes={sessoes}
+          resetSenhaEventos={resetSenhaEventos}
+          perfisFuncoes={perfisFuncoes}
+          execucoes={execucoes}
+          tiposExecucao={tiposExecucao}
+          activeSection={activeAdminTab}
+          user={user}
+          token={token}
+          onRefresh={onRefresh}
+          embedded
+        />
+      )}
+      {activeAdminTab === 'auditoria' && <AuditoriaPage auditoria={auditoria} embedded />}
+      {activeAdminTab === 'sistema' && (
+        <>
+          <SqlPage scripts={sqlScripts} embedded />
+          <VerificacaoPage verificacoes={verificacoes} health={health} embedded />
+          <ConfiguracoesPage health={health} embedded />
+        </>
+      )}
     </>
   )
 }
@@ -2040,6 +2489,9 @@ export default function App() {
   const [usuarios, setUsuarios] = useState([])
   const [sessoes, setSessoes] = useState([])
   const [resetSenhaEventos, setResetSenhaEventos] = useState([])
+  const [perfisFuncoes, setPerfisFuncoes] = useState([])
+  const [execucoes, setExecucoes] = useState([])
+  const [tiposExecucao, setTiposExecucao] = useState([])
   const [loading, setLoading] = useState(true)
   const [loginLoading, setLoginLoading] = useState(false)
   const [authorizing, setAuthorizing] = useState(false)
@@ -2087,6 +2539,9 @@ export default function App() {
           fetch(`${API_URL}/api/governanca/usuarios`, { headers: authHeaders }),
           fetch(`${API_URL}/api/governanca/sessoes`, { headers: authHeaders }),
           fetch(`${API_URL}/api/governanca/reset-senha`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/governanca/perfis`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/governanca/execucoes`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/governanca/execucoes/tipos`, { headers: authHeaders }),
           fetch(`${API_URL}/api/iqs/modelos`, { headers: authHeaders }),
           fetch(`${API_URL}/api/iqs/geracoes`, { headers: authHeaders }),
           fetch(`${API_URL}/api/anomalias`, { headers: authHeaders }),
@@ -2098,6 +2553,9 @@ export default function App() {
           usuariosResponse,
           sessoesResponse,
           resetSenhaResponse,
+          perfisResponse,
+          execucoesResponse,
+          tiposExecucaoResponse,
           modelosIqsResponse,
           geracoesIqsResponse,
           anomaliasResponse,
@@ -2110,6 +2568,15 @@ export default function App() {
         if (usuariosResponse.ok) setUsuarios(await usuariosResponse.json())
         if (sessoesResponse.ok) setSessoes(await sessoesResponse.json())
         if (resetSenhaResponse.ok) setResetSenhaEventos(await resetSenhaResponse.json())
+        if (perfisResponse.ok) {
+          setPerfisFuncoes(await perfisResponse.json())
+        } else {
+          const detail = await perfisResponse.json().catch(() => null)
+          setPerfisFuncoes([])
+          setError(detail?.detail || 'Falha ao carregar permissões de perfis.')
+        }
+        if (execucoesResponse.ok) setExecucoes(await execucoesResponse.json())
+        if (tiposExecucaoResponse.ok) setTiposExecucao(await tiposExecucaoResponse.json())
         if (modelosIqsResponse.ok) setModelosIqs(await modelosIqsResponse.json())
         if (geracoesIqsResponse.ok) setGeracoesIqs(await geracoesIqsResponse.json())
         if (anomaliasResponse.ok) {
@@ -2175,7 +2642,7 @@ export default function App() {
       })
       const result = await response.json()
       if (!response.ok) {
-        throw new Error(result?.detail || 'Falha ao autorizar 92/82.')
+        throw new Error(result?.detail || 'Falha ao autorizar alterações.')
       }
       setActionMessage(
         `Autorização concluída: ${numberFormat(result.criados)} ajuste(s), ${numberFormat(result.ignorados)} duplicado(s), ${numberFormat(result.manuais_criados)} item(ns) de fila.`,
@@ -2431,6 +2898,9 @@ export default function App() {
         usuarios={usuarios}
         sessoes={sessoes}
         resetSenhaEventos={resetSenhaEventos}
+        perfisFuncoes={perfisFuncoes}
+        execucoes={execucoes}
+        tiposExecucao={tiposExecucao}
         auditoria={auditoria}
         sqlScripts={sqlScripts}
         verificacoes={verificacoes}

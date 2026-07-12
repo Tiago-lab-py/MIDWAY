@@ -24,7 +24,8 @@ if /I "%~1"=="painel" (
 
 if /I "%~1"=="api" (
     echo Abrindo MIDWAY API FastAPI...
-    "%PYTHON_EXE%" -m uvicorn midway.api.main:app --host 127.0.0.1 --port 8000 --reload
+    if "%MIDWAY_API_PORT%"=="" set "MIDWAY_API_PORT=8001"
+    "%PYTHON_EXE%" -m uvicorn midway.api.main:app --host 127.0.0.1 --port %MIDWAY_API_PORT% --reload
     if errorlevel 1 goto erro
     goto fim
 )

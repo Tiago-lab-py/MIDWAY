@@ -69,12 +69,12 @@ button {
   font-size: 0.8rem;
 }
 
-nav {
+.sidebar nav {
   display: grid;
   gap: 0.55rem;
 }
 
-nav button {
+.sidebar nav button {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -88,8 +88,8 @@ nav button {
   cursor: pointer;
 }
 
-nav button.active,
-nav button:hover {
+.sidebar nav button.active,
+.sidebar nav button:hover {
   background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: white;
 }
@@ -158,6 +158,28 @@ nav button:hover {
 
 .login-brand {
   margin-bottom: 1.5rem;
+}
+
+.login-mode-tabs {
+  display: flex;
+  gap: 1rem;
+  margin: 0 0 1.2rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.login-mode-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0 0 0.65rem;
+}
+
+.login-mode-tabs button.active {
+  border-bottom-color: #ef4444;
+  color: #f8fafc;
 }
 
 .login-form {
@@ -342,6 +364,56 @@ p {
   margin-bottom: 1rem;
 }
 
+.executive-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.executive-action-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.decision-steps {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.decision-steps span {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  column-gap: 0.75rem;
+  row-gap: 0.2rem;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.28);
+  padding: 0.85rem;
+}
+
+.decision-steps strong {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  grid-row: span 2;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.22);
+  color: #bfdbfe;
+}
+
+.decision-steps em {
+  color: #f8fafc;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.decision-steps small {
+  color: #94a3b8;
+}
+
 .panel-large {
   grid-column: 1 / -1;
 }
@@ -514,6 +586,42 @@ p {
   transform: none;
 }
 
+.admin-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.35rem;
+  margin: -0.3rem 0 1.35rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  overflow-x: auto;
+}
+
+.admin-tabs button {
+  position: relative;
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #e2e8f0;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0.85rem 0 0.8rem;
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.admin-tabs button:hover {
+  color: #f8fafc;
+}
+
+.admin-tabs button.active {
+  border-bottom-color: #ef4444;
+  background: transparent;
+  color: #f8fafc;
+  box-shadow: none;
+}
+
 .alert-success {
   border-color: rgba(34, 197, 94, 0.35);
   background: rgba(20, 83, 45, 0.3);
@@ -544,6 +652,10 @@ p {
   display: grid;
   grid-template-columns: repeat(5, minmax(150px, 1fr));
   gap: 1rem;
+}
+
+.governed-form-compact {
+  grid-template-columns: minmax(180px, 1fr) 120px;
 }
 
 .governed-form label {
@@ -602,7 +714,69 @@ p {
   display: flex;
   align-items: end;
   justify-content: flex-end;
+  gap: 0.65rem;
   grid-column: span 5;
+}
+
+.governed-form-compact .form-actions {
+  grid-column: 1 / -1;
+}
+
+.permission-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.permission-card {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.26);
+  padding: 1rem;
+}
+
+.permission-card-title {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.9rem;
+}
+
+.permission-card-title small {
+  color: #94a3b8;
+}
+
+.permission-rows {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.permission-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 115px 90px;
+  gap: 0.7rem;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 0.75rem;
+}
+
+.permission-row strong {
+  color: #f8fafc;
+}
+
+.permission-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #cbd5e1;
+  font-weight: 800;
+}
+
+.permission-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
 }
 
 .row-actions {
@@ -1152,6 +1326,7 @@ th {
 
   .metrics-grid,
   .content-grid,
+  .executive-layout,
   .impact-grid,
   .comparison-grid,
   .anomaly-detail-head,
@@ -1190,6 +1365,7 @@ th {
 
   .metrics-grid,
   .content-grid,
+  .executive-layout,
   .impact-grid,
   .comparison-grid,
   .anomaly-detail-head,
