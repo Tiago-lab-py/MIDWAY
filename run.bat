@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 set "PYTHON_EXE=C:/Program Files/Python311/python.exe"
@@ -25,7 +25,7 @@ if /I "%~1"=="painel" (
 if /I "%~1"=="api" (
     echo Abrindo MIDWAY API FastAPI...
     if "%MIDWAY_API_PORT%"=="" set "MIDWAY_API_PORT=8001"
-    "%PYTHON_EXE%" -m uvicorn midway.api.main:app --host 127.0.0.1 --port %MIDWAY_API_PORT% --reload
+    "%PYTHON_EXE%" -m uvicorn midway.api.main:app --host 127.0.0.1 --port !MIDWAY_API_PORT! --reload
     if errorlevel 1 goto erro
     goto fim
 )
@@ -420,7 +420,7 @@ goto uso
 echo Uso:
 echo   run.bat versao                       Mostra a versao atual do MIDWAY
 echo   run.bat painel                       Abre painel Streamlit para avaliar resultados
-echo   run.bat api                          Abre MIDWAY API FastAPI em http://127.0.0.1:8000
+echo   run.bat api                          Abre MIDWAY API FastAPI em http://127.0.0.1:8001
 echo   run.bat frontend                     Abre frontend React em http://localhost:5173
 echo   run.bat extract                      Executa apenas a extracao Oracle para DuckDB bruto
 echo   run.bat registrar                    Valida DuckDB bruto existente e cria controle de extracao

@@ -2504,6 +2504,16 @@ export default function App() {
   const [error, setError] = useState('')
   const [actionMessage, setActionMessage] = useState('')
 
+  const clearSession = useCallback((message = '') => {
+    localStorage.removeItem('midway_token')
+    localStorage.removeItem('midway_user')
+    setToken('')
+    setUser(null)
+    setActivePage('dashboard')
+    setActionMessage('')
+    if (message) setError(message)
+  }, [])
+
   const load = useCallback(async () => {
     try {
       setLoading(true)
@@ -2532,6 +2542,19 @@ export default function App() {
       setAuditoria(await auditoriaResponse.json())
 
       if (token) {
+        const meResponse = await fetch(`${API_URL}/api/auth/me`, { headers: authHeaders })
+        if (meResponse.status === 401) {
+          clearSession('Sessão expirada ou inválida. Faça login novamente.')
+          return
+        }
+        if (!meResponse.ok) {
+          const detail = await meResponse.json().catch(() => null)
+          throw new Error(detail?.detail || 'Falha ao validar sessão.')
+        }
+        const currentUser = await meResponse.json()
+        localStorage.setItem('midway_user', JSON.stringify(currentUser))
+        setUser(currentUser)
+
         const protectedRequests = [
           fetch(`${API_URL}/api/governanca/verificacoes`, { headers: authHeaders }),
           fetch(`${API_URL}/api/governanca/sql/scripts`, { headers: authHeaders }),
@@ -2561,6 +2584,24 @@ export default function App() {
           anomaliasResponse,
         ] =
           await Promise.all(protectedRequests)
+        const protectedResponses = [
+          verificacoesResponse,
+          sqlResponse,
+          alteracoesResponse,
+          usuariosResponse,
+          sessoesResponse,
+          resetSenhaResponse,
+          perfisResponse,
+          execucoesResponse,
+          tiposExecucaoResponse,
+          modelosIqsResponse,
+          geracoesIqsResponse,
+          anomaliasResponse,
+        ]
+        if (protectedResponses.some((response) => response.status === 401)) {
+          clearSession('Sessão expirada ou inválida. Faça login novamente.')
+          return
+        }
 
         if (verificacoesResponse.ok) setVerificacoes(await verificacoesResponse.json())
         if (sqlResponse.ok) setSqlScripts(await sqlResponse.json())
@@ -2591,7 +2632,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [token])
+  }, [clearSession, token])
 
   useEffect(() => {
     load()
@@ -2838,11 +2879,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {})
     }
-    localStorage.removeItem('midway_token')
-    localStorage.removeItem('midway_user')
-    setToken('')
-    setUser(null)
-    setActivePage('dashboard')
+    clearSession()
   }
 
   const pages = {

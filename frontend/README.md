@@ -29,7 +29,7 @@ run.bat frontend
 Copiar `frontend/.env.example` para `frontend/.env` se precisar alterar a URL da API:
 
 ```env
-VITE_MIDWAY_API_URL=http://127.0.0.1:8000
+VITE_MIDWAY_API_URL=http://127.0.0.1:8001
 ```
 
 ## MVP
