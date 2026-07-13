@@ -523,7 +523,7 @@ def _show_correcao_9282(anomes: str, db_path: str, sample_limit: int) -> None:
         )
 
     with tabs[4]:
-        st.markdown("Gera os arquivos em `data/export/correcao_9282` com detalhe, resumo e nota da regra.")
+        st.markdown("Gera os arquivos em `data/export/correcao_9282` com detalhe, resumo, nota da regra e CSV IQS por regional.")
         if st.button("Gerar arquivo correcao_9282", type="primary"):
             result = gerar_exportacao_correcao_9282(anomes, db_path, raw_path)
             st.success(

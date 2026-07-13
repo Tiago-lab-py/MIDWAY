@@ -454,7 +454,7 @@ echo   run.bat apuracao_parcial             Gera camada gold e BDO de apuracao p
 echo   run.bat extrair_dbguo_reclamacoes    Extrai reclamacoes DBGUO para data\raw
 echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclamacoes DBGUO
 echo   run.bat extrair_adms_servicos        Extrai servicos ADMS de backup para data\raw
-echo   run.bat correcao_9282                Gera arquivo de tratativa RA 92/82 em data\export\correcao_9282
+echo   run.bat correcao_9282                Gera tratativa RA 92/82 e CSV IQS em data\export\correcao_9282
 echo   run.bat analise_tecnica_cache [ANOMES] Materializa cache rapido da Analise Tecnica
 echo   run.bat testar_dados                 Executa testes automatizados dos dados tratados
 echo   run.bat validar_dados                Executa testes e metricas de qualidade

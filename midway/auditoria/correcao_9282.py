@@ -11,6 +11,13 @@ import duckdb
 import pandas as pd
 from sqlalchemy import text
 
+from midway.export.iqs_csv import exportar_dataframe_iqs
+from midway.transform.tratamento import (
+    LAYOUT_IQS_COLUNAS,
+    aplicar_formato_oficial_iqs,
+    validar_layout_iqs,
+)
+
 
 ANOMES = os.getenv("ANOMES", "202606")
 BASE_DIR = Path("data")
@@ -21,6 +28,7 @@ EXPORT_DIR = BASE_DIR / "export" / "correcao_9282"
 TARGET_COMPONENTE = "92"
 TARGET_CAUSA = "82"
 TARGET_TIPO_CHAVE = "RA"
+REGIONAIS_IQS_PADRAO = ("CSL", "LES", "NRO", "NRT", "OES")
 
 STOPWORDS = {
     "A",
@@ -705,6 +713,67 @@ def candidatos_manuais_9282(df: pd.DataFrame) -> pd.DataFrame:
     ].copy()
 
 
+def _normalizar_regional_export(regional: object) -> str:
+    value = str(regional or "").strip()
+    return value if value else "SEM_REGIONAL"
+
+
+def _linhas_iqs_correcao_9282(db_path: str | Path, automaticos: pd.DataFrame) -> pd.DataFrame:
+    if automaticos.empty:
+        return pd.DataFrame(columns=LAYOUT_IQS_COLUNAS)
+
+    chaves = (
+        automaticos[["NUM_SEQ_INTRP", "COD_COMP_SUGERIDO", "COD_CAUSA_SUGERIDA"]]
+        .astype(str)
+        .apply(lambda column: column.str.strip())
+        .drop_duplicates(subset=["NUM_SEQ_INTRP"])
+    )
+    chaves = chaves[chaves["NUM_SEQ_INTRP"].ne("")]
+    if chaves.empty:
+        return pd.DataFrame(columns=LAYOUT_IQS_COLUNAS)
+
+    with duckdb.connect(str(db_path), read_only=True) as con:
+        if not _table_exists(con, "adms_iqs_export"):
+            raise RuntimeError(
+                "Tabela adms_iqs_export nao encontrada. Execute run.bat exportar ou run.bat tratamento antes."
+            )
+        con.register("correcao_9282_chaves", chaves[["NUM_SEQ_INTRP"]])
+        colunas_export = [row[1] for row in con.execute("PRAGMA table_info('adms_iqs_export')").fetchall()]
+        regional_export_expr = (
+            "e.REGIONAL_EXPORT AS __REGIONAL_EXPORT"
+            if "REGIONAL_EXPORT" in colunas_export
+            else "e.SIGLA_REGIONAL AS __REGIONAL_EXPORT"
+        )
+        base = con.execute(
+            f"""
+            SELECT e.{", e.".join(LAYOUT_IQS_COLUNAS)},
+                   {regional_export_expr}
+            FROM adms_iqs_export e
+            JOIN correcao_9282_chaves c
+              ON TRIM(CAST(e.NUM_SEQ_INTRP AS VARCHAR)) = c.NUM_SEQ_INTRP
+            """
+        ).fetchdf()
+
+    if base.empty:
+        return pd.DataFrame(columns=LAYOUT_IQS_COLUNAS)
+
+    regional_export = base["__REGIONAL_EXPORT"].copy()
+    base = base.reindex(columns=LAYOUT_IQS_COLUNAS).copy()
+    base["__REGIONAL_EXPORT"] = regional_export
+    seq = base["NUM_SEQ_INTRP"].astype(str).str.strip()
+    comp_map = chaves.set_index("NUM_SEQ_INTRP")["COD_COMP_SUGERIDO"].to_dict()
+    causa_map = chaves.set_index("NUM_SEQ_INTRP")["COD_CAUSA_SUGERIDA"].to_dict()
+    mask = seq.isin(comp_map)
+    base.loc[mask, "COD_COMP_INTRP"] = seq.loc[mask].map(comp_map)
+    base.loc[mask, "COD_CAUSA_INTRP"] = seq.loc[mask].map(causa_map)
+    base.loc[mask, "VALID_POS_OPERACAO"] = "S"
+    iqs = base.reindex(columns=LAYOUT_IQS_COLUNAS)
+    validar_layout_iqs(iqs)
+    iqs = aplicar_formato_oficial_iqs(iqs)
+    iqs["__REGIONAL_EXPORT"] = base["__REGIONAL_EXPORT"]
+    return iqs
+
+
 def _pg_table(schema: str, table: str) -> str:
     if not schema.replace("_", "").isalnum() or not table.replace("_", "").isalnum():
         raise ValueError("Nome de schema/tabela inválido para PostgreSQL.")
@@ -1130,33 +1199,54 @@ def gerar_exportacao_correcao_9282(
     db_path: str | Path | None = None,
     raw_path: str | Path | None = None,
 ) -> dict[str, object]:
+    db_path = db_path or processed_path(anomes)
     df = calcular_correcao_9282(anomes, db_path, raw_path)
     resumo = resumo_correcao_9282(df)
+    automaticos = candidatos_automaticos_9282(df)
+    iqs_df = _linhas_iqs_correcao_9282(db_path, automaticos)
 
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     detalhe_path = EXPORT_DIR / f"Correcao_RA_9282_{anomes}_{timestamp}_DETALHE.CSV"
     resumo_path = EXPORT_DIR / f"Correcao_RA_9282_{anomes}_{timestamp}_RESUMO.CSV"
     nota_path = EXPORT_DIR / f"Correcao_RA_9282_{anomes}_{timestamp}_NOTA.TXT"
+    iqs_paths: list[Path] = []
+    iqs_por_regional: dict[str, pd.DataFrame] = {}
 
     df.to_csv(detalhe_path, sep=";", index=False, encoding="utf-8-sig")
     resumo.to_csv(resumo_path, sep=";", index=False, encoding="utf-8-sig")
+    if not iqs_df.empty:
+        for regional, regional_df in iqs_df.groupby(iqs_df["__REGIONAL_EXPORT"].map(_normalizar_regional_export)):
+            iqs_por_regional[regional] = regional_df.reindex(columns=LAYOUT_IQS_COLUNAS)
+
+    for regional in REGIONAIS_IQS_PADRAO:
+        regional_df = iqs_por_regional.get(regional, pd.DataFrame(columns=LAYOUT_IQS_COLUNAS))
+        iqs_path = EXPORT_DIR / f"Interrupcoes_IQS_{timestamp}_{regional}.CSV"
+        exportar_dataframe_iqs(regional_df, iqs_path)
+        iqs_paths.append(iqs_path)
 
     with nota_path.open("w", encoding="utf-8", newline="\n") as file:
         file.write("CORRECAO RA 92/82\n")
         file.write(f"ANOMES: {anomes}\n")
         file.write(f"Interrupcoes RA 92/82: {df['NUM_SEQ_INTRP'].nunique() if not df.empty else 0}\n")
         file.write(f"Com sugestao: {int(df['COD_CAUSA_SUGERIDA'].astype(str).str.len().gt(0).sum()) if not df.empty else 0}\n")
+        file.write(f"Automaticos exportados para IQS: {len(automaticos)}\n")
+        file.write(f"Linhas IQS exportadas: {len(iqs_df)}\n")
         file.write(f"Detalhe: {detalhe_path}\n")
         file.write(f"Resumo: {resumo_path}\n")
+        for iqs_path in iqs_paths:
+            file.write(f"Arquivo IQS: {iqs_path}\n")
         file.write("Regra: serviço ADMS válido prevalece; sem serviço válido, usa coincidência textual da reclamação com a referência grupo/componente/causa.\n")
 
     return {
         "detalhe": detalhe_path,
         "resumo": resumo_path,
         "nota": nota_path,
+        "iqs": iqs_paths,
         "linhas": len(df),
         "sugestoes": int(df["COD_CAUSA_SUGERIDA"].astype(str).str.len().gt(0).sum()) if not df.empty else 0,
+        "automaticos_iqs": len(automaticos),
+        "linhas_iqs": len(iqs_df),
     }
 
 
@@ -1165,9 +1255,13 @@ def main() -> None:
     print("Exportacao correcao RA 92/82 gerada.")
     print(f"Linhas: {result['linhas']}")
     print(f"Sugestoes: {result['sugestoes']}")
+    print(f"Automaticos IQS: {result['automaticos_iqs']}")
+    print(f"Linhas IQS: {result['linhas_iqs']}")
     print(f"Detalhe: {result['detalhe']}")
     print(f"Resumo: {result['resumo']}")
     print(f"Nota: {result['nota']}")
+    for path in result["iqs"]:
+        print(f"Arquivo IQS: {path}")
 
 
 if __name__ == "__main__":
