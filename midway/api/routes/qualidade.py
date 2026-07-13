@@ -29,6 +29,20 @@ def _fetch_rows(con: duckdb.DuckDBPyConnection, sql: str, params: list[object]) 
     return api_rows(df.to_dict(orient="records"))
 
 
+def _table_exists(con: duckdb.DuckDBPyConnection, table_name: str) -> bool:
+    return (
+        con.execute(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE lower(table_name) = lower(?)
+            """,
+            [table_name],
+        ).fetchone()[0]
+        > 0
+    )
+
+
 @router.get("/busca")
 def busca_qualidade(
     tipo: str = Query("ocorrencia", pattern="^(ocorrencia|interrupcao|uc)$"),
@@ -166,6 +180,70 @@ def busca_qualidade(
             """,
             params,
         )
+
+
+@router.get("/analise-tecnica/opcoes")
+def opcoes_analise_tecnica(
+    anomes: str = "202606",
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA")),
+) -> dict[str, list[dict[str, object]]]:
+    db_path = _processed_path(anomes)
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail=f"DuckDB processado não encontrado: {db_path}")
+
+    with duckdb.connect(str(db_path), read_only=True) as con:
+        if not _table_exists(con, "gold_iqs_referencia_componente_causa"):
+            raise HTTPException(status_code=404, detail="Referência IQS de grupo/componente/causa não encontrada.")
+
+        grupos = _fetch_rows(
+            con,
+            """
+            SELECT
+                NULLIF(TRIM(CAST(COD_GRUPO_GCR AS VARCHAR)), '') AS codigo,
+                NULLIF(TRIM(CAST(DESC_GRUPO_GCR AS VARCHAR)), '') AS descricao
+            FROM gold_iqs_referencia_componente_causa
+            WHERE NULLIF(TRIM(CAST(COD_GRUPO_GCR AS VARCHAR)), '') IS NOT NULL
+            GROUP BY 1, 2
+            ORDER BY 1
+            """,
+            [],
+        )
+        componentes = _fetch_rows(
+            con,
+            """
+            SELECT
+                NULLIF(TRIM(CAST(COD_COMP AS VARCHAR)), '') AS codigo,
+                NULLIF(TRIM(CAST(DESC_COMP AS VARCHAR)), '') AS descricao,
+                NULLIF(TRIM(CAST(COD_GRUPO_GCR AS VARCHAR)), '') AS grupo_codigo,
+                NULLIF(TRIM(CAST(DESC_GRUPO_GCR AS VARCHAR)), '') AS grupo_descricao
+            FROM gold_iqs_referencia_componente_causa
+            WHERE NULLIF(TRIM(CAST(COD_COMP AS VARCHAR)), '') IS NOT NULL
+              AND NULLIF(TRIM(CAST(COD_GRUPO_GCR AS VARCHAR)), '') IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+            ORDER BY 3, 1
+            """,
+            [],
+        )
+        causas = _fetch_rows(
+            con,
+            """
+            SELECT
+                LPAD(NULLIF(TRIM(CAST(COD_CAUSA AS VARCHAR)), ''), 2, '0') AS codigo,
+                NULLIF(TRIM(CAST(DESC_CAUSA AS VARCHAR)), '') AS descricao,
+                NULLIF(TRIM(CAST(COD_COMP AS VARCHAR)), '') AS componente_codigo,
+                NULLIF(TRIM(CAST(DESC_COMP AS VARCHAR)), '') AS componente_descricao,
+                NULLIF(TRIM(CAST(COD_GRUPO_GCR AS VARCHAR)), '') AS grupo_codigo
+            FROM gold_iqs_referencia_componente_causa
+            WHERE NULLIF(TRIM(CAST(COD_CAUSA AS VARCHAR)), '') IS NOT NULL
+              AND NULLIF(TRIM(CAST(COD_COMP AS VARCHAR)), '') IS NOT NULL
+              AND NULLIF(TRIM(CAST(COD_GRUPO_GCR AS VARCHAR)), '') IS NOT NULL
+            GROUP BY 1, 2, 3, 4, 5
+            ORDER BY 5, 3, 1
+            """,
+            [],
+        )
+
+    return {"grupos": grupos, "componentes": componentes, "causas": causas}
 
 
 @router.get("/analise-tecnica")

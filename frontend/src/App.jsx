@@ -190,19 +190,56 @@ function MiniDatabaseStatus({ health }) {
   )
 }
 
-function DataTable({ columns, rows, empty = 'Nenhum item encontrado.' }) {
+function DataTable({ columns, rows, empty = 'Nenhum item encontrado.', sortable = false, initialSort = null }) {
+  const [sortConfig, setSortConfig] = useState(initialSort)
+  const sortedRows = useMemo(() => {
+    if (!sortable || !sortConfig?.key) return rows
+    const column = columns.find((item) => item.key === sortConfig.key)
+    const accessor = column?.sortValue || ((row) => row[sortConfig.key])
+    const direction = sortConfig.direction === 'asc' ? 1 : -1
+    return [...rows].sort((left, right) => {
+      const leftValue = accessor(left)
+      const rightValue = accessor(right)
+      const leftNumber = Number(leftValue)
+      const rightNumber = Number(rightValue)
+      if (!Number.isNaN(leftNumber) && !Number.isNaN(rightNumber)) {
+        return (leftNumber - rightNumber) * direction
+      }
+      return String(leftValue ?? '').localeCompare(String(rightValue ?? ''), 'pt-BR', { numeric: true }) * direction
+    })
+  }, [columns, rows, sortConfig, sortable])
+
+  function toggleSort(column) {
+    if (!sortable || column.sortable === false) return
+    setSortConfig((current) => {
+      if (current?.key === column.key) {
+        return { key: column.key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+      }
+      return { key: column.key, direction: column.defaultDirection || 'desc' }
+    })
+  }
+
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column.key}>{column.label}</th>
+              <th key={column.key}>
+                {sortable && column.sortable !== false ? (
+                  <button className="table-sort-button" type="button" onClick={() => toggleSort(column)}>
+                    {column.label}
+                    {sortConfig?.key === column.key && <span>{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>}
+                  </button>
+                ) : (
+                  column.label
+                )}
+              </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, rowIndex) => (
+          {sortedRows.map((row, rowIndex) => (
             <tr key={row.id_fila || row.id_ajuste || row.id_evento || `${rowIndex}`}>
               {columns.map((column) => (
                 <td key={column.key}>
@@ -993,11 +1030,42 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
   const [resumo, setResumo] = useState({})
   const [itens, setItens] = useState([])
   const [fonte, setFonte] = useState('')
+  const [opcoesReferencia, setOpcoesReferencia] = useState({ grupos: [], componentes: [], causas: [] })
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
 
+  function optionLabel(item) {
+    const descricao = item.descricao ? ` - ${item.descricao}` : ''
+    return `${item.codigo}${descricao}`
+  }
+
+  const componentesFiltrados = useMemo(() => {
+    const componentes = opcoesReferencia.componentes || []
+    if (!filtros.grupo) return componentes
+    return componentes.filter((item) => item.grupo_codigo === filtros.grupo)
+  }, [filtros.grupo, opcoesReferencia.componentes])
+
+  const causasFiltradas = useMemo(() => {
+    const causas = opcoesReferencia.causas || []
+    return causas.filter((item) => {
+      if (filtros.grupo && item.grupo_codigo !== filtros.grupo) return false
+      if (filtros.componente && item.componente_codigo !== filtros.componente) return false
+      return true
+    })
+  }, [filtros.componente, filtros.grupo, opcoesReferencia.causas])
+
   function updateFiltro(campo, valor) {
-    setFiltros((current) => ({ ...current, [campo]: valor }))
+    setFiltros((current) => {
+      const next = { ...current, [campo]: valor }
+      if (campo === 'grupo') {
+        next.componente = ''
+        next.causa = ''
+      }
+      if (campo === 'componente') {
+        next.causa = ''
+      }
+      return next
+    })
   }
 
   async function carregar(filtrosAtuais = filtros) {
@@ -1047,6 +1115,33 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
     if (token) {
       carregar(filtrosPadrao)
     }
+  }, [anomes, token])
+
+  useEffect(() => {
+    if (!token) return
+
+    async function carregarOpcoesReferencia() {
+      try {
+        const params = new URLSearchParams({ anomes: anomes || '202606' })
+        const response = await fetch(`${API_URL}/api/qualidade/analise-tecnica/opcoes?${params.toString()}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+        const result = await response.json()
+        if (response.ok) {
+          setOpcoesReferencia({
+            grupos: result.grupos || [],
+            componentes: result.componentes || [],
+            causas: result.causas || [],
+          })
+        }
+      } catch {
+        setOpcoesReferencia({ grupos: [], componentes: [], causas: [] })
+      }
+    }
+
+    carregarOpcoesReferencia()
   }, [anomes, token])
 
   function submit(event) {
@@ -1100,16 +1195,37 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
           <input inputMode="decimal" value={filtros.duracao_suspeita_min} onChange={(event) => updateFiltro('duracao_suspeita_min', event.target.value)} placeholder="Ex.: 24,5" />
         </label>
         <label>
-          Grupo
-          <input value={filtros.grupo} onChange={(event) => updateFiltro('grupo', event.target.value)} placeholder="Ex.: A" />
+          Grupo comp./causa (GCR)
+          <select value={filtros.grupo} onChange={(event) => updateFiltro('grupo', event.target.value)}>
+            <option value="">Todos os grupos</option>
+            {opcoesReferencia.grupos.map((item) => (
+              <option key={item.codigo} value={item.codigo}>
+                {optionLabel(item)}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Componente
-          <input value={filtros.componente} onChange={(event) => updateFiltro('componente', event.target.value)} placeholder="Ex.: 92" />
+          <select value={filtros.componente} onChange={(event) => updateFiltro('componente', event.target.value)}>
+            <option value="">Todos os componentes</option>
+            {componentesFiltrados.map((item) => (
+              <option key={`${item.grupo_codigo}-${item.codigo}`} value={item.codigo}>
+                {optionLabel(item)}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Causa
-          <input value={filtros.causa} onChange={(event) => updateFiltro('causa', event.target.value)} placeholder="Ex.: 82" />
+          <select value={filtros.causa} onChange={(event) => updateFiltro('causa', event.target.value)}>
+            <option value="">Todas as causas</option>
+            {causasFiltradas.map((item) => (
+              <option key={`${item.grupo_codigo}-${item.componente_codigo}-${item.codigo}`} value={item.codigo}>
+                {optionLabel(item)}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Limite
@@ -1148,11 +1264,14 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
 
       <DataTable
         empty={loading ? 'Carregando ranking técnico...' : 'Nenhuma ocorrência encontrada para os filtros.'}
+        sortable
+        initialSort={{ key: 'IMPACTO_SCORE', direction: 'desc' }}
         columns={[
           { key: 'IMPACTO_SCORE', label: 'Score', render: (item) => decimalFormat(item.IMPACTO_SCORE, 1) },
           {
             key: 'NUM_OCORRENCIA_ADMS',
             label: 'Ocorrência',
+            defaultDirection: 'asc',
             render: (item) => (
               <button className="link-button" onClick={() => onOpenOccurrence(item.NUM_OCORRENCIA_ADMS)}>
                 {item.NUM_OCORRENCIA_ADMS}
@@ -1163,11 +1282,17 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
           { key: 'CI_LIQUIDO', label: 'CI Líq.', render: (item) => numberFormat(item.CI_LIQUIDO) },
           { key: 'RESSARCIMENTO_ESTIMADO', label: 'Ressarc.', render: (item) => currencyFormat(item.RESSARCIMENTO_ESTIMADO) },
           { key: 'DURACAO_MAX_HORA', label: 'Duração máx.', render: (item) => `${decimalFormat(item.DURACAO_MAX_HORA, 2)} h` },
-          { key: 'principal', label: 'Grupo/Comp/Causa', render: (item) => `${item.COD_GRUPO_PRINCIPAL || '—'}/${item.COD_COMP_PRINCIPAL || '—'}/${item.COD_CAUSA_PRINCIPAL || '—'}` },
+          {
+            key: 'principal',
+            label: 'Grupo/Comp/Causa',
+            sortValue: (item) => `${item.COD_GRUPO_PRINCIPAL || ''}/${item.COD_COMP_PRINCIPAL || ''}/${item.COD_CAUSA_PRINCIPAL || ''}`,
+            render: (item) => `${item.COD_GRUPO_PRINCIPAL || '—'}/${item.COD_COMP_PRINCIPAL || '—'}/${item.COD_CAUSA_PRINCIPAL || '—'}`,
+          },
           { key: 'PARES_COMPONENTE_CAUSA', label: 'Pares', render: (item) => textValue(item.PARES_COMPONENTE_CAUSA) },
           {
             key: 'sinais',
             label: 'Sinais',
+            sortable: false,
             render: (item) => (
               <div className="tag-list">
                 {Number(item.TEM_9282 || 0) > 0 && <span className="pill">Comp/Causa</span>}
@@ -1176,7 +1301,6 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
               </div>
             ),
           },
-          { key: 'QTD_RECLAMACOES', label: 'RA', render: (item) => numberFormat(item.QTD_RECLAMACOES) },
         ]}
         rows={itens}
       />

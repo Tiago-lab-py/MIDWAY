@@ -1226,6 +1226,23 @@ th {
   text-transform: uppercase;
 }
 
+.table-sort-button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  padding: 0;
+  text-align: left;
+  text-transform: inherit;
+}
+
+.table-sort-button:hover {
+  color: #dbeafe;
+}
+
 .pill {
   border-radius: 999px;
   background: rgba(34, 197, 94, 0.12);
