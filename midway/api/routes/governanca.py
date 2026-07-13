@@ -235,6 +235,11 @@ EXECUCOES_PERMITIDAS = {
         "descricao": "Gera tratativa em massa de correção operacional.",
         "etapas": [{"module": "midway.auditoria.correcao_9282", "env": {}}],
     },
+    "agente_comp_causa": {
+        "titulo": "run.bat agente_comp_causa — Agente componente/causa",
+        "descricao": "Identifica outros componentes/causas candidatos a ajuste com evidência de serviços, referência IQS e reclamações.",
+        "etapas": [{"module": "midway.auditoria.agente_comp_causa", "env": {}}],
+    },
     "analise_tecnica_cache": {
         "titulo": "run.bat analise_tecnica_cache — Cache análise técnica",
         "descricao": "Materializa cache da Análise Técnica.",

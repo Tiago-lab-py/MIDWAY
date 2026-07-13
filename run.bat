@@ -169,6 +169,17 @@ if /I "%~1"=="correcao_9282" (
     goto fim
 )
 
+if /I "%~1"=="agente_comp_causa" (
+    echo Rodando agente de componentes e causas...
+    if "%~2"=="" (
+        "%PYTHON_EXE%" -m midway.auditoria.agente_comp_causa
+    ) else (
+        "%PYTHON_EXE%" -m midway.auditoria.agente_comp_causa %~2
+    )
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="analise_tecnica_cache" (
     echo Materializando cache da Analise Tecnica...
     if "%~2"=="" (
@@ -455,6 +466,7 @@ echo   run.bat extrair_dbguo_reclamacoes    Extrai reclamacoes DBGUO para data\r
 echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclamacoes DBGUO
 echo   run.bat extrair_adms_servicos        Extrai servicos ADMS de backup para data\raw
 echo   run.bat correcao_9282                Gera tratativa RA 92/82 e CSV IQS em data\export\correcao_9282
+echo   run.bat agente_comp_causa [ANOMES]   Identifica outros componentes/causas candidatos a ajuste
 echo   run.bat analise_tecnica_cache [ANOMES] Materializa cache rapido da Analise Tecnica
 echo   run.bat testar_dados                 Executa testes automatizados dos dados tratados
 echo   run.bat validar_dados                Executa testes e metricas de qualidade
