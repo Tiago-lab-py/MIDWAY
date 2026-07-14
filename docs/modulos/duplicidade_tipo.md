@@ -52,7 +52,7 @@ Detectar duplicidade ou sobreposição indevida entre interrupções de tipos `1
 
 ## Exportação IQS
 
-Via ajuste aprovado.
+Via ajuste aprovado. Pacote final deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 

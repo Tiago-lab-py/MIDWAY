@@ -22,7 +22,25 @@ Todo módulo deve declarar:
 | `risco_falso_positivo` | Sim | Cuidados para evitar ajuste indevido |
 | `status_governanca` | Sim | Pendente, em análise, aprovada, rejeitada, aplicada |
 
-## Módulos ativos
+## Contrato de exportação IQS
+
+Todo módulo que gerar arquivo final para carga deve cumprir `docs/35_contrato_exportacao_iqs.md`.
+
+Isso inclui separador `|`, quebra UNIX/LF, encoding `ISO-8859-1`, transliteração de caracteres especiais, datas `dd/mm/aaaa hh:mm:ss`, inteiros sem decimal e layout oficial sem colunas faltantes, extras ou fora de ordem.
+
+Arquivos de detalhe, resumo e auditoria podem usar formato amigável para análise, mas não podem ser confundidos com pacote IQS.
+
+## Módulos regulatórios ativos
+
+Estes módulos calculam indicadores e compensações conforme PRODIST Módulo 8 vigente e filtros COPEL registrados em `docs/36_regras_prodist_copel.md`.
+
+| Código | Documento | Escopo |
+| --- | --- | --- |
+| `DIC_FIC_PRODIST` | `dic_fic_prodist.md` | UC/indicador individual |
+| `DEC_FEC_PRODIST` | `dec_fec_prodist.md` | conjunto/regional/empresa |
+| `RESSARCIMENTO_PRODIST` | `ressarcimento_prodist.md` | UC/compensação |
+
+## Módulos de anomalia ativos
 
 | Código | Documento | Escopo |
 | --- | --- | --- |

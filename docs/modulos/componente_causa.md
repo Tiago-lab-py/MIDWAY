@@ -56,7 +56,8 @@ Detectar divergências de componente/causa entre OMS/ADMS, serviços ADMS, recla
 ## Exportação IQS
 
 - via ajuste governado aprovado;
-- exportador deve usar layout oficial IQS e preservar campos não alterados.
+- exportador deve usar layout oficial IQS e preservar campos não alterados;
+- pacote final deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 

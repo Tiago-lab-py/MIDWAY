@@ -13,17 +13,22 @@ Este índice define a documentação oficial do MIDWAY. Arquivos fora desta list
 | `docs/14_fluxo_oficial_atual.md` | Fluxo mensal operacional vigente |
 | `docs/13_organizacao_arquivos.md` | Organização de pastas, código, dados e documentação |
 | `docs/34_governanca_exportacao_iqs.md` | Governança comum para decisão humana e pacote IQS |
+| `docs/35_contrato_exportacao_iqs.md` | Contrato rígido de layout, encoding, datas e quebra UNIX/LF |
+| `docs/36_regras_prodist_copel.md` | Regras PRODIST Módulo 8 e filtros particulares COPEL |
 
 ## Catálogo de módulos
 
 | Documento | Função |
 | --- | --- |
 | `docs/modulos/README.md` | Catálogo oficial de módulos de anomalia |
+| `docs/modulos/dic_fic_prodist.md` | Cálculo regulatório de DIC, FIC, DMIC, DICRI e DISE |
+| `docs/modulos/dec_fec_prodist.md` | Cálculo regulatório de DEC e FEC |
+| `docs/modulos/ressarcimento_prodist.md` | Cálculo regulatório da compensação por continuidade |
 | `docs/modulos/sobreposicao_uc.md` | Sobreposição total/parcial por UC |
 | `docs/modulos/interrupcao_sem_uc.md` | Interrupção/ocorrência sem UC apurável |
 | `docs/modulos/componente_causa.md` | Divergência de grupo, componente e causa |
 | `docs/modulos/duracao_impacto.md` | Duração suspeita e impacto operacional |
-| `docs/modulos/ressarcimento_atipico.md` | Ressarcimento incompatível, duplicado ou fora de filtro |
+| `docs/modulos/ressarcimento_atipico.md` | Auditoria de ressarcimento incompatível, duplicado ou fora de filtro |
 | `docs/modulos/reclamacoes_servicos.md` | Cruzamento com reclamações e serviços |
 | `docs/modulos/falha_equipamento_ra.md` | Suspeita de falha de religador/RA |
 | `docs/modulos/dia_critico_ise.md` | Dia crítico e ISE |

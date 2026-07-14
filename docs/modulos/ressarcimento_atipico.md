@@ -53,7 +53,7 @@ Normalmente não altera diretamente o layout IQS. Este módulo audita cálculo e
 
 ## Exportação IQS
 
-Não exporta sozinho. Pode gerar bloqueio ou evidência para outro módulo.
+Não exporta sozinho. Pode gerar bloqueio ou evidência para outro módulo. Se virar pacote final, deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 

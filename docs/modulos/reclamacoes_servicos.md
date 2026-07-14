@@ -60,7 +60,7 @@ Quando gerar ajuste:
 
 ## Exportação IQS
 
-Via ajuste aprovado em módulo raiz.
+Via ajuste aprovado em módulo raiz. Pacote final deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 

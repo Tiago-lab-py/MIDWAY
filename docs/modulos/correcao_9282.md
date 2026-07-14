@@ -57,7 +57,8 @@ Módulo específico e legado operacional do primeiro desenvolvimento. Ele deve p
 ## Exportação IQS
 
 - `data/export/correcao_9282`;
-- layout IQS obrigatório.
+- layout IQS obrigatório;
+- pacote final deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 

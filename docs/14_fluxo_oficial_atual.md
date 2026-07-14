@@ -8,7 +8,7 @@ Ele deve ser usado como referencia principal para rodar, validar e auditar o pro
 
 O fluxo vigente deve ser lido com o norte multi-anomalias descrito em `docs/33_reorientacao_anomalias_oms_iqs.md`: `92/82` e um modulo especifico, enquanto o produto principal e detectar, revisar e exportar tratamentos de todas as anomalias relevantes dos dados OMS/ADMS para o IQS.
 
-O catalogo oficial dos modulos esta em `docs/modulos/README.md` e a regra comum de decisao/exportacao esta em `docs/34_governanca_exportacao_iqs.md`.
+O catalogo oficial dos modulos esta em `docs/modulos/README.md`, a regra comum de decisao/exportacao esta em `docs/34_governanca_exportacao_iqs.md`, o contrato fisico do arquivo IQS esta em `docs/35_contrato_exportacao_iqs.md` e os calculos regulatórios seguem `docs/36_regras_prodist_copel.md`.
 
 ## Camadas oficiais
 

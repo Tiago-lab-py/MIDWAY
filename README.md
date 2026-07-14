@@ -37,6 +37,8 @@ Fluxo detalhado:
 
 ```text
 docs/14_fluxo_oficial_atual.md
+docs/35_contrato_exportacao_iqs.md
+docs/36_regras_prodist_copel.md
 ```
 
 ## Estrutura do Projeto
@@ -147,7 +149,15 @@ run.bat painel
 
 O MIDWAY deve evoluir como catálogo de módulos de anomalia. Cada módulo detecta uma distorção, gera evidências, estima impacto, propõe ação e, quando aprovado, alimenta a exportação IQS.
 
-Módulos já tratados ou em consolidação:
+Módulos regulatórios:
+
+| Módulo | Escopo | Objetivo |
+| --- | --- | --- |
+| DIC/FIC PRODIST | UC/indicador individual | Calcular DIC, FIC, DMIC, DICRI e DISE conforme PRODIST Módulo 8 e filtros COPEL |
+| DEC/FEC PRODIST | conjunto/regional/empresa | Calcular DEC e FEC com denominador COPEL de consumidores faturados |
+| Ressarcimento PRODIST | UC/compensação | Calcular compensação financeira por continuidade conforme metas, VRC e filtros COPEL |
+
+Módulos de anomalia já tratados ou em consolidação:
 
 | Módulo | Escopo | Objetivo |
 | --- | --- | --- |
@@ -497,6 +507,7 @@ run.bat versao
 ## Destaques da 6.2.1
 
 - Exportacoes IQS em layout padrao: `|`, UNIX/LF e ISO-8859-1 transliterado.
+- Datas de pacote IQS normalizadas para `dd/mm/aaaa hh:mm:ss` e inteiros sem decimal pelo helper oficial.
 - Exportador separado para sobreposicao total por UC, parcial por UC e interrupcao sem UC.
 - Reclamacoes DBGUO com janela do mes de apuracao `+-2 dias`.
 - Analise de reclamacoes com causa provavel, aderencia IQS e ranking por ocorrencia.

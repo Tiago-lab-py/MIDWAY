@@ -13,6 +13,7 @@ Este documento substitui a leitura operacional dos planos antigos focados em um 
 3. A exportação final deve aceitar ajustes aprovados de qualquer módulo, não apenas `92/82`.
 4. O arquivo gerado em `data/export/` deve seguir o layout aceito pelo IQS.
 5. Auditorias e arquivos de apoio devem ficar fora do pacote oficial de carga.
+6. Todo pacote `Interrupcoes_IQS_*.CSV` deve cumprir o contrato rígido em `docs/35_contrato_exportacao_iqs.md`.
 
 ## Estados da decisão
 
@@ -54,6 +55,7 @@ Antes de liberar a exportação:
 
 - o módulo deve existir no catálogo ativo;
 - a proposta deve estar aprovada;
+- a saída deve respeitar `|`, UNIX/LF, `ISO-8859-1` transliterado e datas `dd/mm/aaaa hh:mm:ss`;
 - os campos obrigatórios do layout IQS devem estar preenchidos;
 - não pode haver duplicidade pela chave de negócio do ajuste;
 - o pacote deve conter somente registros aprovados;

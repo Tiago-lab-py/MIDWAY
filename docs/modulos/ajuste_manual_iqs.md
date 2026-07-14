@@ -61,7 +61,7 @@ Qualquer campo permitido pelo contrato de exportação, com destaque para:
 
 ## Exportação IQS
 
-Somente ajustes aprovados. O arquivo deve respeitar layout, separador, encoding e regionalização aceitos pelo IQS.
+Somente ajustes aprovados. O arquivo deve respeitar `docs/35_contrato_exportacao_iqs.md`: layout oficial, separador `|`, UNIX/LF, `ISO-8859-1`, datas `dd/mm/aaaa hh:mm:ss`, inteiros sem decimal e regionalização aceita pelo IQS.
 
 ## Risco de falso positivo
 

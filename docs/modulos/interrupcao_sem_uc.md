@@ -52,6 +52,7 @@ Identificar interrupções ou ocorrências que ficaram sem UC apurável após os
 ## Exportação IQS
 
 - `data/export/interrupcao_sem_uc`;
+- pacote final deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 

@@ -54,7 +54,7 @@ Avaliar efeitos de Dia Crítico e ISE sobre a apuração e sobre a interpretaç�
 
 ## Exportação IQS
 
-Somente após aprovação governada.
+Somente após aprovação governada. Pacote final deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 

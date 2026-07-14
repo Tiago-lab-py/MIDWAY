@@ -20,6 +20,7 @@ O fluxo e dividido em duas etapas para evitar reextracao acidental de grande vol
 As regras operacionais de execucao, auditoria e fechamento mensal estao consolidadas em `docs/14_fluxo_oficial_atual.md`.
 O catalogo oficial dos modulos de anomalia esta em `docs/modulos/README.md`.
 O norte multi-anomalias atual esta detalhado em `docs/33_reorientacao_anomalias_oms_iqs.md`.
+Os calculos regulatórios de `DIC/FIC`, `DEC/FEC` e compensação por continuidade seguem `docs/36_regras_prodist_copel.md`.
 
 ## Estrutura de pastas
 
@@ -382,14 +383,16 @@ O arquivo `data/amostra/amostra.csv` e usado como referencia de formato. Quando 
 - quebra de linha;
 - formato das colunas de data/hora.
 
-Valores ausentes sao exportados vazios. O processo nao preenche campos com espaco em branco quando eles nao fazem parte das regras de tratamento.
+Para pacote final `Interrupcoes_IQS_*.CSV`, prevalece o contrato rígido em `docs/35_contrato_exportacao_iqs.md`.
 
-Quando a amostra nao existir, os padroes sao:
+Padroes obrigatorios para pacote IQS:
 
 - delimitador `|`;
-- codificacao `utf-8`;
-- quebra de linha `\n`;
-- datas no formato `dd/mm/yyyy hh:mm:ss`.
+- codificacao `ISO-8859-1` transliterada;
+- quebra de linha UNIX/LF `\n`;
+- datas no formato `dd/mm/aaaa hh:mm:ss`;
+- inteiros sem decimal em campos de codigo/manobra;
+- nulos e vazios gravados como espaco simples pelo helper oficial.
 
 Layout do CSV:
 

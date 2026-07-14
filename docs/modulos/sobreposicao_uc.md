@@ -61,7 +61,8 @@ Detectar sobreposição temporal entre interrupções da mesma UC e gerar tratam
 
 - `data/export/sobreposicao_total_uc`;
 - `data/export/sobreposicao_UC_parcial`;
-- layout validado por `midway.export.csv_iqs`.
+- layout validado pelo helper oficial `midway.export.iqs_csv`;
+- pacote final deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 

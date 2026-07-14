@@ -63,7 +63,7 @@ Depende da decisão:
 
 ## Exportação IQS
 
-O agente exporta evidência em `data/export/suspeita_falha_RA`. Alteração IQS deve passar por governança antes de compor arquivo oficial.
+O agente exporta evidência em `data/export/suspeita_falha_RA`. Alteração IQS deve passar por governança antes de compor arquivo oficial. Pacote final deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 

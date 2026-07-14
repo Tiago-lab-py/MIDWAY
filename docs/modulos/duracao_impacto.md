@@ -59,7 +59,7 @@ Depende da causa raiz:
 
 ## Exportação IQS
 
-Somente após o módulo raiz gerar ajuste aprovado.
+Somente após o módulo raiz gerar ajuste aprovado. Pacote final deve cumprir `docs/35_contrato_exportacao_iqs.md`.
 
 ## Risco de falso positivo
 
