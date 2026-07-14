@@ -1,16 +1,25 @@
-# Especificacao - IQS ADMS
+# Especificação - MIDWAY OMS/ADMS para IQS
 
 ## Objetivo
 
-O processo identifica registros de interrupcao ADMS que precisam de ajuste por sobreposicao e gera arquivos CSV por regional no layout esperado pelo IQS.
+O processo identifica, trata e audita anomalias dos dados OMS/ADMS que podem afetar a apuracao regulatoria e a carga no IQS.
+
+O foco do MIDWAY não é uma regra isolada. O foco é manter um motor governado de anomalias capaz de:
+
+- detectar inconsistencias em ocorrencias, interrupcoes, UCs, equipamentos, alimentadores e conjuntos;
+- comparar OMS/ADMS com servicos, reclamacoes, referencia IQS e apuracao;
+- estimar impacto em `DEC/FEC`, `DIC/FIC`, ressarcimento e qualidade dos dados;
+- apoiar decisao humana auditavel;
+- gerar arquivos CSV por regional no layout esperado pelo IQS quando houver ajuste aprovado.
 
 O fluxo e dividido em duas etapas para evitar reextracao acidental de grande volume de dados:
 
 1. `midway.extract.adms`: extrai dados do Oracle IQS e cria o DuckDB bruto.
 2. `midway.transform.tratamento`: usa o DuckDB bruto, aplica as regras de tratamento e exporta os CSVs finais.
 
-As regras de lock, logs e arquivos `.done.json` estao detalhadas em `docs/01_controle.md`.
-A auditoria dos registros `ESTADO_INTRP = 7` esta detalhada em `docs/02_auditoria.md`.
+As regras operacionais de execucao, auditoria e fechamento mensal estao consolidadas em `docs/14_fluxo_oficial_atual.md`.
+O catalogo oficial dos modulos de anomalia esta em `docs/modulos/README.md`.
+O norte multi-anomalias atual esta detalhado em `docs/33_reorientacao_anomalias_oms_iqs.md`.
 
 ## Estrutura de pastas
 
@@ -272,7 +281,7 @@ Comando recomendado para gerar todas as exportacoes auxiliares em ordem sequenci
 run.bat exportacoes_auxiliares
 ```
 
-Documento detalhado: `docs/07_interrupcao_sem_UC.md`.
+Documento detalhado: `docs/modulos/interrupcao_sem_uc.md`.
 
 ### 4. Sobreposicao parcial por UC
 

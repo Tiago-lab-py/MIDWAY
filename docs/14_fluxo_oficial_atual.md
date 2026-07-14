@@ -6,6 +6,10 @@ Este documento consolida o fluxo operacional vigente do MIDWAY.
 
 Ele deve ser usado como referencia principal para rodar, validar e auditar o processamento mensal.
 
+O fluxo vigente deve ser lido com o norte multi-anomalias descrito em `docs/33_reorientacao_anomalias_oms_iqs.md`: `92/82` e um modulo especifico, enquanto o produto principal e detectar, revisar e exportar tratamentos de todas as anomalias relevantes dos dados OMS/ADMS para o IQS.
+
+O catalogo oficial dos modulos esta em `docs/modulos/README.md` e a regra comum de decisao/exportacao esta em `docs/34_governanca_exportacao_iqs.md`.
+
 ## Camadas oficiais
 
 ```text
@@ -59,6 +63,20 @@ data/marts
 ```
 
 Auditorias, metricas, amostras e resumos.
+
+```text
+PostgreSQL ddcq
+```
+
+Banco operacional para:
+
+- catalogo de anomalias;
+- evidencias;
+- sugestoes;
+- decisoes humanas;
+- ajustes aprovados;
+- auditoria;
+- pacotes de exportacao IQS.
 
 ## Dicionario operacional
 
@@ -170,6 +188,7 @@ run.bat exportacoes_auxiliares
 run.bat sincronizar_iqs_raw
 run.bat apuracao_parcial
 run.bat validar_dados
+run.bat anomalias_setup
 ```
 
 ## Fluxo completo com extracao
@@ -182,7 +201,24 @@ set REEXTRAIR=1
 set REPROCESSAR=1
 run.bat full_mais_apuracao
 run.bat validar_dados
+run.bat anomalias_setup
 ```
+
+## Fluxo de anomalias e exportação IQS
+
+Após o processamento mensal, o fluxo de anomalias deve seguir:
+
+```text
+RAW/SILVER/GOLD
+  -> run.bat anomalias_setup
+  -> aba Anomalias / Analise Tecnica
+  -> decisao humana governada
+  -> ajustes aprovados
+  -> geracao de pacote IQS
+  -> auditoria da exportacao
+```
+
+Cada modulo deve produzir evidencia e proposta de acao. A exportacao final deve aceitar ajustes aprovados de qualquer modulo, nao apenas de `92/82`.
 
 ## Fluxo de validacao
 
@@ -236,10 +272,14 @@ O painel mostra:
 [ ] Rodar run.bat sincronizar_iqs_raw
 [ ] Rodar run.bat apuracao_parcial
 [ ] Rodar run.bat validar_dados
+[ ] Rodar run.bat anomalias_setup
+[ ] Revisar aba Anomalias por tipo de modulo
+[ ] Aprovar/rejeitar propostas governadas
 [ ] Conferir Metricas_Qualidade_Dados_*_RESUMO.TXT
 [ ] Conferir BDO_interupcao_<yyyymmdd>.csv
 [ ] Conferir Gold_Continuidade_UC_*_RESUMO.TXT
 [ ] Conferir Gold_Ressarcimento_PRODIST_*_RESUMO.TXT
+[ ] Gerar pacote IQS somente com ajustes aprovados
 [ ] Abrir run.bat painel para revisao visual
 ```
 

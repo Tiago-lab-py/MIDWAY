@@ -15,3 +15,4 @@ venv/
 *.log
 frontend/node_modules/
 frontend/dist/
+old_v1/

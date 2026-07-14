@@ -2,6 +2,11 @@
 
 Data: `2026-07-11`
 
+> Nota de reorientação em 2026-07-14:
+> este plano foi escrito durante a fase em que `92/82` era o primeiro caso operacional implementado.
+> As ideias de governança, perfis, aprovação e exportação continuam válidas, mas devem ser generalizadas para todos os módulos de anomalia.
+> O norte atual do projeto está em `docs/33_reorientacao_anomalias_oms_iqs.md`.
+
 ## Objetivo
 
 Evoluir as telas atuais do MIDWAY, que ainda estão em nível inicial, para uma aplicação operacional com:

@@ -2,6 +2,12 @@
 
 Data de atualização: `2026-07-11`
 
+> Nota de reorientação em 2026-07-14:
+> este documento registra uma etapa histórica em que `92/82` foi usado como primeiro módulo de ajuste.
+> Ele não deve ser usado como especificação principal do produto.
+> A direção atual é tratar múltiplos módulos de anomalia OMS/ADMS e exportar ao IQS somente o que for aprovado.
+> Ver `docs/33_reorientacao_anomalias_oms_iqs.md`.
+
 ## Objetivo
 
 Documentar a evolução do Dashboard Executivo da versão `7.0.0`, com foco em:

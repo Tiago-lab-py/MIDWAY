@@ -2,6 +2,11 @@
 
 Data: `2026-07-11`
 
+> Nota de reorientação em 2026-07-14:
+> os exemplos `92/82` deste documento devem ser lidos como primeiro caso de uso implementado.
+> O modelo PostgreSQL precisa sustentar qualquer módulo de anomalia, decisão governada e exportação IQS.
+> Ver `docs/33_reorientacao_anomalias_oms_iqs.md`.
+
 ## Objetivo
 
 Definir como criar e usar um banco PostgreSQL para a versao `7.0.0` do MIDWAY, primeiro em ambiente local residencial para desenvolvimento e depois no ambiente corporativo dBGUO/PostgreSQL no schema `ddcq`.

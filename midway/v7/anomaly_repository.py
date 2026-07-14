@@ -85,6 +85,11 @@ def _list_postgres_anomalies() -> list[dict[str, object]]:
                     a.interrupcao,
                     a.criado_em,
                     a.descricao,
+                    COALESCE(
+                        a.dados_originais ->> 'VALID_POS_OPERACAO',
+                        a.dados_sugeridos ->> 'VALID_POS_OPERACAO',
+                        ''
+                    ) AS valid_pos_operacao,
                     COALESCE(s.acao, 'sem_sugestao') AS acao_sugerida,
                     COALESCE(s.nivel_confianca, 'inconclusiva') AS confianca_sugestao,
                     COALESCE(s.requer_aprovacao, true) AS requer_aprovacao,
@@ -220,6 +225,7 @@ def _summary_row(row: dict[str, Any]) -> dict[str, object]:
         "interrupcao": row["interrupcao"],
         "criado_em": row["criado_em"],
         "descricao": row["descricao"],
+        "valid_pos_operacao": row.get("valid_pos_operacao") or "",
         "acao_sugerida": row["acao_sugerida"],
         "confianca_sugestao": row["confianca_sugestao"],
         "requer_aprovacao": bool(row["requer_aprovacao"]),

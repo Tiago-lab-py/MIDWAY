@@ -959,55 +959,232 @@ function AnomalyDetailModal({ detail, loading, onClose, onRegisterDecision }) {
 
 function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
   const total = Number(resumo?.total || 0)
+  const [tipoAtivo, setTipoAtivo] = useState('todos')
+  const [filtroPos, setFiltroPos] = useState('todos')
+  const [anomaliaSelecionadaId, setAnomaliaSelecionadaId] = useState('')
+  const [notaDecisao, setNotaDecisao] = useState('')
+
+  function posStatus(item) {
+    const valor = String(item.valid_pos_operacao || item.VALID_POS_OPERACAO || '').trim().toUpperCase()
+    if (['S', 'SIM', 'VALIDO', 'VÁLIDO', 'TRUE', '1'].includes(valor)) return 'validado'
+    if (['N', 'NAO', 'NÃO', 'INVALIDO', 'INVÁLIDO', 'FALSE', '0'].includes(valor)) return 'nao_validado'
+    return 'sem_info'
+  }
+
+  const anomaliasPorSeveridade = useMemo(() => {
+    const base = { critica: 0, alta: 0, media: 0, baixa: 0 }
+    ;(items || []).forEach((item) => {
+      const severidade = String(item.severidade || '').toLowerCase()
+      if (severidade.includes('crítica') || severidade.includes('critica')) base.critica += 1
+      else if (severidade.includes('alta')) base.alta += 1
+      else if (severidade.includes('média') || severidade.includes('media')) base.media += 1
+      else base.baixa += 1
+    })
+    return base
+  }, [items])
+  const tiposAnomalia = useMemo(() => {
+    const mapa = new Map()
+    ;(items || []).forEach((item) => {
+      const categoria = item.categoria || item.anomalia_codigo || 'Outras'
+      mapa.set(categoria, (mapa.get(categoria) || 0) + 1)
+    })
+    return [
+      { id: 'todos', label: 'Todos', total },
+      ...Array.from(mapa.entries())
+        .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+        .map(([label, count]) => ({ id: label, label, total: count })),
+    ]
+  }, [items, total])
+  const itensFiltrados = useMemo(() => {
+    return (items || []).filter((item) => {
+      const tipoOk = tipoAtivo === 'todos' || item.categoria === tipoAtivo || item.anomalia_codigo === tipoAtivo
+      const posOk = filtroPos === 'todos' || posStatus(item) === filtroPos
+      return tipoOk && posOk
+    })
+  }, [items, tipoAtivo, filtroPos])
+  const topAnomalias = useMemo(() => {
+    return [...itensFiltrados]
+      .sort((a, b) => {
+        const impactoB = Number(b.impacto_ressarcimento || 0) + Number(b.impacto_dec || 0) * 1000
+        const impactoA = Number(a.impacto_ressarcimento || 0) + Number(a.impacto_dec || 0) * 1000
+        return impactoB - impactoA
+      })
+      .slice(0, 8)
+  }, [itensFiltrados])
+  const anomaliaSelecionada = useMemo(() => {
+    return topAnomalias.find((item) => item.id_anomalia === anomaliaSelecionadaId) || topAnomalias[0] || null
+  }, [anomaliaSelecionadaId, topAnomalias])
+  const posResumo = useMemo(() => {
+    return (items || []).reduce(
+      (acc, item) => {
+        acc[posStatus(item)] += 1
+        return acc
+      },
+      { validado: 0, nao_validado: 0, sem_info: 0 },
+    )
+  }, [items])
+  const timelineResumo = useMemo(() => {
+    if (!anomaliaSelecionada) return []
+    return [
+      { label: 'Detecção', value: dateTime(anomaliaSelecionada.criado_em), tone: 'info' },
+      { label: 'Registro', value: textValue(anomaliaSelecionada.registro_id), tone: 'blue' },
+      { label: 'Ocorrência', value: textValue(anomaliaSelecionada.ocorrencia || anomaliaSelecionada.interrupcao || anomaliaSelecionada.uc), tone: 'warning' },
+      { label: 'Sugestão', value: textValue(anomaliaSelecionada.acao_sugerida), tone: 'success' },
+    ]
+  }, [anomaliaSelecionada])
   return (
     <>
       <PageHero
         eyebrow="MIDWAY"
-        title="Central de Anomalias"
-        description="Detecção estruturada sobre os dados reais processados: RAW, SILVER, GOLD, evidências, impacto e decisão humana auditável."
-        sideLabel="Fonte"
+        title="Anomalias"
+        description="Cockpit para investigar outliers do conjunto de dados, filtrar por tipo e apoiar decisão técnica sem depender de tabelas extensas."
+        sideLabel="Fonte dos dados"
         sideValue={resumo?.fonte || 'RAW/SILVER/GOLD'}
       />
 
       <div className="metrics-grid compact">
         <Card label="Anomalias" value={numberFormat(total)} hint="dados processados" tone="blue" />
-        <Card label="Pendentes" value={numberFormat(resumo?.pendentes)} hint={`${percent(resumo?.pendentes, total)} da fila`} tone="orange" />
+        <Card label="Pendentes" value={numberFormat(resumo?.pendentes)} hint={`${percent(resumo?.pendentes, total)} aguardando decisão`} tone="orange" />
         <Card label="Alto risco" value={numberFormat(resumo?.alto_risco)} hint="alta ou crítica" tone="purple" />
-        <Card label="Confiança média" value={`${decimalFormat(Number(resumo?.confianca_media || 0) * 100, 1)}%`} hint="detecção + evidência" tone="green" />
+        <Card label="Validado Pós" value={numberFormat(posResumo.validado)} hint={`${numberFormat(posResumo.sem_info)} sem informação`} tone="green" />
       </div>
 
-      <section className="content-grid">
-        <div className="panel panel-large">
-          <div className="panel-title">
-            <div>
-              <h2>Fila de anomalias</h2>
-              <p>Abra uma anomalia para ver explicação simples, evidências, antes/depois e registrar proposta de decisão.</p>
+      <section className="anomaly-workbench">
+        <div className="anomaly-tabs">
+          {tiposAnomalia.map((tipo) => (
+            <button key={tipo.id} className={tipoAtivo === tipo.id ? 'active' : ''} onClick={() => setTipoAtivo(tipo.id)}>
+              <strong>{tipo.label}</strong>
+              <small>{numberFormat(tipo.total)}</small>
+            </button>
+          ))}
+        </div>
+
+        <div className="anomaly-pos-filter">
+          <span>Validação Pós</span>
+          {[
+            ['todos', 'Todos'],
+            ['validado', 'Validado pela Pós'],
+            ['nao_validado', 'Não validado'],
+            ['sem_info', 'Sem informação'],
+          ].map(([id, label]) => (
+            <button key={id} className={filtroPos === id ? 'active' : ''} onClick={() => setFiltroPos(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <section className="anomaly-cockpit-grid">
+          <article className="investigation-card anomaly-card-list">
+            <div className="panel-title compact-title">
+              <div>
+                <h2>Outliers priorizados</h2>
+                <p>{numberFormat(itensFiltrados.length)} caso(s) no recorte atual. Clique para analisar sem abrir uma tabela gigante.</p>
+              </div>
             </div>
+            {loading && <div className="alert">Carregando anomalias...</div>}
+            <div className="anomaly-card-stack">
+              {topAnomalias.map((item) => (
+                <button
+                  className={`anomaly-card-row ${anomaliaSelecionada?.id_anomalia === item.id_anomalia ? 'active' : ''}`}
+                  key={item.id_anomalia || item.anomalia_codigo}
+                  onClick={() => setAnomaliaSelecionadaId(item.id_anomalia)}
+                >
+                  <span className="anomaly-card-row-head">
+                    <strong>{item.anomalia_codigo || item.id_anomalia}</strong>
+                    <SeverityBadge value={item.severidade} />
+                  </span>
+                  <span className="anomaly-card-row-title">{item.nome || item.categoria}</span>
+                  <span className="anomaly-card-row-meta">
+                    <small>{item.categoria || 'Sem tipo'}</small>
+                    <small>Pós: {posStatus(item) === 'validado' ? 'validado' : posStatus(item) === 'nao_validado' ? 'não validado' : 'sem info'}</small>
+                    <small>{currencyFormat(item.impacto_ressarcimento)}</small>
+                  </span>
+                </button>
+              ))}
+              {!topAnomalias.length && <p className="muted-text">Nenhuma anomalia no recorte escolhido.</p>}
+            </div>
+          </article>
+
+          <article className="investigation-card anomaly-decision-main">
+            <div className="panel-title compact-title">
+              <div>
+                <h2>Suporte à tomada de decisão</h2>
+                <p>{anomaliaSelecionada ? anomaliaSelecionada.nome : 'Selecione uma anomalia para investigar.'}</p>
+              </div>
+              {anomaliaSelecionada && <StatusPill value={anomaliaSelecionada.status} />}
+            </div>
+
+            {anomaliaSelecionada ? (
+              <>
+                <div className="risk-tile-grid">
+                  <span className="risk-tile risk-tile-critical"><strong>{numberFormat(anomaliasPorSeveridade.critica)}</strong><small>Críticas no lote</small></span>
+                  <span className="risk-tile risk-tile-danger"><strong>{decimalFormat(Number(anomaliaSelecionada.confianca || 0) * 100, 1)}%</strong><small>Confiança</small></span>
+                  <span className="risk-tile risk-tile-warning"><strong>{decimalFormat(anomaliaSelecionada.impacto_dec)}</strong><small>DEC impacto</small></span>
+                  <span className="risk-tile risk-tile-info"><strong>{currencyFormat(anomaliaSelecionada.impacto_ressarcimento)}</strong><small>Ressarcimento</small></span>
+                </div>
+
+                <div className="anomaly-summary-panel">
+                  <p>{anomaliaSelecionada.descricao || 'Sem descrição resumida.'}</p>
+                  <div className="tag-list">
+                    <span className="pill pill-info">{anomaliaSelecionada.origem || 'origem não informada'}</span>
+                    <span className="pill">Conjunto {textValue(anomaliaSelecionada.conjunto)}</span>
+                    <span className="pill">Ocorrência {textValue(anomaliaSelecionada.ocorrencia)}</span>
+                    <span className="pill pill-money">FIC {decimalFormat(anomaliaSelecionada.impacto_fic, 2)}</span>
+                  </div>
+                </div>
+
+                <div className="anomaly-timeline">
+                  {timelineResumo.map((item) => (
+                    <span key={item.label} className={`timeline-dot timeline-dot-${item.tone}`}>
+                      <small>{item.label}</small>
+                      <strong>{item.value}</strong>
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="muted-text">Sem anomalia selecionada.</p>
+            )}
+          </article>
+
+          <aside className="investigation-card anomaly-decision-panel">
+            <h2>Painel de decisão</h2>
+            <p>Registre a hipótese, revise evidências e abra a edição governada quando estiver pronto.</p>
+            <label>
+              Nota técnica da análise
+              <textarea value={notaDecisao} onChange={(event) => setNotaDecisao(event.target.value)} placeholder="Ex.: confirmado outlier, aguardar evidência da Pós, propor ajuste..." />
+            </label>
+            <div className="decision-step-list">
+              <span><strong>1</strong><small>Validar Pós: {anomaliaSelecionada ? posStatus(anomaliaSelecionada).replace('_', ' ') : '—'}</small></span>
+              <span><strong>2</strong><small>Comparar impacto DEC/FIC/ressarcimento</small></span>
+              <span><strong>3</strong><small>Decidir: aprovar, rejeitar ou editar proposta</small></span>
+            </div>
+            <div className="row-actions">
+              <button className="primary-button" disabled={!anomaliaSelecionada} onClick={() => onOpenDetail(anomaliaSelecionada?.id_anomalia)}>
+                Abrir edição/decisão
+              </button>
+              <button className="secondary-button" disabled={!anomaliaSelecionada} onClick={() => setNotaDecisao('')}>
+                Limpar nota
+              </button>
+            </div>
+          </aside>
+        </section>
+      </section>
+
+      <section className="investigation-card anomaly-chart-panel">
+        <div className="panel-title compact-title">
+          <div>
+            <h2>Distribuição do recorte</h2>
+            <p>Leitura visual simples para evitar garimpo em linhas demais.</p>
           </div>
-          {loading && <div className="alert">Carregando anomalias...</div>}
-          <DataTable
-            columns={[
-              { key: 'anomalia_codigo', label: 'Código' },
-              { key: 'nome', label: 'Nome' },
-              { key: 'categoria', label: 'Categoria' },
-              { key: 'severidade', label: 'Severidade', render: (item) => <SeverityBadge value={item.severidade} /> },
-              { key: 'confianca', label: 'Confiança', render: (item) => <ConfidenceBadge value={item.confianca} /> },
-              { key: 'status', label: 'Status', render: (item) => <StatusPill value={item.status} /> },
-              { key: 'ocorrencia', label: 'Ocorrência' },
-              { key: 'impacto_dec', label: 'DEC', render: (item) => decimalFormat(item.impacto_dec) },
-              { key: 'impacto_ressarcimento', label: 'Ressarc.', render: (item) => currencyFormat(item.impacto_ressarcimento) },
-              {
-                key: 'acoes',
-                label: 'Ações',
-                render: (item) => (
-                  <button className="mini-button" onClick={() => onOpenDetail(item.id_anomalia)}>
-                    Detalhar
-                  </button>
-                ),
-              },
-            ]}
-            rows={items}
-          />
+        </div>
+        <div className="anomaly-bar-list">
+          {tiposAnomalia.filter((tipo) => tipo.id !== 'todos').slice(0, 8).map((tipo) => (
+            <span key={tipo.id}>
+              <small>{tipo.label}</small>
+              <strong style={{ width: `${Math.max(8, (tipo.total / Math.max(total, 1)) * 100)}%` }}>{numberFormat(tipo.total)}</strong>
+            </span>
+          ))}
         </div>
       </section>
     </>
@@ -1053,6 +1230,19 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
       return true
     })
   }, [filtros.componente, filtros.grupo, opcoesReferencia.causas])
+  const topCasosTecnicos = useMemo(() => [...(itens || [])].slice(0, 3), [itens])
+  const criteriosAtivos = useMemo(() => {
+    const criterios = []
+    if (filtros.problema && filtros.problema !== 'impacto') criterios.push(`Problema: ${filtros.problema}`)
+    if (filtros.grupo) criterios.push(`Grupo ${filtros.grupo}`)
+    if (filtros.componente) criterios.push(`Componente ${filtros.componente}`)
+    if (filtros.causa) criterios.push(`Causa ${filtros.causa}`)
+    if (filtros.min_chi) criterios.push(`CHI ≥ ${filtros.min_chi}`)
+    if (filtros.min_ci) criterios.push(`CI ≥ ${filtros.min_ci}`)
+    if (filtros.min_ressarcimento) criterios.push(`R$ ≥ ${filtros.min_ressarcimento}`)
+    if (filtros.duracao_suspeita_min) criterios.push(`Duração ≥ ${filtros.duracao_suspeita_min}h`)
+    return criterios.length ? criterios : ['Maior impacto', 'Duração ≥ 24h', `Limite ${filtros.limit}`]
+  }, [filtros])
 
   function updateFiltro(campo, valor) {
     setFiltros((current) => {
@@ -1261,6 +1451,55 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
         <span><strong>{numberFormat(resumo.QTD_DURACAO_SUSPEITA)}</strong> ocorrência(s) com duração suspeita</span>
         <span><strong>{fonte === 'cache' ? 'Cache' : 'Ao vivo'}</strong> fonte · score máx. {decimalFormat(resumo.MAIOR_IMPACTO_SCORE, 1)}</span>
       </div>
+
+      <section className="technical-case-deck">
+        <article className="investigation-card investigation-card-wide">
+          <div className="panel-title compact-title">
+            <div>
+              <h2>Casos que merecem leitura humana</h2>
+              <p>Inspirado nos cards do v1: antes da planilha, mostre impacto, sinais e caminho de decisão.</p>
+            </div>
+          </div>
+          <div className="technical-card-grid">
+            {topCasosTecnicos.map((item) => (
+              <article className="technical-case-card" key={item.NUM_OCORRENCIA_ADMS}>
+                <div className="technical-case-head">
+                  <button className="link-button" onClick={() => onOpenOccurrence(item.NUM_OCORRENCIA_ADMS)}>
+                    Ocorrência {item.NUM_OCORRENCIA_ADMS}
+                  </button>
+                  <strong>{decimalFormat(item.IMPACTO_SCORE, 1)}</strong>
+                </div>
+                <div className="tag-list">
+                  {Number(item.TEM_9282 || 0) > 0 && <span className="pill">Comp/Causa</span>}
+                  {Number(item.QTD_VIOLACAO_COMP_CAUSA || 0) > 0 && <span className="pill pill-danger">Violação</span>}
+                  {Number(item.RESSARCIMENTO_ESTIMADO || 0) > 0 && <span className="pill pill-money">Ressarcimento</span>}
+                </div>
+                <div className="case-metric-grid">
+                  <span><small>CHI</small><strong>{decimalFormat(item.CHI_LIQUIDO, 2)}</strong></span>
+                  <span><small>CI/FIC</small><strong>{numberFormat(item.CI_LIQUIDO)}</strong></span>
+                  <span><small>Ressarc.</small><strong>{currencyFormat(item.RESSARCIMENTO_ESTIMADO)}</strong></span>
+                  <span><small>Duração</small><strong>{decimalFormat(item.DURACAO_MAX_HORA, 1)}h</strong></span>
+                </div>
+                <p>{textValue(item.COD_GRUPO_PRINCIPAL)}/{textValue(item.COD_COMP_PRINCIPAL)}/{textValue(item.COD_CAUSA_PRINCIPAL)} · {textValue(item.PARES_COMPONENTE_CAUSA)}</p>
+              </article>
+            ))}
+            {!topCasosTecnicos.length && <p className="muted-text">Aplique filtros ou atualize o ranking para ver os cartões investigativos.</p>}
+          </div>
+        </article>
+
+        <aside className="investigation-card decision-lens-card">
+          <h2>Lente de decisão</h2>
+          <p>Use como triagem: primeiro confirme contexto, depois detalhe a ocorrência.</p>
+          <div className="decision-step-list">
+            <span><strong>1</strong><small>Verifique grupo/comp/causa</small></span>
+            <span><strong>2</strong><small>Compare CHI, CI/FIC e ressarcimento</small></span>
+            <span><strong>3</strong><small>Abra ocorrência e valide serviços/reclamações</small></span>
+          </div>
+          <div className="filter-chip-list">
+            {criteriosAtivos.map((criterio) => <span key={criterio}>{criterio}</span>)}
+          </div>
+        </aside>
+      </section>
 
       <DataTable
         empty={loading ? 'Carregando ranking técnico...' : 'Nenhuma ocorrência encontrada para os filtros.'}

@@ -240,6 +240,11 @@ EXECUCOES_PERMITIDAS = {
         "descricao": "Identifica outros componentes/causas candidatos a ajuste com evidência de serviços, referência IQS e reclamações.",
         "etapas": [{"module": "midway.auditoria.agente_comp_causa", "env": {}}],
     },
+    "suspeita_falha_RA": {
+        "titulo": "run.bat suspeita_falha_RA — Suspeita falha RA",
+        "descricao": "Identifica religadores automáticos com ocorrências sucessivas no mesmo dia, sem reclamações, mas com FIC/ressarcimento FIC relevante.",
+        "etapas": [{"module": "midway.auditoria.suspeita_falha_ra", "env": {}}],
+    },
     "analise_tecnica_cache": {
         "titulo": "run.bat analise_tecnica_cache — Cache análise técnica",
         "descricao": "Materializa cache da Análise Técnica.",

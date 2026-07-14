@@ -1,18 +1,22 @@
-# MIDWAY - Tratamento IQS ADMS
+# MIDWAY - Anomalias OMS/ADMS para IQS
 
 Versao atual: `6.2.1`
 
-O MIDWAY e uma ferramenta local de ETL e pre-apuracao para tratar registros de interrupcao do ADMS antes da carga no IQS.
+O MIDWAY e uma plataforma local de ETL, apuracao, auditoria e decisao governada para tratar anomalias dos dados OMS/ADMS antes da carga no IQS.
 
-O objetivo e criar uma camada intermediaria mais consistente para:
+O objetivo principal e criar uma camada intermediaria confiavel para:
 
 - extrair dados do IQS/ADMS;
 - organizar bases RAW, SILVER e GOLD em DuckDB;
-- tratar sobreposicoes temporais por UC;
+- detectar anomalias em ocorrencias, interrupcoes, UCs, equipamentos, alimentadores e conjuntos;
+- reunir evidencias tecnicas a partir de OMS/ADMS, servicos, reclamacoes, referencia IQS e apuracao;
 - gerar previa de DEC/FEC, DIC/FIC, DMIC, DICRI e DISE;
 - calcular previa de compensacoes/ressarcimentos;
-- gerar CSVs de retorno no layout aceito pelo IQS;
-- apoiar auditoria da pos-operacao com metricas, amostras e painel Streamlit.
+- apoiar decisao humana auditavel;
+- gerar CSVs de retorno no layout aceito pelo IQS para qualquer modulo aprovado;
+- apoiar auditoria da pos-operacao com metricas, amostras e paineis.
+
+> Importante: a regra `92/82` e um modulo especializado ja implementado, nao o objetivo central do MIDWAY. O norte atual esta em `docs/33_reorientacao_anomalias_oms_iqs.md`.
 
 > Dados operacionais ficam em `data/` e nao devem ser versionados no Git, exceto `data/input`, que guarda dicionarios e listas auxiliares pequenas usadas pelo codigo.
 
@@ -23,8 +27,10 @@ Oracle IQS / ADMS
   -> data/raw/iqs_adms_raw_<ANOMES>.duckdb
   -> data/raw/iqs_raw_<ANOMES>.duckdb
   -> data/processed/iqs_adms_processed_<ANOMES>.duckdb
+  -> motor de anomalias e evidencias
+  -> governanca e decisao humana
   -> data/marts/ auditorias, metricas e conferencias
-  -> data/export/ arquivos CSV para carga no IQS
+  -> data/export/ arquivos CSV aprovados para carga no IQS
 ```
 
 Fluxo detalhado:
@@ -42,6 +48,7 @@ midway/          pacote Python principal
   transform/     tratamento, sincronizacao e normalizacao
   apuracao/      apuracao previa e camadas gold
   auditoria/     auditorias e exportacoes auxiliares
+  v7/            nucleo de anomalias e evidencias governadas
   export/        exportacao CSV IQS
   web/           painel Streamlit multipage
     home.py      orquestrador do painel
@@ -135,6 +142,23 @@ Abrir painel Streamlit de conferencia:
 ```bat
 run.bat painel
 ```
+
+## Módulos de Anomalia
+
+O MIDWAY deve evoluir como catálogo de módulos de anomalia. Cada módulo detecta uma distorção, gera evidências, estima impacto, propõe ação e, quando aprovado, alimenta a exportação IQS.
+
+Módulos já tratados ou em consolidação:
+
+| Módulo | Escopo | Objetivo |
+| --- | --- | --- |
+| Sobreposição total/parcial por UC | UC/interrupção | Corrigir conflito temporal e preservar base apurável |
+| Interrupção/ocorrência sem UC | Interrupção/ocorrência | Identificar eventos sem UC apurável após tratamentos |
+| Duração suspeita | Ocorrência/interrupção | Priorizar duração extrema ou incompatível |
+| Componente/causa divergente | Ocorrência/interrupção | Comparar OMS/ADMS, serviços, reclamações e referência IQS |
+| Ressarcimento atípico | UC/ocorrência | Evitar duplicidade ou soma sem filtro correto |
+| Falha de equipamento/comunicação | Equipamento/alimentador/conjunto | Detectar FIC recorrente com baixa reclamação proporcional |
+| Reclamação sem ocorrência compatível | Reclamação/UC | Sinalizar lacuna entre demanda e registro IQS |
+| `92/82` | Especialização componente/causa | Módulo específico, mantido como caso particular |
 
 ## Comandos Principais
 
@@ -305,10 +329,11 @@ Eventos com `COD_COMP_INTRP = 52` ou `COD_CAUSA_INTRP = 71` nao compoem `DIC`, `
 
 Eventos de posto particular (`INDIC_PROPR_POSTO_INTRP = P`), chave particular e UC acessante permanecem como filtros da base financeira de compensacao, sem remover a rastreabilidade operacional.
 
-Detalhamento:
+Detalhamento ativo:
 
 ```text
-docs/10_prodist_modulo8.md
+docs/14_fluxo_oficial_atual.md
+docs/modulos/ressarcimento_atipico.md
 ```
 
 ## Painel Streamlit
@@ -339,10 +364,11 @@ Recursos:
 - consulta SQL com catalogo de tabelas;
 - ranking estatistico de ocorrencias para verificacao.
 
-Detalhamento:
+Detalhamento ativo:
 
 ```text
-docs/12_painel_streamlit.md
+docs/14_fluxo_oficial_atual.md
+docs/modulos/README.md
 ```
 
 ## Testes e Qualidade
@@ -438,19 +464,19 @@ run.bat exportar
 
 ## Documentacao
 
-Documentos principais:
+Documentos principais ativos:
 
 ```text
+docs/README.md
 docs/00_especificacao.md
-docs/01_controle.md
-docs/02_auditoria.md
-docs/09_proposta_melhoria.md
-docs/10_prodist_modulo8.md
-docs/11_testes_automatizados_estatisticos.md
-docs/12_painel_streamlit.md
 docs/13_organizacao_arquivos.md
 docs/14_fluxo_oficial_atual.md
+docs/33_reorientacao_anomalias_oms_iqs.md
+docs/34_governanca_exportacao_iqs.md
+docs/modulos/README.md
 ```
+
+Documentos antigos ficam em `docs/historico/` apenas como memoria tecnica, nao como especificacao vigente.
 
 ## Versionamento
 

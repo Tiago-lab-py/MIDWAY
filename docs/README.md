@@ -1,0 +1,50 @@
+# Índice ativo da documentação MIDWAY
+
+Data de organização: `2026-07-14`
+
+Este índice define a documentação oficial do MIDWAY. Arquivos fora desta lista não devem ser usados como especificação atual sem revisão.
+
+## Norte atual
+
+| Documento | Função |
+| --- | --- |
+| `docs/33_reorientacao_anomalias_oms_iqs.md` | Norte de produto: plataforma multi-anomalias OMS/ADMS para exportação IQS |
+| `docs/00_especificacao.md` | Especificação geral do pipeline, dados, apuração e exportação |
+| `docs/14_fluxo_oficial_atual.md` | Fluxo mensal operacional vigente |
+| `docs/13_organizacao_arquivos.md` | Organização de pastas, código, dados e documentação |
+| `docs/34_governanca_exportacao_iqs.md` | Governança comum para decisão humana e pacote IQS |
+
+## Catálogo de módulos
+
+| Documento | Função |
+| --- | --- |
+| `docs/modulos/README.md` | Catálogo oficial de módulos de anomalia |
+| `docs/modulos/sobreposicao_uc.md` | Sobreposição total/parcial por UC |
+| `docs/modulos/interrupcao_sem_uc.md` | Interrupção/ocorrência sem UC apurável |
+| `docs/modulos/componente_causa.md` | Divergência de grupo, componente e causa |
+| `docs/modulos/duracao_impacto.md` | Duração suspeita e impacto operacional |
+| `docs/modulos/ressarcimento_atipico.md` | Ressarcimento incompatível, duplicado ou fora de filtro |
+| `docs/modulos/reclamacoes_servicos.md` | Cruzamento com reclamações e serviços |
+| `docs/modulos/falha_equipamento_ra.md` | Suspeita de falha de religador/RA |
+| `docs/modulos/dia_critico_ise.md` | Dia crítico e ISE |
+| `docs/modulos/duplicidade_tipo.md` | Duplicidade por tipo de interrupção |
+| `docs/modulos/ajuste_manual_iqs.md` | Ajuste manual governado para IQS |
+| `docs/modulos/correcao_9282.md` | Correção especializada `92/82`, sem centralidade no produto |
+
+## Histórico
+
+Os documentos antigos foram movidos para `docs/historico/`.
+
+Eles preservam decisões e contexto, mas não são especificação vigente. Se algum conceito antigo ainda for útil, ele deve ser migrado para um documento ativo ou para um módulo em `docs/modulos/`.
+
+## Regra de manutenção
+
+Antes de criar ou editar documentação, classifique o conteúdo como:
+
+1. norte atual;
+2. fluxo operacional;
+3. módulo de anomalia;
+4. governança/exportação;
+5. histórico.
+
+Se o texto fizer `92/82` parecer objetivo principal, reescreva como módulo especializado em `docs/modulos/correcao_9282.md`.

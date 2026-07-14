@@ -122,6 +122,18 @@ D:\MIDWAY
       __init__.py
       csv_iqs.py
 
+    v7/
+      __init__.py
+      anomaly_repository.py
+      generate_real_anomalies.py
+
+    api/
+      routes/
+        anomalias.py
+        qualidade.py
+        iqs.py
+        governanca.py
+
     web/
       __init__.py
       home.py
@@ -172,8 +184,16 @@ D:\MIDWAY
 
   docs/
     00_especificacao.md
-    ...
     13_organizacao_arquivos.md
+    14_fluxo_oficial_atual.md
+    33_reorientacao_anomalias_oms_iqs.md
+    34_governanca_exportacao_iqs.md
+    modulos/
+      README.md
+      *.md
+    historico/
+      README.md
+      *.md
 
   SQL/
     IQS_evidencia_volumetria_hcai.sql
@@ -245,6 +265,41 @@ Exportacoes oficiais:
 - CSVs IQS finais;
 - resumos de exportacao;
 - funcoes comuns de escrita.
+
+### `midway/v7/`
+
+Nucleo operacional de anomalias:
+
+- catalogo de anomalias;
+- evidencias;
+- sugestoes;
+- detalhes para decisao humana;
+- carga das anomalias reais no PostgreSQL.
+
+Este pacote deve ser generico. Casos como `92/82` entram como modulos especializados, nao como desenho central.
+
+### `midway/api/`
+
+API FastAPI usada pelo frontend React:
+
+- autenticacao;
+- anomalias;
+- analise tecnica;
+- governanca;
+- geracao IQS;
+- busca por ocorrencia, interrupcao e UC.
+
+### `frontend/`
+
+Aplicacao React operacional:
+
+- Dashboard;
+- Anomalias;
+- Analise Tecnica;
+- Governanca;
+- Geracao IQS.
+
+A aba `Anomalias` deve priorizar cards, abas por tipo, timeline e decisao governada. Tabelas extensas devem ser apoio, nao o centro da experiencia.
 
 ### `midway/web/`
 

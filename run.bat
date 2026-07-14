@@ -180,6 +180,17 @@ if /I "%~1"=="agente_comp_causa" (
     goto fim
 )
 
+if /I "%~1"=="suspeita_falha_RA" (
+    echo Rodando agente de suspeita de falha em religador automatico...
+    if "%~2"=="" (
+        "%PYTHON_EXE%" -m midway.auditoria.suspeita_falha_ra
+    ) else (
+        "%PYTHON_EXE%" -m midway.auditoria.suspeita_falha_ra %~2
+    )
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="analise_tecnica_cache" (
     echo Materializando cache da Analise Tecnica...
     if "%~2"=="" (
@@ -467,6 +478,7 @@ echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclama
 echo   run.bat extrair_adms_servicos        Extrai servicos ADMS de backup para data\raw
 echo   run.bat correcao_9282                Gera tratativa RA 92/82 e CSV IQS em data\export\correcao_9282
 echo   run.bat agente_comp_causa [ANOMES]   Identifica outros componentes/causas candidatos a ajuste
+echo   run.bat suspeita_falha_RA [ANOMES]   Identifica suspeita de falha de comunicacao em religadores automaticos
 echo   run.bat analise_tecnica_cache [ANOMES] Materializa cache rapido da Analise Tecnica
 echo   run.bat testar_dados                 Executa testes automatizados dos dados tratados
 echo   run.bat validar_dados                Executa testes e metricas de qualidade
