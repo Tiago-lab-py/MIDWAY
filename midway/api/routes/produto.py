@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import os
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,8 @@ import duckdb
 from fastapi import APIRouter, Depends, Query
 
 from midway.api.security import AuthUser, require_profiles
+from midway.api.serialization import api_row, api_rows
+from midway.auditoria.suspeita_falha_ra import analisar_suspeita_falha_ra
 from midway.transform.iqs_raw_utils import processed_path
 
 router = APIRouter(prefix="/api/produto", tags=["produto"])
@@ -515,6 +518,30 @@ def _fetchone_dict(con: duckdb.DuckDBPyConnection, sql: str, params: list[Any] |
         return {}
     columns = [item[0] for item in cursor.description]
     return dict(zip(columns, row))
+
+
+def _fetchall_dicts(
+    con: duckdb.DuckDBPyConnection,
+    sql: str,
+    params: list[Any] | None = None,
+) -> list[dict[str, Any]]:
+    cursor = con.execute(sql, params or [])
+    columns = [item[0] for item in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def _df_records(df: Any, limite: int | None = None) -> list[dict[str, Any]]:
+    if df is None or df.empty:
+        return []
+    if limite is not None:
+        df = df.head(limite)
+    clean_df = df.where(df.notna(), None)
+    return api_rows(clean_df.to_dict(orient="records"))
+
+
+@lru_cache(maxsize=4)
+def _cached_suspeita_falha_ra(anomes: str) -> tuple[Any, Any]:
+    return analisar_suspeita_falha_ra(anomes=anomes)
 
 
 def _ranking_regional(con: duckdb.DuckDBPyConnection, limite: int) -> list[dict[str, object]]:
@@ -1124,6 +1151,561 @@ def _detalhe_conjunto(
         con.close()
 
 
+def _detail_alimentador_empty(
+    user: AuthUser,
+    alimentador: str,
+    fontes: list[dict[str, object]],
+    status: str = "fonte_indisponivel",
+) -> dict[str, object]:
+    return {
+        "usuario": user.login,
+        "anomes": ANOMES,
+        "status": status,
+        "nivel": "intermediario",
+        "lente_padrao": "cliente_operacao",
+        "alimentador": _clean(alimentador),
+        "resumo": {},
+        "dias": [],
+        "ocorrencias": [],
+        "suspeitas_ra": [],
+        "fontes": fontes,
+        "regras": {
+            "fic_recorrente": "UC com 3 ou mais FIC no mesmo alimentador e dia",
+            "baixa_reclamacao": "esperado mínimo de 1 reclamação a cada 250 UCs com FIC recorrente",
+            "longa": "ocorrência com duração maior ou igual a 3 minutos",
+        },
+    }
+
+
+def _detalhe_alimentador(
+    user: AuthUser,
+    alimentador: str,
+    conjunto: str | None,
+    limite_ocorrencias: int,
+) -> dict[str, object]:
+    alimentador_codigo = _clean(alimentador)
+    conjunto_codigo = _clean(conjunto)
+    conjuntos_ref, alimentadores_ref, hierarchy_fontes = _hierarchy_reference_maps()
+    con, fonte_processado = _connect_processed_readonly()
+    fontes = [*hierarchy_fontes, fonte_processado]
+    if con is None:
+        return _detail_alimentador_empty(user, alimentador_codigo, fontes)
+
+    try:
+        if not _table_exists(con, "gold_interrupcao_tratada") or not _table_exists(con, "gold_apuracao_uc"):
+            fontes.append({"fonte": "gold_interrupcao_tratada/gold_apuracao_uc", "status": "ausente"})
+            return _detail_alimentador_empty(user, alimentador_codigo, fontes)
+
+        fontes.append({"fonte": "gold_interrupcao_tratada", "status": "ok"})
+        fontes.append({"fonte": "gold_apuracao_uc", "status": "ok"})
+        has_reclamacao = _table_exists(con, "gold_reclamacao_ocorrencia_resumo")
+        fontes.append({"fonte": "gold_reclamacao_ocorrencia_resumo", "status": "ok" if has_reclamacao else "ausente"})
+        servicos_path = Path("data") / "raw" / f"adms_servicos_raw_{ANOMES}.duckdb"
+        has_servicos = servicos_path.exists()
+        if has_servicos:
+            servicos_sql_path = str(servicos_path).replace("\\", "/").replace("'", "''")
+            con.execute(f"ATTACH '{servicos_sql_path}' AS serv_raw (READ_ONLY)")
+        fontes.append({"fonte": str(servicos_path).replace("\\", "/"), "status": "ok" if has_servicos else "ausente"})
+
+        conjunto_filter = (
+            "AND COALESCE(NULLIF(TRIM(CAST(COD_CONJTO_ELET_ANEEL_INTRP AS VARCHAR)), ''), 'SEM_CONJUNTO') = ?"
+            if conjunto_codigo
+            else ""
+        )
+        params = [alimentador_codigo, *( [conjunto_codigo] if conjunto_codigo else [] )]
+        reclamacao_cte = ""
+        reclamacao_join = ""
+        reclamacao_select = "CAST(0 AS DOUBLE) AS reclamacoes, CAST(0 AS DOUBLE) AS ucs_reclamantes"
+        if has_reclamacao:
+            reclamacao_cte = """
+            , reclamacoes AS (
+                SELECT
+                    TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS ocorrencia,
+                    SUM(COALESCE(QTD_RECLAMACOES, 0)) AS reclamacoes,
+                    SUM(COALESCE(QTD_UCS_RECLAMANTES, 0)) AS ucs_reclamantes
+                FROM gold_reclamacao_ocorrencia_resumo
+                WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+                GROUP BY 1
+            )
+            """
+            reclamacao_join = "LEFT JOIN reclamacoes r ON r.ocorrencia = b.ocorrencia"
+            reclamacao_select = "COALESCE(r.reclamacoes, 0) AS reclamacoes, COALESCE(r.ucs_reclamantes, 0) AS ucs_reclamantes"
+
+        servicos_cte = """
+            , servico_alim AS (
+                SELECT
+                    CAST(0 AS DOUBLE) AS servicos,
+                    CAST(0 AS DOUBLE) AS reclamacoes_servico,
+                    CAST(0 AS DOUBLE) AS interrupcoes_com_servico,
+                    CAST(0 AS DOUBLE) AS interrupcoes_sem_servico
+            )
+        """
+        if has_servicos:
+            servicos_cte = """
+            , servicos AS (
+                SELECT
+                    TRIM(CAST(PID_INTRP_SRVE AS VARCHAR)) AS sequencia,
+                    COUNT(DISTINCT NULLIF(TRIM(CAST(NUM_SEQ_SERV AS VARCHAR)), '')) AS servicos,
+                    SUM(COALESCE(TRY_CAST(QTDE_RECLAM_SRVE AS DOUBLE), 0)) AS reclamacoes_servico
+                FROM serv_raw.raw_adms_servicos
+                WHERE NULLIF(TRIM(CAST(PID_INTRP_SRVE AS VARCHAR)), '') IS NOT NULL
+                GROUP BY 1
+            ),
+            servico_alim AS (
+                SELECT
+                    SUM(COALESCE(s.servicos, 0)) AS servicos,
+                    SUM(COALESCE(s.reclamacoes_servico, 0)) AS reclamacoes_servico,
+                    COUNT(DISTINCT CASE WHEN COALESCE(s.servicos, 0) > 0 THEN b.sequencia END) AS interrupcoes_com_servico,
+                    COUNT(DISTINCT CASE WHEN COALESCE(s.servicos, 0) <= 0 THEN b.sequencia END) AS interrupcoes_sem_servico
+                FROM (SELECT DISTINCT sequencia FROM base_intrp) b
+                LEFT JOIN servicos s
+                  ON b.sequencia = s.sequencia
+            )
+            """
+
+        resumo = _fetchone_dict(
+            con,
+            f"""
+            WITH base_intrp AS (
+                SELECT
+                    COALESCE(NULLIF(TRIM(CAST(SIGLA_REGIONAL AS VARCHAR)), ''), 'SEM_REGIONAL') AS regional,
+                    COALESCE(NULLIF(TRIM(CAST(COD_CONJTO_ELET_ANEEL_INTRP AS VARCHAR)), ''), 'SEM_CONJUNTO') AS conjunto,
+                    COALESCE(NULLIF(TRIM(CAST(ALIM_INTRP AS VARCHAR)), ''), 'SEM_ALIMENTADOR') AS alimentador,
+                    COALESCE(NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), ''), 'SEM_OCORRENCIA') AS ocorrencia,
+                    COALESCE(NULLIF(TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)), ''), 'SEM_SEQ') AS sequencia,
+                    MIN(DATA_HORA_INIC_INTRP) AS inicio,
+                    MAX(DATA_HORA_FIM_INTRP) AS fim,
+                    MAX(NULLIF(TRIM(CAST(TIPO_CHV_INTRP AS VARCHAR)), '')) AS tipo_chave,
+                    MAX(NULLIF(TRIM(CAST(NUM_OPER_CHV_INTRP AS VARCHAR)), '')) AS equipamento,
+                    COUNT(DISTINCT NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '')) AS ucs_operacionais,
+                    DATE_DIFF('second', MIN(DATA_HORA_INIC_INTRP), MAX(DATA_HORA_FIM_INTRP)) / 3600.0 AS duracao_hora
+                FROM gold_interrupcao_tratada
+                WHERE COALESCE(NULLIF(TRIM(CAST(ALIM_INTRP AS VARCHAR)), ''), 'SEM_ALIMENTADOR') = ?
+                {conjunto_filter}
+                GROUP BY 1, 2, 3, 4, 5
+            ),
+            seqs AS (
+                SELECT DISTINCT sequencia FROM base_intrp
+            ),
+            apuracao AS (
+                SELECT
+                    COUNT(DISTINCT NUM_UC_UCI) AS ucs_apuraveis,
+                    SUM(COALESCE(CI_LIQUIDO, 0)) AS ci_liquido,
+                    SUM(COALESCE(CHI_LIQUIDO, 0)) AS chi_liquido
+                FROM gold_apuracao_uc
+                WHERE TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)) IN (SELECT sequencia FROM seqs)
+            )
+            {reclamacao_cte},
+            reclamacao_alim AS (
+                SELECT
+                    SUM(reclamacoes) AS reclamacoes,
+                    SUM(ucs_reclamantes) AS ucs_reclamantes
+                FROM (
+                    SELECT DISTINCT b.ocorrencia, {reclamacao_select}
+                    FROM base_intrp b
+                    {reclamacao_join}
+                )
+            )
+            {servicos_cte}
+            SELECT
+                MIN(regional) AS regional,
+                MIN(conjunto) AS conjunto,
+                MIN(alimentador) AS alimentador,
+                COUNT(DISTINCT ocorrencia) AS ocorrencias,
+                COUNT(DISTINCT sequencia) AS interrupcoes,
+                SUM(ucs_operacionais) AS ucs_operacionais,
+                COALESCE(MAX(a.ucs_apuraveis), 0) AS ucs_apuraveis,
+                COALESCE(MAX(a.ci_liquido), 0) AS ci_liquido,
+                COALESCE(MAX(a.chi_liquido), 0) AS chi_liquido,
+                COUNT(DISTINCT CASE WHEN duracao_hora >= (3.0 / 60.0) THEN ocorrencia END) AS ocorrencias_longas,
+                COUNT(DISTINCT CASE WHEN duracao_hora < (3.0 / 60.0) THEN ocorrencia END) AS ocorrencias_curtas,
+                COUNT(DISTINCT CASE WHEN UPPER(tipo_chave) = 'RA' THEN sequencia END) AS interrupcoes_ra,
+                COUNT(DISTINCT CASE WHEN UPPER(tipo_chave) = 'RA' THEN equipamento END) AS equipamentos_ra,
+                MAX(duracao_hora) AS duracao_maxima_h,
+                COALESCE(MAX(r.reclamacoes), 0) AS reclamacoes,
+                COALESCE(MAX(r.ucs_reclamantes), 0) AS ucs_reclamantes,
+                COALESCE(MAX(s.servicos), 0) AS servicos,
+                COALESCE(MAX(s.reclamacoes_servico), 0) AS reclamacoes_servico,
+                COALESCE(MAX(s.interrupcoes_com_servico), 0) AS interrupcoes_com_servico,
+                COALESCE(MAX(s.interrupcoes_sem_servico), 0) AS interrupcoes_sem_servico
+            FROM base_intrp
+            CROSS JOIN apuracao a
+            CROSS JOIN reclamacao_alim r
+            CROSS JOIN servico_alim s
+            """,
+            params,
+        )
+        if not resumo or not resumo.get("alimentador"):
+            return {
+                **_detail_alimentador_empty(user, alimentador_codigo, fontes, status="sem_registros"),
+                "mensagem": "Nenhum registro encontrado para o alimentador informado.",
+            }
+
+        alimentador_ref = alimentadores_ref.get(alimentador_codigo, {})
+        conjunto_resumo = _clean(resumo.get("conjunto"))
+        resumo["alimentador_nome"] = alimentador_ref.get("nome", "")
+        resumo["alimentador_exibicao"] = _display(alimentador_codigo, alimentador_ref.get("nome", ""))
+        resumo["conjunto_nome"] = conjuntos_ref.get(conjunto_resumo, {}).get("nome", "")
+        resumo["conjunto_exibicao"] = _display(conjunto_resumo, conjuntos_ref.get(conjunto_resumo, {}).get("nome", ""))
+        resumo["regional_exibicao"] = _display(_clean(resumo.get("regional")), _static_region_name(_clean(resumo.get("regional"))))
+
+        servicos_base_cte = """
+            , servicos AS (
+                SELECT
+                    CAST(NULL AS VARCHAR) AS sequencia,
+                    CAST(0 AS DOUBLE) AS servicos,
+                    CAST(0 AS DOUBLE) AS reclamacoes_servico
+                WHERE FALSE
+            )
+        """
+        if has_servicos:
+            servicos_base_cte = """
+            , servicos AS (
+                SELECT
+                    TRIM(CAST(PID_INTRP_SRVE AS VARCHAR)) AS sequencia,
+                    COUNT(DISTINCT NULLIF(TRIM(CAST(NUM_SEQ_SERV AS VARCHAR)), '')) AS servicos,
+                    SUM(COALESCE(TRY_CAST(QTDE_RECLAM_SRVE AS DOUBLE), 0)) AS reclamacoes_servico
+                FROM serv_raw.raw_adms_servicos
+                WHERE NULLIF(TRIM(CAST(PID_INTRP_SRVE AS VARCHAR)), '') IS NOT NULL
+                GROUP BY 1
+            )
+            """
+
+        dias = _fetchall_dicts(
+            con,
+            f"""
+            WITH base_intrp AS (
+                SELECT
+                    COALESCE(NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), ''), 'SEM_OCORRENCIA') AS ocorrencia,
+                    COALESCE(NULLIF(TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)), ''), 'SEM_SEQ') AS sequencia,
+                    DATE(MIN(DATA_HORA_INIC_INTRP)) AS dia,
+                    MAX(NULLIF(TRIM(CAST(TIPO_CHV_INTRP AS VARCHAR)), '')) AS tipo_chave,
+                    COUNT(DISTINCT NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '')) AS ucs_operacionais,
+                    DATE_DIFF('second', MIN(DATA_HORA_INIC_INTRP), MAX(DATA_HORA_FIM_INTRP)) / 3600.0 AS duracao_hora
+                FROM gold_interrupcao_tratada
+                WHERE COALESCE(NULLIF(TRIM(CAST(ALIM_INTRP AS VARCHAR)), ''), 'SEM_ALIMENTADOR') = ?
+                {conjunto_filter}
+                GROUP BY 1, 2
+            ),
+            fic_uc AS (
+                SELECT
+                    b.dia,
+                    TRIM(CAST(a.NUM_UC_UCI AS VARCHAR)) AS uc,
+                    COUNT(DISTINCT b.sequencia) AS fic_dia
+                FROM gold_apuracao_uc a
+                JOIN base_intrp b
+                  ON TRIM(CAST(a.NUM_SEQ_INTRP AS VARCHAR)) = b.sequencia
+                WHERE NULLIF(TRIM(CAST(a.NUM_UC_UCI AS VARCHAR)), '') IS NOT NULL
+                GROUP BY 1, 2
+            )
+            {servicos_base_cte}
+            SELECT
+                b.dia,
+                COUNT(DISTINCT b.ocorrencia) AS ocorrencias,
+                COUNT(DISTINCT b.sequencia) AS interrupcoes,
+                COUNT(DISTINCT CASE WHEN UPPER(b.tipo_chave) = 'RA' THEN b.sequencia END) AS interrupcoes_ra,
+                COUNT(DISTINCT CASE WHEN b.duracao_hora >= (3.0 / 60.0) THEN b.ocorrencia END) AS ocorrencias_longas,
+                COUNT(DISTINCT CASE WHEN b.duracao_hora < (3.0 / 60.0) THEN b.ocorrencia END) AS ocorrencias_curtas,
+                SUM(b.ucs_operacionais) AS ucs_operacionais,
+                COALESCE(MAX(f.ucs_fic_recorrente), 0) AS ucs_fic_recorrente,
+                COALESCE(MAX(s.servicos), 0) AS servicos,
+                COALESCE(MAX(s.reclamacoes_servico), 0) AS reclamacoes_servico,
+                COALESCE(MAX(s.interrupcoes_sem_servico), 0) AS interrupcoes_sem_servico
+            FROM base_intrp b
+            LEFT JOIN (
+                SELECT dia, COUNT(DISTINCT uc) AS ucs_fic_recorrente
+                FROM fic_uc
+                WHERE fic_dia >= 3
+                GROUP BY 1
+            ) f
+              ON b.dia = f.dia
+            LEFT JOIN (
+                SELECT
+                    b.dia,
+                    SUM(COALESCE(s.servicos, 0)) AS servicos,
+                    SUM(COALESCE(s.reclamacoes_servico, 0)) AS reclamacoes_servico,
+                    COUNT(DISTINCT CASE WHEN COALESCE(s.servicos, 0) <= 0 THEN b.sequencia END) AS interrupcoes_sem_servico
+                FROM (SELECT DISTINCT dia, sequencia FROM base_intrp) b
+                LEFT JOIN servicos s
+                  ON b.sequencia = s.sequencia
+                GROUP BY 1
+            ) s
+              ON b.dia = s.dia
+            GROUP BY 1
+            ORDER BY ocorrencias DESC, interrupcoes_ra DESC, dia
+            LIMIT 30
+            """,
+            params,
+        )
+
+        ocorrencias = _fetchall_dicts(
+            con,
+            f"""
+            WITH base_intrp AS (
+                SELECT
+                    COALESCE(NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), ''), 'SEM_OCORRENCIA') AS ocorrencia,
+                    COALESCE(NULLIF(TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)), ''), 'SEM_SEQ') AS sequencia,
+                    MIN(DATA_HORA_INIC_INTRP) AS inicio,
+                    MAX(DATA_HORA_FIM_INTRP) AS fim,
+                    MAX(NULLIF(TRIM(CAST(TIPO_CHV_INTRP AS VARCHAR)), '')) AS tipo_chave,
+                    MAX(NULLIF(TRIM(CAST(NUM_OPER_CHV_INTRP AS VARCHAR)), '')) AS equipamento,
+                    COUNT(DISTINCT NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '')) AS ucs_operacionais,
+                    DATE_DIFF('second', MIN(DATA_HORA_INIC_INTRP), MAX(DATA_HORA_FIM_INTRP)) / 3600.0 AS duracao_hora
+                FROM gold_interrupcao_tratada
+                WHERE COALESCE(NULLIF(TRIM(CAST(ALIM_INTRP AS VARCHAR)), ''), 'SEM_ALIMENTADOR') = ?
+                {conjunto_filter}
+                GROUP BY 1, 2
+            ),
+            seqs AS (
+                SELECT DISTINCT sequencia FROM base_intrp
+            ),
+            apuracao AS (
+                SELECT
+                    TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)) AS sequencia,
+                    SUM(COALESCE(CI_LIQUIDO, 0)) AS ci_liquido,
+                    SUM(COALESCE(CHI_LIQUIDO, 0)) AS chi_liquido,
+                    COUNT(DISTINCT NUM_UC_UCI) AS ucs_apuraveis
+                FROM gold_apuracao_uc
+                WHERE TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)) IN (SELECT sequencia FROM seqs)
+                GROUP BY 1
+            )
+            {servicos_base_cte}
+            SELECT
+                b.ocorrencia,
+                MIN(b.inicio) AS inicio,
+                MAX(b.fim) AS fim,
+                COUNT(DISTINCT b.sequencia) AS interrupcoes,
+                COUNT(DISTINCT CASE WHEN UPPER(b.tipo_chave) = 'RA' THEN b.sequencia END) AS interrupcoes_ra,
+                STRING_AGG(DISTINCT b.equipamento, ', ') AS equipamentos,
+                SUM(b.ucs_operacionais) AS ucs_operacionais,
+                SUM(COALESCE(a.ucs_apuraveis, 0)) AS ucs_apuraveis,
+                SUM(COALESCE(a.ci_liquido, 0)) AS ci_liquido,
+                SUM(COALESCE(a.chi_liquido, 0)) AS chi_liquido,
+                MAX(b.duracao_hora) AS duracao_maxima_h,
+                COALESCE(MAX(s.servicos), 0) AS servicos,
+                COALESCE(MAX(s.reclamacoes_servico), 0) AS reclamacoes_servico,
+                COALESCE(MAX(s.interrupcoes_sem_servico), 0) AS interrupcoes_sem_servico
+            FROM base_intrp b
+            LEFT JOIN apuracao a
+              ON b.sequencia = a.sequencia
+            LEFT JOIN (
+                SELECT
+                    b.ocorrencia,
+                    SUM(COALESCE(s.servicos, 0)) AS servicos,
+                    SUM(COALESCE(s.reclamacoes_servico, 0)) AS reclamacoes_servico,
+                    COUNT(DISTINCT CASE WHEN COALESCE(s.servicos, 0) <= 0 THEN b.sequencia END) AS interrupcoes_sem_servico
+                FROM (SELECT DISTINCT ocorrencia, sequencia FROM base_intrp) b
+                LEFT JOIN servicos s
+                  ON b.sequencia = s.sequencia
+                GROUP BY 1
+            ) s
+              ON b.ocorrencia = s.ocorrencia
+            GROUP BY 1
+            ORDER BY chi_liquido DESC, ci_liquido DESC, duracao_maxima_h DESC
+            LIMIT ?
+            """,
+            [*params, limite_ocorrencias],
+        )
+
+        suspeitas_ra = _suspeitas_ra_records(conjunto=conjunto_resumo, alimentador=alimentador_codigo, limite=10)
+
+        return {
+            "usuario": user.login,
+            "anomes": ANOMES,
+            "status": "ok",
+            "nivel": "intermediario",
+            "lente_padrao": "cliente_operacao",
+            "alimentador": alimentador_codigo,
+            "resumo": api_row(resumo),
+            "dias": api_rows(dias),
+            "ocorrencias": api_rows(ocorrencias),
+            "suspeitas_ra": suspeitas_ra,
+            "fontes": fontes,
+            "regras": {
+                "fic_recorrente": "UC com 3 ou mais FIC no mesmo alimentador e dia",
+                "baixa_reclamacao": "esperado mínimo de 1 reclamação a cada 250 UCs com FIC recorrente",
+                "longa": "ocorrência com duração maior ou igual a 3 minutos",
+                "servicos": "contagem de serviços fica pendente até acoplar raw adms_servicos ao processado",
+            },
+        }
+    except (duckdb.Error, OSError) as exc:
+        fontes.append({"fonte": "detalhe_alimentador", "status": "erro", "erro": str(exc).splitlines()[0]})
+        return _detail_alimentador_empty(user, alimentador_codigo, fontes, status="erro")
+    finally:
+        con.close()
+
+
+def _suspeitas_ra_records(
+    *,
+    conjunto: str | None = None,
+    alimentador: str | None = None,
+    limite: int = 20,
+) -> list[dict[str, Any]]:
+    _, resumo = _cached_suspeita_falha_ra(ANOMES)
+    if resumo.empty:
+        return []
+    filtered = resumo
+    if conjunto:
+        filtered = filtered[filtered["CONJUNTO"].astype(str).str.strip() == _clean(conjunto)]
+    if alimentador:
+        filtered = filtered[filtered["ALIM_INTRP"].astype(str).str.strip() == _clean(alimentador)]
+    return _df_records(filtered, limite)
+
+
+def _painel_suspeitas_ra(user: AuthUser, limite: int) -> dict[str, object]:
+    try:
+        detalhe, resumo = _cached_suspeita_falha_ra(ANOMES)
+    except Exception as exc:
+        return {
+            "usuario": user.login,
+            "anomes": ANOMES,
+            "status": "erro",
+            "resumo": {},
+            "items": [],
+            "detalhe_amostra": [],
+            "erro": str(exc).splitlines()[0],
+            "regras": {
+                "zero_reclamacao": "nível alto quando equipamento/dia não tem reclamação e gera compensação FIC",
+                "baixa_reclamacao": "nível crítico quando há FIC recorrente no alimentador/dia e menos de 1 reclamação a cada 250 consumidores recorrentes",
+            },
+        }
+
+    items = _df_records(resumo, limite)
+    return {
+        "usuario": user.login,
+        "anomes": ANOMES,
+        "status": "ok",
+        "resumo": {
+            "equipamentos_dia": len(resumo),
+            "ocorrencias_detalhadas": len(detalhe),
+            "comp_fic_estimado": _number(resumo["COMP_FIC_ESTIMADA"].sum()) if not resumo.empty else 0,
+            "comp_total_estimado": _number(resumo["COMP_TOTAL_ESTIMADA"].sum()) if not resumo.empty else 0,
+            "ci_liquido": _number(resumo["CI_LIQUIDO_TOTAL"].sum()) if not resumo.empty else 0,
+            "chi_liquido": _number(resumo["CHI_LIQUIDO_TOTAL"].sum()) if not resumo.empty else 0,
+            "zero_reclamacao": int(resumo["SINAL_ZERO_RECLAMACAO_EQUIPAMENTO"].sum()) if not resumo.empty else 0,
+            "baixa_reclamacao": int(resumo["SINAL_BAIXA_RECLAMACAO_ALIM_DIA"].sum()) if not resumo.empty else 0,
+            "servicos": _number(resumo["QTD_SERVICOS_TOTAL"].sum()) if not resumo.empty and "QTD_SERVICOS_TOTAL" in resumo else 0,
+            "interrupcoes_sem_servico": _number(resumo["QTD_INTERRUPCOES_SEM_SERVICO"].sum()) if not resumo.empty and "QTD_INTERRUPCOES_SEM_SERVICO" in resumo else 0,
+            "reclamacoes_servico": _number(resumo["QTD_RECLAMACOES_SERVICO_TOTAL"].sum()) if not resumo.empty and "QTD_RECLAMACOES_SERVICO_TOTAL" in resumo else 0,
+        },
+        "items": items,
+        "detalhe_amostra": _df_records(detalhe, min(limite, 50)),
+        "regras": {
+            "zero_reclamacao": "nível alto quando equipamento/dia não tem reclamação e gera compensação FIC",
+            "baixa_reclamacao": "nível crítico quando há FIC recorrente no alimentador/dia e menos de 1 reclamação a cada 250 consumidores recorrentes",
+            "score": "ocorrências RA, CI/FIC, compensação FIC, baixa reclamação e janela operacional",
+            "decisao": "gera suspeita e fila técnica; não altera IQS automaticamente",
+        },
+    }
+
+
+def _validacao_iqs_governada(user: AuthUser) -> dict[str, object]:
+    con, fonte_processado = _connect_processed_readonly()
+    fontes = [fonte_processado]
+    checks: list[dict[str, object]] = []
+    if con is None:
+        return {
+            "usuario": user.login,
+            "anomes": ANOMES,
+            "status": "fonte_indisponivel",
+            "checks": [],
+            "fontes": fontes,
+        }
+
+    try:
+        required_tables = ["adms_iqs_export", "gold_apuracao_uc", "gold_consumidores", "gold_uc_fatura"]
+        for table in required_tables:
+            exists = _table_exists(con, table)
+            checks.append(
+                {
+                    "codigo": f"tabela_{table}",
+                    "titulo": f"Tabela {table}",
+                    "status": "ok" if exists else "bloqueante",
+                    "mensagem": "disponível" if exists else "ausente no DuckDB processado",
+                    "severidade": "bloqueante" if not exists else "ok",
+                }
+            )
+
+        if _table_exists(con, "adms_iqs_export"):
+            total_export = _number(con.execute("SELECT COUNT(*) FROM adms_iqs_export").fetchone()[0])
+            checks.append(
+                {
+                    "codigo": "exportacao_tem_linhas",
+                    "titulo": "Arquivo IQS com registros",
+                    "status": "ok" if total_export > 0 else "bloqueante",
+                    "mensagem": f"{int(total_export)} linha(s) candidatas à exportação",
+                    "severidade": "bloqueante" if total_export <= 0 else "ok",
+                }
+            )
+
+            columns = {row[0].upper() for row in con.execute("DESCRIBE adms_iqs_export").fetchall()}
+            for column in ["NUM_OCORRENCIA_ADMS", "NUM_SEQ_INTRP", "DATA_HORA_INIC_INTRP", "DATA_HORA_FIM_INTRP"]:
+                checks.append(
+                    {
+                        "codigo": f"coluna_{column.lower()}",
+                        "titulo": f"Coluna obrigatória {column}",
+                        "status": "ok" if column in columns else "bloqueante",
+                        "mensagem": "presente no layout candidato" if column in columns else "ausente no layout candidato",
+                        "severidade": "bloqueante" if column not in columns else "ok",
+                    }
+                )
+
+        checks.extend(
+            [
+                {
+                    "codigo": "datas_ddmmaaaa",
+                    "titulo": "Datas no padrão IQS",
+                    "status": "pendente_execucao",
+                    "mensagem": "validar no arquivo físico: campos data/hora em dd/mm/aaaa hh:mm:ss",
+                    "severidade": "atenção",
+                },
+                {
+                    "codigo": "unix_lf",
+                    "titulo": "Quebra de linha UNIX",
+                    "status": "pendente_execucao",
+                    "mensagem": "validar no arquivo físico gerado em data/export antes de enviar ao IQS",
+                    "severidade": "atenção",
+                },
+                {
+                    "codigo": "encoding_iso_8859_1",
+                    "titulo": "Encoding ISO-8859-1",
+                    "status": "pendente_execucao",
+                    "mensagem": "validar encoding do CSV final aceito pelo IQS",
+                    "severidade": "atenção",
+                },
+                {
+                    "codigo": "regional_nrt",
+                    "titulo": "Regional NRT preservada",
+                    "status": "ok",
+                    "mensagem": "validação lógica permanece obrigatória quando o pacote for regionalizado",
+                    "severidade": "ok",
+                },
+            ]
+        )
+        bloqueantes = sum(1 for check in checks if check["severidade"] == "bloqueante")
+        pendentes = sum(1 for check in checks if check["status"] == "pendente_execucao")
+        return {
+            "usuario": user.login,
+            "anomes": ANOMES,
+            "status": "bloqueado" if bloqueantes else "pendente_validacao_fisica" if pendentes else "ok",
+            "resumo": {
+                "checks": len(checks),
+                "bloqueantes": bloqueantes,
+                "pendentes": pendentes,
+                "ok": sum(1 for check in checks if check["severidade"] == "ok"),
+            },
+            "checks": checks,
+            "fontes": fontes,
+            "regras": {
+                "nao_exporta": "esta validação é prévia e não gera arquivo",
+                "contrato": "docs/35_contrato_exportacao_iqs.md",
+                "pendencia_empresa": "validar arquivo físico final dentro da rede/ambiente da empresa antes do envio ao IQS",
+            },
+        }
+    finally:
+        con.close()
+
+
 def _build_cockpit(user: AuthUser, limite: int) -> dict[str, object]:
     conjuntos_ref, _, hierarchy_fontes = _hierarchy_reference_maps()
     con, fonte_processado = _connect_processed_readonly()
@@ -1351,6 +1933,9 @@ def visao_produto(
             {"endpoint": "/api/produto/visao", "status": "implementado"},
             {"endpoint": "/api/produto/cockpit", "status": "implementado_inicial"},
             {"endpoint": "/api/produto/detalhe-conjunto/{conjunto}", "status": "implementado_inicial"},
+            {"endpoint": "/api/produto/detalhe-alimentador/{alimentador}", "status": "implementado_inicial"},
+            {"endpoint": "/api/produto/suspeitas-ra", "status": "implementado_inicial"},
+            {"endpoint": "/api/produto/validacao-iqs", "status": "implementado_inicial"},
             {"endpoint": "/api/produto/hierarquia", "status": "planejado"},
             {"endpoint": "/api/produto/dicionarios", "status": "implementado"},
             {"endpoint": "/api/produto/decisoes/aprendizado", "status": "planejado"},
@@ -1411,3 +1996,28 @@ def detalhe_conjunto_produto(
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
 ) -> dict[str, object]:
     return _detalhe_conjunto(user, conjunto, limite_alimentadores, limite_ocorrencias)
+
+
+@router.get("/detalhe-alimentador/{alimentador}")
+def detalhe_alimentador_produto(
+    alimentador: str,
+    conjunto: str | None = Query(None, description="Opcional: restringe o alimentador ao conjunto selecionado."),
+    limite_ocorrencias: int = Query(30, ge=1, le=200, description="Quantidade máxima de ocorrências."),
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
+) -> dict[str, object]:
+    return _detalhe_alimentador(user, alimentador, conjunto, limite_ocorrencias)
+
+
+@router.get("/suspeitas-ra")
+def suspeitas_ra_produto(
+    limite: int = Query(20, ge=1, le=100, description="Quantidade máxima de suspeitas retornadas."),
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
+) -> dict[str, object]:
+    return _painel_suspeitas_ra(user, limite)
+
+
+@router.get("/validacao-iqs")
+def validacao_iqs_produto(
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
+) -> dict[str, object]:
+    return _validacao_iqs_governada(user)

@@ -569,7 +569,78 @@ function LoginPage({ onLogin, error, loading }) {
   )
 }
 
-function DashboardPage({ cards, resumo, health, decFec, token, onOpenOccurrence }) {
+function CockpitMacroPanel({ cockpit }) {
+  const cockpitCards = cockpit?.cards || []
+
+  function formatProductMetric(item) {
+    if (item.unidade === 'BRL') return currencyFormat(item.valor)
+    if (item.codigo === 'fec_liquido') return decimalFormat(item.valor, 2)
+    if (item.codigo === 'dic_liquido') return decimalFormat(item.valor, 2)
+    if (item.codigo === 'dec_liquido') return decimalFormat(item.valor, 2)
+    if (item.unidade === 'hora' || item.unidade === 'hora/cons' || item.unidade === 'freq/cons') return decimalFormat(item.valor, 4)
+    return numberFormat(item.valor)
+  }
+
+  return (
+    <section id="dashboard-cockpit" className="panel product-section-anchor">
+      <div className="panel-title">
+        <div>
+          <h2>Cockpit macro inicial</h2>
+          <p>Priorização por impacto regulatório e operacional, sem substituir análise humana.</p>
+        </div>
+        <span className={`pill pill-${cockpit?.status === 'ok' ? 'success' : 'warning'}`}>{cockpit?.status || 'carregando'}</span>
+      </div>
+      {(cockpit?.alertas || []).map((alerta, index) => (
+        <div className="alert" key={`${alerta.tipo}-${index}`}>{alerta.mensagem}</div>
+      ))}
+      <div className="metrics-grid compact">
+        {cockpitCards.map((item) => (
+          <Card
+            key={item.codigo}
+            label={item.titulo}
+            value={formatProductMetric(item)}
+            hint={`${item.lente} · ${item.descricao}`}
+            tone={item.lente === 'regulatoria' ? 'blue' : 'orange'}
+          />
+        ))}
+        {!cockpitCards.length && (
+          <Card label="Cockpit" value="—" hint="fonte analítica indisponível no momento" tone="orange" />
+        )}
+      </div>
+    </section>
+  )
+}
+
+function RankingRegionalPanel({ cockpit }) {
+  const regionalColumns = [
+    { key: 'regional_exibicao', label: 'Regional' },
+    { key: 'ocorrencias', label: 'Ocorrências', render: (row) => numberFormat(row.ocorrencias) },
+    { key: 'ucs', label: 'UCs', render: (row) => numberFormat(row.ucs) },
+    { key: 'chi_liquido', label: 'DIC/CHI líq.', render: (row) => decimalFormat(row.chi_liquido, 2) },
+    { key: 'ci_liquido', label: 'FIC/CI líq.', render: (row) => numberFormat(row.ci_liquido) },
+    { key: 'comp_total_prodist', label: 'Compensação', render: (row) => currencyFormat(row.comp_total_prodist) },
+  ]
+
+  return (
+    <section id="dashboard-ranking-regional" className="panel product-section-anchor">
+      <div className="panel-title">
+        <div>
+          <h2>Ranking regional</h2>
+          <p>Ordenável por impacto de DIC/CHI, FIC/CI e compensação.</p>
+        </div>
+      </div>
+      <DataTable
+        columns={regionalColumns}
+        rows={cockpit?.rankings?.regional || []}
+        sortable
+        initialSort={{ key: 'chi_liquido', direction: 'desc' }}
+        empty="Ranking regional indisponível."
+      />
+    </section>
+  )
+}
+
+function DashboardPage({ cards, resumo, health, decFec, cockpit, token, onOpenOccurrence }) {
   const filaTotal = Number(resumo.fila_tecnica_total || 0)
   return (
     <>
@@ -580,6 +651,9 @@ function DashboardPage({ cards, resumo, health, decFec, token, onOpenOccurrence 
         sideValue={resumo.anomes}
         sideContent={<MiniDatabaseStatus health={health} />}
       />
+
+      <CockpitMacroPanel cockpit={cockpit} />
+      <RankingRegionalPanel cockpit={cockpit} />
 
       <section className="panel">
         <div className="panel-title">
@@ -685,6 +759,7 @@ function ExecutivoPage({
   cards,
   modelosIqs,
   geracoesIqs,
+  validacaoIqs,
   user,
   onAutorizar,
   onCreateGeracaoIqs,
@@ -747,6 +822,8 @@ function ExecutivoPage({
       </section>
 
       {actionMessage && <div className="alert alert-success">{actionMessage}</div>}
+
+      <IqsValidationPanel validacaoIqs={validacaoIqs} />
 
       <IqsGenerationPanel
         modelos={modelosIqs}
@@ -1001,7 +1078,7 @@ function AnomalyDetailModal({ detail, loading, onClose, onRegisterDecision }) {
   )
 }
 
-function AnomaliasPage({ resumo, items, modulos, loading, onOpenDetail }) {
+function AnomaliasPage({ resumo, items, modulos, suspeitasRa, loading, onOpenDetail }) {
   const total = Number(resumo?.total || 0)
   const [tipoAtivo, setTipoAtivo] = useState('todos')
   const [anomaliaSelecionadaId, setAnomaliaSelecionadaId] = useState('')
@@ -1114,6 +1191,8 @@ function AnomaliasPage({ resumo, items, modulos, loading, onOpenDetail }) {
         <Card label="Alto risco" value={numberFormat(resumo?.alto_risco)} hint="alta ou crítica" tone="purple" />
         <Card label="Validado Pós" value={numberFormat(posResumo.validado)} hint={`${numberFormat(posResumo.sem_info)} sem informação`} tone="green" />
       </div>
+
+      <SuspeitaRaPanel suspeitasRa={suspeitasRa} />
 
       <section className="anomaly-workbench">
         <div className="anomaly-tabs">
@@ -1743,6 +1822,7 @@ function AnaliseTecnicaPage({
   fila,
   ajustes,
   alteracoes,
+  produtoCockpit,
   user,
   token,
   onOpenOccurrence,
@@ -1767,6 +1847,7 @@ function AnaliseTecnicaPage({
         <Card label="Ajustes IQS" value={numberFormat(resumo.ajustes_auto_9282)} hint="autorizados" tone="green" />
       </section>
 
+      <ProdutoDrillDownBI cockpit={produtoCockpit} />
       <AnaliseImpactoPanel anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
       <FilaPreview anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
       <FilaPage fila={fila} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
@@ -2900,7 +2981,475 @@ function AdministracaoPage({
   )
 }
 
-function ProdutoConjuntoDetail({ detail, loading, error, onClose, onOpenOccurrence }) {
+function DrillIcon({ children }) {
+  return <span className="drill-icon">{children}</span>
+}
+
+function DrillMetric({ icon, label, value, hint }) {
+  return (
+    <div className="drill-metric">
+      <span><DrillIcon>{icon}</DrillIcon>{label}</span>
+      <strong>{value}</strong>
+      {hint && <small>{hint}</small>}
+    </div>
+  )
+}
+
+function DrillStatus({ children, tone = 'info' }) {
+  return <span className={`drill-status drill-status-${tone}`}>{children}</span>
+}
+
+function ProdutoDrillDownBI({ cockpit }) {
+  const drillData = useMemo(() => {
+    const regional = cockpit?.rankings?.regional || []
+    const conjuntos = cockpit?.rankings?.conjunto || []
+    return {
+      id: 'copel',
+      nome: 'COPEL Distribuição',
+      cards: cockpit?.cards || [],
+      regionais: regional.map((item) => ({
+        ...item,
+        id: item.regional,
+        nome: item.regional_exibicao || item.regional,
+        conjuntos: conjuntos.filter((conjunto) => conjunto.regional === item.regional),
+      })),
+      conjuntos,
+    }
+  }, [cockpit])
+
+  const [selected, setSelected] = useState({ type: 'distribuidora', title: 'COPEL Distribuição', data: drillData })
+  const [history, setHistory] = useState([])
+
+  useEffect(() => {
+    setSelected((current) => {
+      if (current.type !== 'distribuidora') return current
+      return { type: 'distribuidora', title: drillData.nome, data: drillData }
+    })
+  }, [drillData])
+
+  function openLevel(type, title, data) {
+    setHistory((current) => [...current, selected])
+    setSelected({ type, title, data })
+  }
+
+  function goBack() {
+    setHistory((current) => {
+      if (!current.length) return current
+      const previous = current[current.length - 1]
+      setSelected(previous)
+      return current.slice(0, -1)
+    })
+  }
+
+  function renderSelected() {
+    if (selected.type === 'distribuidora') {
+      return <DrillDistribuidora data={selected.data} />
+    }
+    if (selected.type === 'regional') {
+      return <DrillRegional data={selected.data} />
+    }
+    if (selected.type === 'conjunto') {
+      return <DrillConjunto data={selected.data} />
+    }
+    return null
+  }
+
+  if (!cockpit?.rankings) {
+    return (
+      <section id="produto-drilldown" className="panel product-section-anchor">
+        <div className="panel-title">
+          <div>
+            <h2>Navegação BI por Drill-down</h2>
+            <p>Aguardando dados reais do cockpit para montar a hierarquia.</p>
+          </div>
+          <span className="pill pill-warning">sem dados</span>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section id="produto-drilldown" className="panel product-section-anchor">
+      <div className="panel-title">
+        <div>
+          <h2>Navegação BI por Drill-down</h2>
+          <p>Dados reais do cockpit: COPEL → regional → conjunto. A lista navega à esquerda e o detalhe muda à direita.</p>
+        </div>
+        <span className="pill pill-success">dados reais</span>
+      </div>
+
+      <div className="drill-shell">
+        <aside className="drill-left">
+          <button className="drill-root-button" type="button" onClick={() => openLevel('distribuidora', drillData.nome, drillData)}>
+            <DrillIcon>🏢</DrillIcon>
+            <span>
+              <strong>{drillData.nome}</strong>
+              <small>Métricas globais reais</small>
+            </span>
+          </button>
+
+          <div className="drill-tree">
+            {drillData.regionais.map((regional) => (
+              <details className="drill-details" key={regional.id}>
+                <summary>
+                  <button type="button" onClick={(event) => {
+                    event.preventDefault()
+                    openLevel('regional', regional.nome, regional)
+                  }}>
+                    <DrillIcon>📍</DrillIcon>
+                    <span>
+                      <strong>{regional.nome}</strong>
+                      <small>CHI {decimalFormat(regional.chi_liquido, 2)} · CI {numberFormat(regional.ci_liquido)}</small>
+                    </span>
+                  </button>
+                  <em>›</em>
+                </summary>
+                <div className="drill-children">
+                  {regional.conjuntos.map((conjunto) => (
+                    <details className="drill-details drill-details-child" key={conjunto.id}>
+                      <summary>
+                        <button type="button" onClick={(event) => {
+                          event.preventDefault()
+                          openLevel('conjunto', conjunto.nome, conjunto)
+                        }}>
+                          <DrillIcon>⚡</DrillIcon>
+                          <span>
+                            <strong>{conjunto.conjunto_exibicao || conjunto.conjunto}</strong>
+                            <small>{numberFormat(conjunto.ocorrencias)} ocorrências · CHI {decimalFormat(conjunto.chi_liquido, 2)}</small>
+                          </span>
+                        </button>
+                        <em>›</em>
+                      </summary>
+                      <div className="drill-children">
+                        <button className="drill-leaf" type="button" onClick={() => openLevel('conjunto', conjunto.conjunto_exibicao || conjunto.conjunto, conjunto)}>
+                          <strong>Resumo do conjunto</strong>
+                          <small>Longas {numberFormat(conjunto.ocorrencias_longas)} · Curtas {numberFormat(conjunto.ocorrencias_curtas)} · Não faturado CI {numberFormat(conjunto.ci_nao_faturado)}</small>
+                        </button>
+                      </div>
+                    </details>
+                  ))}
+                  {!regional.conjuntos.length && <div className="drill-empty">Nenhum conjunto no limite atual do cockpit para esta regional.</div>}
+                </div>
+              </details>
+            ))}
+          </div>
+        </aside>
+
+        <section className="drill-right">
+          <div className="drill-detail-header">
+            <div>
+              <span>{selected.type}</span>
+              <h3>{selected.title}</h3>
+            </div>
+            <button className="secondary-button" type="button" disabled={!history.length} onClick={goBack}>← Voltar nível</button>
+          </div>
+          <div className="drill-detail-body">{renderSelected()}</div>
+        </section>
+      </div>
+    </section>
+  )
+}
+
+function DrillDistribuidora({ data }) {
+  const cardMap = new Map((data.cards || []).map((item) => [item.codigo, item.valor]))
+  return (
+    <div className="drill-view">
+      <div className="drill-metric-grid">
+        <DrillMetric icon="D" label="DEC Global" value={decimalFormat(cardMap.get('dec_liquido'), 2)} />
+        <DrillMetric icon="F" label="FEC Global" value={decimalFormat(cardMap.get('fec_liquido'), 2)} />
+        <DrillMetric icon="R$" label="Ressarcimento" value={currencyFormat(cardMap.get('comp_total_prodist'))} />
+      </div>
+      <div className="drill-list">
+        {data.regionais.map((regional) => (
+          <article key={regional.id}>
+            <strong>{regional.nome}</strong>
+            <span>{numberFormat(regional.ocorrencias)} ocorrências · CHI {decimalFormat(regional.chi_liquido, 2)} · CI {numberFormat(regional.ci_liquido)} · {currencyFormat(regional.comp_total_prodist)}</span>
+          </article>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DrillRegional({ data }) {
+  return (
+    <div className="drill-view">
+      <div className="drill-metric-grid">
+        <DrillMetric icon="!" label="Ocorrências" value={numberFormat(data.ocorrencias)} />
+        <DrillMetric icon="CHI" label="CHI líquido" value={decimalFormat(data.chi_liquido, 2)} />
+        <DrillMetric icon="CI" label="CI líquido" value={numberFormat(data.ci_liquido)} />
+      </div>
+      <div className="drill-list">
+        {data.conjuntos.map((conjunto) => (
+          <article key={conjunto.id}>
+            <strong>{conjunto.conjunto_exibicao || conjunto.conjunto}</strong>
+            <span>{numberFormat(conjunto.ocorrencias)} ocorrências · CHI {decimalFormat(conjunto.chi_liquido, 2)} · CI {numberFormat(conjunto.ci_liquido)}</span>
+          </article>
+        ))}
+        {!data.conjuntos.length && <article><strong>Sem conjunto no Top atual</strong><span>Aumente o limite do cockpit ou use os rankings abaixo para abrir mais detalhes.</span></article>}
+      </div>
+    </div>
+  )
+}
+
+function DrillConjunto({ data }) {
+  return (
+    <div className="drill-view">
+      <div className="drill-metric-grid drill-metric-grid-five">
+        <DrillMetric icon="!" label="Ocorrências" value={numberFormat(data.ocorrencias)} />
+        <DrillMetric icon="CHI" label="CHI líquido" value={decimalFormat(data.chi_liquido, 2)} />
+        <DrillMetric icon="CI" label="CI líquido" value={numberFormat(data.ci_liquido)} />
+        <DrillMetric icon="LONG" label="Longas" value={numberFormat(data.ocorrencias_longas)} />
+        <DrillMetric icon="NF" label="CI não faturado" value={numberFormat(data.ci_nao_faturado)} />
+      </div>
+      <article className="drill-card">
+        <div className="drill-card-title">
+          <strong>{data.conjunto_exibicao || data.conjunto}</strong>
+          <DrillStatus tone="warning">{data.regional_exibicao || data.regional}</DrillStatus>
+        </div>
+        <p>Expurgo dia crítico: CHI {decimalFormat(data.chi_expurgo_dia_critico, 2)} · CI {numberFormat(data.ci_expurgo_dia_critico)}</p>
+        <p>Expurgo ISE/DISE: CHI {decimalFormat(data.chi_expurgo_ise, 2)} · CI {numberFormat(data.ci_expurgo_ise)}</p>
+        <p>Não faturados: CHI {decimalFormat(data.chi_nao_faturado, 2)} · CI {numberFormat(data.ci_nao_faturado)}</p>
+        <p>Para ocorrências e correção, use o detalhe real abaixo: clique no conjunto em `Top conjuntos`, depois no alimentador e ocorrência.</p>
+      </article>
+    </div>
+  )
+}
+
+function SuspeitaRaPanel({ suspeitasRa }) {
+  const raColumns = [
+    { key: 'CLASSIFICACAO', label: 'Classificação' },
+    { key: 'REGIONAL', label: 'Regional' },
+    { key: 'CONJUNTO', label: 'Conjunto' },
+    { key: 'ALIM_INTRP', label: 'Alimentador' },
+    { key: 'NUM_OPER_CHV_INTRP', label: 'Equipamento' },
+    { key: 'DIA_OPERACAO', label: 'Dia' },
+    { key: 'SCORE_SUSPEITA_RA', label: 'Score', render: (row) => decimalFormat(row.SCORE_SUSPEITA_RA, 1) },
+    { key: 'QTD_OCORRENCIAS_RA', label: 'Ocorrências RA', render: (row) => numberFormat(row.QTD_OCORRENCIAS_RA) },
+    {
+      key: 'QTD_SERVICOS_TOTAL',
+      label: 'Serviços',
+      render: (row) => <MetricPair topLabel="Serviços" topValue={numberFormat(row.QTD_SERVICOS_TOTAL)} bottomLabel="Sem serviço" bottomValue={numberFormat(row.QTD_INTERRUPCOES_SEM_SERVICO)} />,
+      sortValue: (row) => row.QTD_SERVICOS_TOTAL,
+    },
+    { key: 'UCS_FIC_RECORRENTE_ALIM_DIA', label: 'UCs FIC ≥ 3', render: (row) => numberFormat(row.UCS_FIC_RECORRENTE_ALIM_DIA) },
+    { key: 'QTD_RECLAMACOES_ALIM_DIA', label: 'Reclamações', render: (row) => numberFormat(row.QTD_RECLAMACOES_ALIM_DIA) },
+    { key: 'COMP_FIC_ESTIMADA', label: 'Comp. FIC', render: (row) => currencyFormat(row.COMP_FIC_ESTIMADA) },
+  ]
+
+  return (
+    <section className="panel">
+      <div className="panel-title">
+        <div>
+          <h2>Suspeita falha RA</h2>
+          <p>Religadores automáticos com FIC recorrente, baixa reclamação e possível falha de comunicação.</p>
+        </div>
+        <span className={`pill pill-${suspeitasRa?.status === 'ok' ? 'success' : 'warning'}`}>{suspeitasRa?.status || 'carregando'}</span>
+      </div>
+      <div className="summary-strip">
+        <span><strong>{numberFormat(suspeitasRa?.resumo?.equipamentos_dia)}</strong> equipamento(s)/dia</span>
+        <span><strong>{numberFormat(suspeitasRa?.resumo?.ocorrencias_detalhadas)}</strong> ocorrência(s)</span>
+        <span><strong>{currencyFormat(suspeitasRa?.resumo?.comp_fic_estimado)}</strong> comp. FIC estimada</span>
+        <span><strong>{numberFormat(suspeitasRa?.resumo?.ci_liquido)}</strong> FIC/CI gerado</span>
+        <span><strong>{numberFormat(suspeitasRa?.resumo?.zero_reclamacao)}</strong> zero reclamação</span>
+        <span><strong>{numberFormat(suspeitasRa?.resumo?.servicos)}</strong> serviço(s)</span>
+        <span><strong>{numberFormat(suspeitasRa?.resumo?.interrupcoes_sem_servico)}</strong> interrupção(ões) sem serviço</span>
+      </div>
+      <DataTable
+        columns={raColumns}
+        rows={suspeitasRa?.items || []}
+        sortable
+        initialSort={{ key: 'SCORE_SUSPEITA_RA', direction: 'desc' }}
+        empty="Sem suspeitas RA carregadas."
+      />
+      <p className="panel-footnote">Regra: recomenda investigação técnica; não altera IQS automaticamente.</p>
+    </section>
+  )
+}
+
+function IqsValidationPanel({ validacaoIqs }) {
+  const iqsValidationColumns = [
+    {
+      key: 'status',
+      label: 'Status',
+      render: (row) => <span className={`pill pill-${row.severidade === 'bloqueante' ? 'warning' : row.severidade === 'atenção' ? 'info' : 'success'}`}>{row.status}</span>,
+    },
+    { key: 'titulo', label: 'Validação' },
+    { key: 'mensagem', label: 'Mensagem' },
+  ]
+
+  return (
+    <section className="panel">
+      <div className="panel-title">
+        <div>
+          <h2>Pré-validação IQS</h2>
+          <p>Checklist governado antes de gerar arquivo físico no padrão aceito pelo IQS.</p>
+        </div>
+        <span className={`pill pill-${validacaoIqs?.status === 'bloqueado' ? 'warning' : 'info'}`}>{validacaoIqs?.status || 'carregando'}</span>
+      </div>
+      <div className="summary-strip">
+        <span><strong>{numberFormat(validacaoIqs?.resumo?.checks)}</strong> checks</span>
+        <span><strong>{numberFormat(validacaoIqs?.resumo?.bloqueantes)}</strong> bloqueante(s)</span>
+        <span><strong>{numberFormat(validacaoIqs?.resumo?.pendentes)}</strong> pendente(s)</span>
+      </div>
+      <DataTable
+        columns={iqsValidationColumns}
+        rows={validacaoIqs?.checks || []}
+        sortable
+        initialSort={{ key: 'status', direction: 'asc' }}
+        empty="Sem validações IQS carregadas."
+      />
+      <p className="panel-footnote">Não gera arquivo: apenas sinaliza bloqueios e pendências físicas como UNIX/LF, encoding e datas.</p>
+    </section>
+  )
+}
+
+function ProdutoAlimentadorDetail({ detail, loading, error, onClose, onOpenOccurrence }) {
+  const resumo = detail?.resumo || {}
+  const diaColumns = [
+    { key: 'dia', label: 'Dia' },
+    { key: 'ocorrencias', label: 'Ocorrências', render: (row) => numberFormat(row.ocorrencias) },
+    { key: 'interrupcoes_ra', label: 'RA', render: (row) => numberFormat(row.interrupcoes_ra) },
+    {
+      key: 'ocorrencias_longas',
+      label: 'Longas/curtas',
+      render: (row) => <MetricPair topLabel="Longas" topValue={numberFormat(row.ocorrencias_longas)} bottomLabel="Curtas" bottomValue={numberFormat(row.ocorrencias_curtas)} />,
+      sortValue: (row) => row.ocorrencias_longas,
+    },
+    { key: 'ucs_operacionais', label: 'UCs OMS', render: (row) => numberFormat(row.ucs_operacionais) },
+    { key: 'ucs_fic_recorrente', label: 'UCs FIC ≥ 3', render: (row) => numberFormat(row.ucs_fic_recorrente) },
+    { key: 'servicos', label: 'Serviços', render: (row) => numberFormat(row.servicos) },
+    { key: 'interrupcoes_sem_servico', label: 'Sem serviço', render: (row) => numberFormat(row.interrupcoes_sem_servico) },
+  ]
+
+  const ocorrenciaColumns = [
+    { key: 'ocorrencia', label: 'Ocorrência' },
+    { key: 'inicio', label: 'Início', render: (row) => dateTime(row.inicio) },
+    { key: 'interrupcoes', label: 'Interrupções', render: (row) => numberFormat(row.interrupcoes) },
+    { key: 'interrupcoes_ra', label: 'RA', render: (row) => numberFormat(row.interrupcoes_ra) },
+    { key: 'equipamentos', label: 'Equipamentos' },
+    {
+      key: 'servicos',
+      label: 'Serviços',
+      render: (row) => <MetricPair topLabel="Serviços" topValue={numberFormat(row.servicos)} bottomLabel="Sem serviço" bottomValue={numberFormat(row.interrupcoes_sem_servico)} />,
+      sortValue: (row) => row.servicos,
+    },
+    {
+      key: 'chi_liquido',
+      label: 'CHI/CI',
+      render: (row) => <MetricPair topLabel="CHI" topValue={decimalFormat(row.chi_liquido, 2)} bottomLabel="CI" bottomValue={numberFormat(row.ci_liquido)} />,
+      sortValue: (row) => row.chi_liquido,
+    },
+    { key: 'duracao_maxima_h', label: 'Duração máx.', render: (row) => `${decimalFormat(row.duracao_maxima_h, 2)} h` },
+  ]
+
+  const suspeitaColumns = [
+    { key: 'CLASSIFICACAO', label: 'Classificação' },
+    { key: 'NUM_OPER_CHV_INTRP', label: 'Equipamento' },
+    { key: 'DIA_OPERACAO', label: 'Dia' },
+    { key: 'SCORE_SUSPEITA_RA', label: 'Score', render: (row) => decimalFormat(row.SCORE_SUSPEITA_RA, 1) },
+    { key: 'QTD_OCORRENCIAS_RA', label: 'Ocorrências RA', render: (row) => numberFormat(row.QTD_OCORRENCIAS_RA) },
+    {
+      key: 'QTD_SERVICOS_TOTAL',
+      label: 'Serviços',
+      render: (row) => <MetricPair topLabel="Serviços" topValue={numberFormat(row.QTD_SERVICOS_TOTAL)} bottomLabel="Sem serviço" bottomValue={numberFormat(row.QTD_INTERRUPCOES_SEM_SERVICO)} />,
+      sortValue: (row) => row.QTD_SERVICOS_TOTAL,
+    },
+    { key: 'UCS_FIC_RECORRENTE_ALIM_DIA', label: 'UCs FIC ≥ 3', render: (row) => numberFormat(row.UCS_FIC_RECORRENTE_ALIM_DIA) },
+    { key: 'QTD_RECLAMACOES_ALIM_DIA', label: 'Reclamações', render: (row) => numberFormat(row.QTD_RECLAMACOES_ALIM_DIA) },
+    { key: 'COMP_FIC_ESTIMADA', label: 'Comp. FIC', render: (row) => currencyFormat(row.COMP_FIC_ESTIMADA) },
+  ]
+
+  return (
+    <section id="produto-detalhe-alimentador" className="panel product-detail-panel">
+      <div className="panel-title">
+        <div>
+          <h2>Detalhe do alimentador</h2>
+          <p>{resumo.alimentador_exibicao || 'Selecione um alimentador para abrir a leitura operacional.'}</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={onClose}>Fechar alimentador</button>
+      </div>
+      <div className="product-breadcrumb" aria-label="Trilha do drill-down">
+        <a href="#produto-rankings">Rankings</a>
+        <span>›</span>
+        <a href="#produto-detalhe-conjunto">{resumo.conjunto_exibicao || 'Conjunto'}</a>
+        <span>›</span>
+        <strong>{resumo.alimentador_exibicao || 'Alimentador'}</strong>
+      </div>
+      {loading && <div className="alert">Carregando detalhe do alimentador...</div>}
+      {error && <div className="alert">Erro no alimentador: {error}</div>}
+
+      <div className="lens-split">
+        <div className="lens-box">
+          <span className="pill pill-info">Lente regulatória</span>
+          <div className="metrics-grid compact">
+            <Card label="DIC/CHI líquido" value={decimalFormat(resumo.chi_liquido, 2)} hint="UCs faturadas/apuráveis" tone="orange" />
+            <Card label="FIC/CI líquido" value={numberFormat(resumo.ci_liquido)} hint="base regulatória" tone="purple" />
+            <Card label="UCs apuráveis" value={numberFormat(resumo.ucs_apuraveis)} hint="PRODIST/DIC/FIC" tone="blue" />
+          </div>
+        </div>
+        <div className="lens-box">
+          <span className="pill pill-warning">Lente cliente/operação</span>
+          <div className="metrics-grid compact">
+            <Card label="Ocorrências" value={numberFormat(resumo.ocorrencias)} hint={resumo.conjunto_exibicao || 'conjunto'} tone="blue" />
+            <Card label="Interrupções RA" value={numberFormat(resumo.interrupcoes_ra)} hint={`${numberFormat(resumo.equipamentos_ra)} equipamento(s)`} tone="orange" />
+            <Card label="Reclamações" value={numberFormat(resumo.reclamacoes)} hint={`${numberFormat(resumo.ucs_reclamantes)} UC(s) reclamantes`} tone="green" />
+          </div>
+        </div>
+      </div>
+
+      <div className="summary-strip">
+        <span><strong>{numberFormat(resumo.ocorrencias_longas)}</strong> ocorrência(s) longa(s)</span>
+        <span><strong>{numberFormat(resumo.ocorrencias_curtas)}</strong> ocorrência(s) curta(s)</span>
+        <span><strong>{numberFormat(resumo.ucs_operacionais)}</strong> UCs OMS/operação</span>
+        <span><strong>{decimalFormat(resumo.duracao_maxima_h, 2)} h</strong> duração máxima</span>
+        <span><strong>{numberFormat(resumo.servicos)}</strong> serviço(s) ADMS</span>
+        <span><strong>{numberFormat(resumo.interrupcoes_sem_servico)}</strong> interrupção(ões) sem serviço</span>
+      </div>
+
+      <div className="product-grid product-grid-wide">
+        <div className="panel panel-nested">
+          <div className="panel-title">
+            <div>
+              <h3>Reincidência por dia</h3>
+              <p>Base para identificar FIC recorrente e baixa reclamação proporcional.</p>
+            </div>
+          </div>
+          <DataTable columns={diaColumns} rows={detail?.dias || []} sortable initialSort={{ key: 'ocorrencias', direction: 'desc' }} empty="Sem recorrência diária." />
+        </div>
+        <div className="panel panel-nested">
+          <div className="panel-title">
+            <div>
+              <h3>Suspeita falha RA</h3>
+              <p>Fila técnica: algoritmo recomenda investigação, não altera IQS automaticamente.</p>
+            </div>
+          </div>
+          <DataTable columns={suspeitaColumns} rows={detail?.suspeitas_ra || []} sortable initialSort={{ key: 'SCORE_SUSPEITA_RA', direction: 'desc' }} empty="Sem suspeita RA forte para este alimentador." />
+        </div>
+      </div>
+
+      <div className="panel panel-nested">
+        <div className="panel-title">
+          <div>
+            <h3>Ocorrências do alimentador</h3>
+            <p>Clique para abrir o detalhe técnico com UC, serviço e reclamação quando disponível.</p>
+          </div>
+        </div>
+        <DataTable
+          columns={ocorrenciaColumns}
+          rows={detail?.ocorrencias || []}
+          sortable
+          initialSort={{ key: 'chi_liquido', direction: 'desc' }}
+          onRowClick={(row) => onOpenOccurrence?.(row.ocorrencia)}
+          rowKey={(row) => `alimentador-ocorrencia-${row.ocorrencia}`}
+          empty="Sem ocorrências para este alimentador."
+        />
+      </div>
+    </section>
+  )
+}
+
+function ProdutoConjuntoDetail({ detail, loading, error, onClose, onOpenOccurrence, onOpenAlimentador }) {
   const resumo = detail?.resumo || {}
   const alimentadorColumns = [
     {
@@ -2967,13 +3516,18 @@ function ProdutoConjuntoDetail({ detail, loading, error, onClose, onOpenOccurren
   ]
 
   return (
-    <section className="panel product-detail-panel">
+    <section id="produto-detalhe-conjunto" className="panel product-detail-panel">
       <div className="panel-title">
         <div>
           <h2>Detalhe do conjunto</h2>
           <p>{resumo.conjunto_exibicao || 'Selecione um conjunto no ranking para abrir o drill-down intermediário.'}</p>
         </div>
         <button className="secondary-button" type="button" onClick={onClose}>Fechar detalhe</button>
+      </div>
+      <div className="product-breadcrumb" aria-label="Trilha do drill-down">
+        <a href="#produto-rankings">Rankings</a>
+        <span>›</span>
+        <strong>{resumo.conjunto_exibicao || 'Conjunto'}</strong>
       </div>
 
       {loading && <div className="alert">Carregando detalhe do conjunto...</div>}
@@ -3009,6 +3563,8 @@ function ProdutoConjuntoDetail({ detail, loading, error, onClose, onOpenOccurren
             rows={detail?.alimentadores || []}
             sortable
             initialSort={{ key: 'chi_liquido', direction: 'desc' }}
+            onRowClick={(row) => onOpenAlimentador?.(row)}
+            rowKey={(row) => `alimentador-${row.alimentador}`}
             empty="Sem alimentadores para este conjunto."
           />
         </div>
@@ -3056,9 +3612,11 @@ function ProdutoPage({ visao, dicionarios, cockpit, token, onOpenOccurrence }) {
   const [conjuntoDetail, setConjuntoDetail] = useState(null)
   const [conjuntoDetailLoading, setConjuntoDetailLoading] = useState(false)
   const [conjuntoDetailError, setConjuntoDetailError] = useState('')
+  const [alimentadorDetail, setAlimentadorDetail] = useState(null)
+  const [alimentadorDetailLoading, setAlimentadorDetailLoading] = useState(false)
+  const [alimentadorDetailError, setAlimentadorDetailError] = useState('')
   const paginas = visao?.paginas_react || []
   const dictionaryItems = dicionarios?.items || []
-  const cockpitCards = cockpit?.cards || []
   const filteredPages = useMemo(() => {
     const term = tableFilter.trim().toLowerCase()
     if (!term) return paginas
@@ -3116,15 +3674,6 @@ function ProdutoPage({ visao, dicionarios, cockpit, token, onOpenOccurrence }) {
     existente_a_expandir: 'warning',
   }
 
-  function formatProductMetric(item) {
-    if (item.unidade === 'BRL') return currencyFormat(item.valor)
-    if (item.codigo === 'fec_liquido') return decimalFormat(item.valor, 2)
-    if (item.codigo === 'dic_liquido') return decimalFormat(item.valor, 2)
-    if (item.codigo === 'dec_liquido') return decimalFormat(item.valor, 2)
-    if (item.unidade === 'hora' || item.unidade === 'hora/cons' || item.unidade === 'freq/cons') return decimalFormat(item.valor, 4)
-    return numberFormat(item.valor)
-  }
-
   async function handleOpenConjunto(row) {
     if (!row?.conjunto || !token) return
     try {
@@ -3151,6 +3700,8 @@ function ProdutoPage({ visao, dicionarios, cockpit, token, onOpenOccurrence }) {
         throw new Error(result?.detail || 'Falha ao consultar detalhe do conjunto.')
       }
       setConjuntoDetail(result)
+      setAlimentadorDetail(null)
+      setAlimentadorDetailError('')
     } catch (requestError) {
       setConjuntoDetailError(requestError.message)
     } finally {
@@ -3158,14 +3709,38 @@ function ProdutoPage({ visao, dicionarios, cockpit, token, onOpenOccurrence }) {
     }
   }
 
-  const regionalColumns = [
-    { key: 'regional_exibicao', label: 'Regional' },
-    { key: 'ocorrencias', label: 'Ocorrências', render: (row) => numberFormat(row.ocorrencias) },
-    { key: 'ucs', label: 'UCs', render: (row) => numberFormat(row.ucs) },
-    { key: 'chi_liquido', label: 'DIC/CHI líq.', render: (row) => decimalFormat(row.chi_liquido, 2) },
-    { key: 'ci_liquido', label: 'FIC/CI líq.', render: (row) => numberFormat(row.ci_liquido) },
-    { key: 'comp_total_prodist', label: 'Compensação', render: (row) => currencyFormat(row.comp_total_prodist) },
-  ]
+  async function handleOpenAlimentador(row) {
+    if (!row?.alimentador || !token) return
+    try {
+      setAlimentadorDetailLoading(true)
+      setAlimentadorDetailError('')
+      setAlimentadorDetail({
+        status: 'carregando',
+        resumo: {
+          ...row,
+          alimentador_exibicao: row.alimentador_exibicao,
+          conjunto: conjuntoDetail?.conjunto || row.conjunto_codigo,
+        },
+        dias: [],
+        ocorrencias: [],
+        suspeitas_ra: [],
+      })
+      const conjuntoParam = conjuntoDetail?.conjunto ? `&conjunto=${encodeURIComponent(conjuntoDetail.conjunto)}` : ''
+      const response = await fetch(
+        `${API_URL}/api/produto/detalhe-alimentador/${encodeURIComponent(row.alimentador)}?limite_ocorrencias=30${conjuntoParam}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao consultar detalhe do alimentador.')
+      }
+      setAlimentadorDetail(result)
+    } catch (requestError) {
+      setAlimentadorDetailError(requestError.message)
+    } finally {
+      setAlimentadorDetailLoading(false)
+    }
+  }
 
   const conjuntoColumns = [
     { key: 'regional_exibicao', label: 'Regional' },
@@ -3248,57 +3823,21 @@ function ProdutoPage({ visao, dicionarios, cockpit, token, onOpenOccurrence }) {
 
       {!visao && <div className="alert">Carregando visão de produto...</div>}
 
-      <section className="metrics-grid compact">
+      <nav className="product-nav" aria-label="Navegação da página Produto">
+        <a className="product-nav-link" href="#produto-rankings">Top conjuntos</a>
+        {conjuntoDetail && <a className="product-nav-link product-nav-link-active" href="#produto-detalhe-conjunto">Conjunto</a>}
+        {alimentadorDetail && <a className="product-nav-link product-nav-link-active" href="#produto-detalhe-alimentador">Alimentador</a>}
+        <a className="product-nav-link" href="#produto-governanca">Governança</a>
+      </nav>
+
+      <section id="produto-overview" className="metrics-grid compact">
         <Card label="Lentes" value={numberFormat(visao?.lentes?.length)} hint="regulatória + cliente/operação" tone="blue" />
         <Card label="Níveis" value={numberFormat(visao?.niveis?.length)} hint="macro, intermediário, detalhe" tone="green" />
         <Card label="Páginas" value={numberFormat(visao?.paginas_react?.length)} hint="mapa React da sprint" tone="orange" />
         <Card label="Dicionários" value={numberFormat(dicionarios?.resumo?.total_disponivel || visao?.dicionarios_humanos?.length)} hint="código + descrição" tone="purple" />
       </section>
 
-      <section className="panel">
-        <div className="panel-title">
-          <div>
-            <h2>Cockpit macro inicial</h2>
-            <p>Priorização por impacto regulatório e operacional, sem substituir análise humana.</p>
-          </div>
-          <span className={`pill pill-${cockpit?.status === 'ok' ? 'success' : 'warning'}`}>{cockpit?.status || 'carregando'}</span>
-        </div>
-        {(cockpit?.alertas || []).map((alerta, index) => (
-          <div className="alert" key={`${alerta.tipo}-${index}`}>{alerta.mensagem}</div>
-        ))}
-        <div className="metrics-grid compact">
-          {cockpitCards.map((item) => (
-            <Card
-              key={item.codigo}
-              label={item.titulo}
-              value={formatProductMetric(item)}
-              hint={`${item.lente} · ${item.descricao}`}
-              tone={item.lente === 'regulatoria' ? 'blue' : 'orange'}
-            />
-          ))}
-          {!cockpitCards.length && (
-            <Card label="Cockpit" value="—" hint="fonte analítica indisponível no momento" tone="orange" />
-          )}
-        </div>
-      </section>
-
-      <section className="product-stack">
-        <div className="panel">
-          <div className="panel-title">
-            <div>
-              <h2>Ranking regional</h2>
-              <p>Ordenável por impacto de DIC/CHI, FIC/CI e compensação.</p>
-            </div>
-          </div>
-          <DataTable
-            columns={regionalColumns}
-            rows={cockpit?.rankings?.regional || []}
-            sortable
-            initialSort={{ key: 'chi_liquido', direction: 'desc' }}
-            empty="Ranking regional indisponível."
-          />
-        </div>
-
+      <section id="produto-rankings" className="product-stack product-section-anchor">
         <div className="panel">
           <div className="panel-title">
             <div>
@@ -3324,14 +3863,30 @@ function ProdutoPage({ visao, dicionarios, cockpit, token, onOpenOccurrence }) {
           loading={conjuntoDetailLoading}
           error={conjuntoDetailError}
           onOpenOccurrence={onOpenOccurrence}
+          onOpenAlimentador={handleOpenAlimentador}
           onClose={() => {
             setConjuntoDetail(null)
             setConjuntoDetailError('')
+            setAlimentadorDetail(null)
+            setAlimentadorDetailError('')
           }}
         />
       )}
 
-      <section className="product-grid">
+      {(alimentadorDetail || alimentadorDetailLoading || alimentadorDetailError) && (
+        <ProdutoAlimentadorDetail
+          detail={alimentadorDetail}
+          loading={alimentadorDetailLoading}
+          error={alimentadorDetailError}
+          onOpenOccurrence={onOpenOccurrence}
+          onClose={() => {
+            setAlimentadorDetail(null)
+            setAlimentadorDetailError('')
+          }}
+        />
+      )}
+
+      <section id="produto-governanca" className="product-grid product-section-anchor">
         <div className="panel">
           <div className="panel-title">
             <div>
@@ -3523,6 +4078,8 @@ export default function App() {
   const [produtoVisao, setProdutoVisao] = useState(null)
   const [produtoDicionarios, setProdutoDicionarios] = useState(null)
   const [produtoCockpit, setProdutoCockpit] = useState(null)
+  const [produtoSuspeitasRa, setProdutoSuspeitasRa] = useState(null)
+  const [produtoValidacaoIqs, setProdutoValidacaoIqs] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loginLoading, setLoginLoading] = useState(false)
   const [authorizing, setAuthorizing] = useState(false)
@@ -3603,6 +4160,8 @@ export default function App() {
           fetch(`${API_URL}/api/produto/visao`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/dicionarios?limite=10000`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/cockpit?limite=20`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/produto/suspeitas-ra?limite=20`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/produto/validacao-iqs`, { headers: authHeaders }),
         ]
         const [
           verificacoesResponse,
@@ -3620,6 +4179,8 @@ export default function App() {
           produtoVisaoResponse,
           produtoDicionariosResponse,
           produtoCockpitResponse,
+          produtoSuspeitasRaResponse,
+          produtoValidacaoIqsResponse,
         ] =
           await Promise.all(protectedRequests)
         const protectedResponses = [
@@ -3638,6 +4199,8 @@ export default function App() {
           produtoVisaoResponse,
           produtoDicionariosResponse,
           produtoCockpitResponse,
+          produtoSuspeitasRaResponse,
+          produtoValidacaoIqsResponse,
         ]
         if (protectedResponses.some((response) => response.status === 401)) {
           clearSession('Sessão expirada ou inválida. Faça login novamente.')
@@ -3670,6 +4233,8 @@ export default function App() {
         if (produtoVisaoResponse.ok) setProdutoVisao(await produtoVisaoResponse.json())
         if (produtoDicionariosResponse.ok) setProdutoDicionarios(await produtoDicionariosResponse.json())
         if (produtoCockpitResponse.ok) setProdutoCockpit(await produtoCockpitResponse.json())
+        if (produtoSuspeitasRaResponse.ok) setProdutoSuspeitasRa(await produtoSuspeitasRaResponse.json())
+        if (produtoValidacaoIqsResponse.ok) setProdutoValidacaoIqs(await produtoValidacaoIqsResponse.json())
       }
       setError('')
     } catch (requestError) {
@@ -3934,6 +4499,7 @@ export default function App() {
         resumo={resumo}
         health={health}
         decFec={decFec}
+        cockpit={produtoCockpit}
         token={token}
         onOpenOccurrence={handleOpenOccurrence}
       />
@@ -3953,6 +4519,7 @@ export default function App() {
         cards={cards}
         modelosIqs={modelosIqs}
         geracoesIqs={geracoesIqs}
+        validacaoIqs={produtoValidacaoIqs}
         user={user}
         onAutorizar={handleAutorizar}
         onCreateGeracaoIqs={handleCreateGeracaoIqs}
@@ -3966,6 +4533,7 @@ export default function App() {
         resumo={anomaliasResumo}
         items={anomalias}
         modulos={anomaliasModulos}
+        suspeitasRa={produtoSuspeitasRa}
         loading={loading}
         onOpenDetail={handleOpenAnomalyDetail}
       />
@@ -3976,6 +4544,7 @@ export default function App() {
         fila={fila}
         ajustes={ajustes}
         alteracoes={alteracoes}
+        produtoCockpit={produtoCockpit}
         user={user}
         token={token}
         onOpenOccurrence={handleOpenOccurrence}

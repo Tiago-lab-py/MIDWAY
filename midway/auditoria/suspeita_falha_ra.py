@@ -19,6 +19,10 @@ def processed_path(anomes: str = ANOMES) -> Path:
     return PROCESSED_DIR / f"iqs_adms_processed_{anomes}.duckdb"
 
 
+def raw_services_path(anomes: str = ANOMES) -> Path:
+    return BASE_DIR / "raw" / f"adms_servicos_raw_{anomes}.duckdb"
+
+
 def _table_exists(con: duckdb.DuckDBPyConnection, table_name: str) -> bool:
     return (
         con.execute(
@@ -276,9 +280,37 @@ def analisar_suspeita_falha_ra(
             """
         ).fetchdf()
         contexto_alimentador = con.execute(_query_alimentador_dia(min_fic_consumidor_dia)).fetchdf()
+        servicos = pd.DataFrame()
+        servicos_path = raw_services_path(anomes)
+        if servicos_path.exists():
+            servicos_sql_path = str(servicos_path).replace("\\", "/").replace("'", "''")
+            con.execute(f"ATTACH '{servicos_sql_path}' AS serv_raw (READ_ONLY)")
+            servicos = con.execute(
+                """
+                SELECT
+                    TRIM(CAST(PID_INTRP_SRVE AS VARCHAR)) AS NUM_SEQ_INTRP,
+                    COUNT(DISTINCT NULLIF(TRIM(CAST(NUM_SEQ_SERV AS VARCHAR)), '')) AS QTD_SERVICOS,
+                    SUM(COALESCE(TRY_CAST(QTDE_RECLAM_SRVE AS DOUBLE), 0)) AS QTD_RECLAMACOES_SERVICO,
+                    MIN(DTHR_SOLIC_SRV) AS PRIMEIRA_SOLICITACAO_SERVICO,
+                    MAX(DTHR_FECH_SRV) AS ULTIMO_FECHAMENTO_SERVICO
+                FROM serv_raw.raw_adms_servicos
+                WHERE NULLIF(TRIM(CAST(PID_INTRP_SRVE AS VARCHAR)), '') IS NOT NULL
+                GROUP BY 1
+                """
+            ).fetchdf()
 
     if ocorrencias.empty:
         return ocorrencias, pd.DataFrame()
+
+    if servicos.empty:
+        ocorrencias["QTD_SERVICOS"] = 0
+        ocorrencias["QTD_RECLAMACOES_SERVICO"] = 0
+        ocorrencias["PRIMEIRA_SOLICITACAO_SERVICO"] = pd.NaT
+        ocorrencias["ULTIMO_FECHAMENTO_SERVICO"] = pd.NaT
+    else:
+        ocorrencias = ocorrencias.merge(servicos, on="NUM_SEQ_INTRP", how="left")
+        ocorrencias["QTD_SERVICOS"] = ocorrencias["QTD_SERVICOS"].fillna(0)
+        ocorrencias["QTD_RECLAMACOES_SERVICO"] = ocorrencias["QTD_RECLAMACOES_SERVICO"].fillna(0)
 
     grouped = (
         ocorrencias.groupby(
@@ -301,6 +333,12 @@ def analisar_suspeita_falha_ra(
             QTD_RECLAMACOES_TOTAL=("QTD_RECLAMACOES", "sum"),
             QTD_UCS_RECLAMANTES_TOTAL=("QTD_UCS_RECLAMANTES", "sum"),
             QTD_OCORRENCIAS_COM_RECLAMACAO=("QTD_RECLAMACOES", lambda values: int((values > 0).sum())),
+            QTD_SERVICOS_TOTAL=("QTD_SERVICOS", "sum"),
+            QTD_RECLAMACOES_SERVICO_TOTAL=("QTD_RECLAMACOES_SERVICO", "sum"),
+            QTD_INTERRUPCOES_COM_SERVICO=("QTD_SERVICOS", lambda values: int((values > 0).sum())),
+            QTD_INTERRUPCOES_SEM_SERVICO=("QTD_SERVICOS", lambda values: int((values <= 0).sum())),
+            PRIMEIRA_SOLICITACAO_SERVICO=("PRIMEIRA_SOLICITACAO_SERVICO", "min"),
+            ULTIMO_FECHAMENTO_SERVICO=("ULTIMO_FECHAMENTO_SERVICO", "max"),
             COMP_FIC_ESTIMADA=("COMP_FIC_ESTIMADA", "sum"),
             COMP_TOTAL_ESTIMADA=("COMP_TOTAL_ESTIMADA", "sum"),
             UCS_COM_COMP_FIC=("UCS_COM_COMP_FIC", "sum"),
@@ -333,6 +371,7 @@ def analisar_suspeita_falha_ra(
     grouped["SINAL_ZERO_RECLAMACAO_EQUIPAMENTO"] = (
         grouped["QTD_OCORRENCIAS_COM_RECLAMACAO"].eq(0) & grouped["COMP_FIC_ESTIMADA"].ge(float(min_comp_fic))
     )
+    grouped["SINAL_SEM_SERVICO_EQUIPAMENTO"] = grouped["QTD_INTERRUPCOES_SEM_SERVICO"].gt(0)
     grouped["SINAL_BAIXA_RECLAMACAO_ALIM_DIA"] = (
         grouped["RECLAMACOES_MINIMAS_ALIM_DIA"].gt(0)
         & grouped["QTD_RECLAMACOES_ALIM_DIA"].lt(grouped["RECLAMACOES_MINIMAS_ALIM_DIA"])
@@ -345,6 +384,7 @@ def analisar_suspeita_falha_ra(
         + grouped["CI_LIQUIDO_TOTAL"].clip(upper=100)
         + (grouped["COMP_FIC_ESTIMADA"] / 1000).clip(upper=40)
         + grouped["SINAL_BAIXA_RECLAMACAO_ALIM_DIA"].astype(int) * 20
+        + grouped["SINAL_SEM_SERVICO_EQUIPAMENTO"].astype(int) * 10
         + (grouped["JANELA_MINUTOS"].le(24 * 60).astype(int) * 10)
     ).clip(upper=100)
     grouped["CLASSIFICACAO"] = grouped.apply(
@@ -380,9 +420,14 @@ def analisar_suspeita_falha_ra(
                 "QTD_OCORRENCIAS_RA",
                 "SINAL_ZERO_RECLAMACAO_EQUIPAMENTO",
                 "SINAL_BAIXA_RECLAMACAO_ALIM_DIA",
+                "SINAL_SEM_SERVICO_EQUIPAMENTO",
                 "UCS_FIC_RECORRENTE_ALIM_DIA",
                 "QTD_RECLAMACOES_ALIM_DIA",
                 "RECLAMACOES_MINIMAS_ALIM_DIA",
+                "QTD_SERVICOS_TOTAL",
+                "QTD_RECLAMACOES_SERVICO_TOTAL",
+                "QTD_INTERRUPCOES_COM_SERVICO",
+                "QTD_INTERRUPCOES_SEM_SERVICO",
             ]
         ],
         on=["REGIONAL", "CONJUNTO", "ALIM_INTRP", "NUM_OPER_CHV_INTRP", "DIA_OPERACAO"],
@@ -428,6 +473,7 @@ def gerar_exportacao_suspeita_falha_ra(
         file.write(f"Mínimo compensação FIC estimada: {min_comp_fic}\n")
         file.write(f"FIC recorrente por consumidor no alimentador/dia: >= {min_fic_consumidor_dia}\n")
         file.write(f"Regra proporcional reclamações: 1 a cada {consumidores_por_reclamacao} consumidores recorrentes\n")
+        file.write("Serviços ADMS: quando data/raw/adms_servicos_raw_<ANOMES>.duckdb existe, PID_INTRP_SRVE entra como evidência por interrupção.\n")
         file.write(f"Equipamentos/dia suspeitos: {len(resumo)}\n")
         file.write(f"Ocorrências detalhadas: {len(detalhe)}\n")
         file.write(f"Resumo equipamento/dia: {resumo_path}\n")
@@ -436,7 +482,8 @@ def gerar_exportacao_suspeita_falha_ra(
             "Regra: religador automático com ocorrências sucessivas no mesmo equipamento e dia. "
             "Sinal alto quando não há reclamações vinculadas ao equipamento/dia e há compensação FIC; "
             "sinal crítico quando o alimentador/conjunto/dia tem consumidores com FIC recorrente "
-            "e reclamações abaixo da proporção mínima esperada.\n"
+            "e reclamações abaixo da proporção mínima esperada. A ausência de serviço ADMS vinculado "
+            "reforça a suspeita operacional, mas não gera alteração automática no IQS.\n"
         )
 
     return {
