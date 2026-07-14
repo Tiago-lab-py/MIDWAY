@@ -582,10 +582,10 @@ function CockpitMacroPanel({ cockpit }) {
   }
 
   return (
-    <section id="dashboard-cockpit" className="panel product-section-anchor">
+    <section id="dashboard-cockpit" className="panel product-section-anchor dashboard-section">
       <div className="panel-title">
         <div>
-          <h2>Cockpit macro inicial</h2>
+          <h2>Visão Geral</h2>
           <p>Priorização por impacto regulatório e operacional, sem substituir análise humana.</p>
         </div>
         <span className={`pill pill-${cockpit?.status === 'ok' ? 'success' : 'warning'}`}>{cockpit?.status || 'carregando'}</span>
@@ -622,7 +622,7 @@ function RankingRegionalPanel({ cockpit }) {
   ]
 
   return (
-    <section id="dashboard-ranking-regional" className="panel product-section-anchor">
+    <section id="dashboard-ranking-regional" className="panel product-section-anchor dashboard-section">
       <div className="panel-title">
         <div>
           <h2>Ranking regional</h2>
@@ -640,8 +640,108 @@ function RankingRegionalPanel({ cockpit }) {
   )
 }
 
-function DashboardPage({ cards, resumo, health, decFec, cockpit, token, onOpenOccurrence }) {
+function AjustesGovernadosPanel({ resumo, modulos }) {
+  const manualModuleCodes = new Set(['GOVERNANCA_IQS', 'AJUSTE_MANUAL_IQS'])
+  const modules = modulos || []
+  const automatedModules = modules.filter((module) => !manualModuleCodes.has(module.codigo))
+  const manualModules = modules.filter((module) => manualModuleCodes.has(module.codigo))
+  const fallbackManualModules = manualModules.length
+    ? manualModules
+    : [
+        {
+          codigo: 'AJUSTE_MANUAL_IQS',
+          nome: 'Ajuste manual IQS',
+          descricao: 'Decisão humana governada quando o algoritmo apenas sugere ou há conflito de evidência.',
+          total: resumo?.fila_tecnica_total,
+          pendentes: resumo?.fila_aberta,
+          impacto_ressarcimento: 0,
+        },
+      ]
   const filaTotal = Number(resumo.fila_tecnica_total || 0)
+  const autoTotal = automatedModules.reduce((acc, module) => acc + Number(module.total || 0), 0)
+  const manualTotal = fallbackManualModules.reduce((acc, module) => acc + Number(module.total || 0), 0)
+
+  function moduleCard(module, mode) {
+    return (
+      <article className="module-summary-card" key={`${mode}-${module.codigo}`}>
+        <div>
+          <span className={`pill pill-${mode === 'auto' ? 'success' : 'warning'}`}>{mode === 'auto' ? 'algoritmo' : 'manual'}</span>
+          <h3>{module.nome || module.codigo}</h3>
+          <p>{module.descricao || module.criterio_curto || 'Módulo catalogado para análise governada.'}</p>
+        </div>
+        <div className="module-summary-metrics">
+          <span><strong>{numberFormat(module.total)}</strong><small>casos</small></span>
+          <span><strong>{numberFormat(module.pendentes)}</strong><small>pendentes</small></span>
+          <span><strong>{currencyFormat(module.impacto_ressarcimento)}</strong><small>impacto</small></span>
+        </div>
+      </article>
+    )
+  }
+
+  return (
+    <section className="panel dashboard-section">
+      <div className="panel-title">
+        <div>
+          <h2>Painel de ajustes</h2>
+          <p>Módulos tratados por algoritmo separados dos itens que exigem decisão humana e justificativa.</p>
+        </div>
+      </div>
+
+      <div className="summary-strip">
+        <span><strong>{numberFormat(resumo.ajustes_auto_9282)}</strong> ajuste(s) automáticos autorizáveis</span>
+        <span><strong>{numberFormat(autoTotal)}</strong> suspeita(s) detectadas por algoritmo</span>
+        <span><strong>{numberFormat(filaTotal)}</strong> item(ns) em fila técnica/manual</span>
+        <span><strong>{numberFormat(resumo.fila_servico_conflito)}</strong> conflito(s) de serviço</span>
+        <span><strong>{numberFormat(resumo.fila_reclamacao)}</strong> caso(s) por reclamação</span>
+      </div>
+
+      <div className="adjustment-panel-grid">
+        <div className="adjustment-lane adjustment-lane-auto">
+          <div className="compact-title">
+            <h3>Automático / Algoritmos</h3>
+            <p>Detecta, calcula impacto e sugere ação. Só exporta quando houver regra aprovada.</p>
+          </div>
+          <article className="module-summary-card module-summary-card-featured">
+            <div>
+              <span className="pill pill-success">exportável com governança</span>
+              <h3>Correção especializada 92/82</h3>
+              <p>Reclassificação componente/causa com evidência robusta; módulo específico, não eixo central do produto.</p>
+            </div>
+            <div className="module-summary-metrics">
+              <span><strong>{numberFormat(resumo.ajustes_auto_9282)}</strong><small>automáticos</small></span>
+              <span><strong>{numberFormat(resumo.qtd_candidatos_autorizacao)}</strong><small>candidatos</small></span>
+              <span><strong>{numberFormat(resumo.qtd_autorizados_autorizacao)}</strong><small>autorizados</small></span>
+            </div>
+          </article>
+          {automatedModules.map((module) => moduleCard(module, 'auto'))}
+          {!automatedModules.length && <p className="muted-text">Catálogo de módulos automáticos ainda não carregado.</p>}
+        </div>
+
+        <div className="adjustment-lane adjustment-lane-manual">
+          <div className="compact-title">
+            <h3>Manual / Decisão humana</h3>
+            <p>O analista decide, registra justificativa e pode divergir da sugestão do algoritmo.</p>
+          </div>
+          {fallbackManualModules.map((module) => moduleCard(module, 'manual'))}
+          <article className="module-summary-card">
+            <div>
+              <span className="pill pill-info">governança</span>
+              <h3>Fila técnica</h3>
+              <p>Casos com conflito, baixa confiança ou necessidade de evidência operacional antes de alterar IQS.</p>
+            </div>
+            <div className="module-summary-metrics">
+              <span><strong>{numberFormat(resumo.fila_aberta)}</strong><small>abertos</small></span>
+              <span><strong>{percent(resumo.fila_servico_conflito, filaTotal)}</strong><small>conflito</small></span>
+              <span><strong>{percent(resumo.fila_reclamacao, filaTotal)}</strong><small>reclamação</small></span>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function DashboardPage({ resumo, health, decFec, cockpit, modulos, token, onOpenOccurrence }) {
   return (
     <>
       <PageHero
@@ -653,9 +753,8 @@ function DashboardPage({ cards, resumo, health, decFec, cockpit, token, onOpenOc
       />
 
       <CockpitMacroPanel cockpit={cockpit} />
-      <RankingRegionalPanel cockpit={cockpit} />
 
-      <section className="panel">
+      <section className="panel dashboard-section">
         <div className="panel-title">
           <div>
             <h2>DEC/FEC Antes e Depois das Tratativas</h2>
@@ -727,28 +826,9 @@ function DashboardPage({ cards, resumo, health, decFec, cockpit, token, onOpenOc
         />
       </section>
 
-      <section className="panel">
-        <div className="panel-title">
-          <div>
-            <h2>Painel de Ajustes de Componente/Causa</h2>
-            <p>Resumo executivo das tratativas para reclassificação e autorização governada.</p>
-          </div>
-        </div>
-        <section className="metrics-grid compact">
-          {cards.map((card) => (
-            <Card key={card.label} {...card} />
-          ))}
-        </section>
-        <div className="summary-chart">
-          <div />
-          <ul>
-            <li><span className="dot green" /> Automáticos: {numberFormat(resumo.ajustes_auto_9282)}</li>
-            <li><span className="dot orange" /> Fila aberta: {numberFormat(resumo.fila_aberta)}</li>
-            <li><span className="dot purple" /> Conflitos: {numberFormat(resumo.fila_servico_conflito)} ({percent(resumo.fila_servico_conflito, filaTotal)})</li>
-            <li><span className="dot blue" /> Reclamação: {numberFormat(resumo.fila_reclamacao)} ({percent(resumo.fila_reclamacao, filaTotal)})</li>
-          </ul>
-        </div>
-      </section>
+      <RankingRegionalPanel cockpit={cockpit} />
+
+      <AjustesGovernadosPanel resumo={resumo} modulos={modulos} />
 
     </>
   )
@@ -4500,6 +4580,7 @@ export default function App() {
         health={health}
         decFec={decFec}
         cockpit={produtoCockpit}
+        modulos={anomaliasModulos}
         token={token}
         onOpenOccurrence={handleOpenOccurrence}
       />

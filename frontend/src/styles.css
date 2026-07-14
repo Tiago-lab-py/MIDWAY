@@ -542,6 +542,96 @@ p {
   padding: 1.2rem;
 }
 
+.dashboard-section {
+  margin-top: 1.25rem;
+}
+
+.adjustment-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.adjustment-lane {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.22);
+  padding: 1rem;
+}
+
+.adjustment-lane-auto {
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.08);
+}
+
+.adjustment-lane-manual {
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.1);
+}
+
+.adjustment-lane .compact-title h3 {
+  margin: 0 0 0.25rem;
+}
+
+.adjustment-lane .compact-title p {
+  color: #94a3b8;
+  margin: 0;
+}
+
+.module-summary-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(240px, 0.75fr);
+  gap: 1rem;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.13);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.52);
+  padding: 0.95rem;
+}
+
+.module-summary-card + .module-summary-card,
+.module-summary-card + .muted-text {
+  margin-top: 0.75rem;
+}
+
+.module-summary-card-featured {
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.module-summary-card h3 {
+  margin: 0.45rem 0 0.35rem;
+}
+
+.module-summary-card p {
+  color: #94a3b8;
+  margin: 0;
+}
+
+.module-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.module-summary-metrics span {
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.34);
+  padding: 0.65rem;
+}
+
+.module-summary-metrics strong,
+.module-summary-metrics small {
+  display: block;
+}
+
+.module-summary-metrics strong {
+  color: #f8fafc;
+}
+
+.module-summary-metrics small {
+  color: #94a3b8;
+  font-size: 0.72rem;
+}
+
 .panel-title {
   display: flex;
   align-items: center;
@@ -2453,7 +2543,8 @@ th {
   .hero-side,
   .result-grid,
   .analysis-filter-grid,
-  .analysis-summary-strip {
+  .analysis-summary-strip,
+  .adjustment-panel-grid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -2501,7 +2592,10 @@ th {
   .result-grid,
   .search-panel,
   .analysis-filter-grid,
-  .analysis-summary-strip {
+  .analysis-summary-strip,
+  .adjustment-panel-grid,
+  .module-summary-card,
+  .module-summary-metrics {
     grid-template-columns: 1fr;
   }
 
