@@ -24,8 +24,14 @@ if /I "%~1"=="painel" (
 
 if /I "%~1"=="api" (
     echo Abrindo MIDWAY API FastAPI...
-    if "%MIDWAY_API_PORT%"=="" set "MIDWAY_API_PORT=8001"
-    "%PYTHON_EXE%" -m uvicorn midway.api.main:app --host 127.0.0.1 --port !MIDWAY_API_PORT! --reload
+    set "MIDWAY_API_PORT_RESOLVIDO=%MIDWAY_API_PORT%"
+    if "!MIDWAY_API_PORT_RESOLVIDO!"=="" set "MIDWAY_API_PORT_RESOLVIDO=8001"
+    echo !MIDWAY_API_PORT_RESOLVIDO!| findstr /R "^[0-9][0-9]*$" >nul
+    if errorlevel 1 (
+        echo AVISO: MIDWAY_API_PORT invalido: !MIDWAY_API_PORT_RESOLVIDO!. Usando porta 8001.
+        set "MIDWAY_API_PORT_RESOLVIDO=8001"
+    )
+    "%PYTHON_EXE%" -m uvicorn midway.api.main:app --host 127.0.0.1 --port !MIDWAY_API_PORT_RESOLVIDO! --reload
     if errorlevel 1 goto erro
     goto fim
 )

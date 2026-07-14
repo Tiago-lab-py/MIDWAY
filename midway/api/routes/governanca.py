@@ -102,6 +102,7 @@ PERFIS_DESCRICOES = {
 
 PAGINAS_PERMISSAO = {
     "dashboard": "Dashboard",
+    "produto": "Produto",
     "executivo": "Executivo",
     "anomalias": "Anomalias",
     "analise_tecnica": "Análise Técnica",

@@ -13,12 +13,116 @@ V7_TABLES = {
     "midway_v7_decisao",
 }
 
+ANOMALY_MODULES: list[dict[str, object]] = [
+    {
+        "codigo": "SOBREPOSICAO_UC",
+        "nome": "Sobreposição de UC",
+        "descricao": "Registros de UC total ou parcialmente sobrepostos que podem duplicar DIC/FIC.",
+        "escopo": "UC/interrupção",
+        "criterio_curto": "mesma UC, mesmo tipo/protocolo e janela temporal sobreposta",
+        "impacto": ["DIC/FIC", "DEC/FEC", "IQS"],
+        "orientacao_analista": "Confirmar se a correção 91/D ou ajuste parcial preserva rastreabilidade antes de exportar.",
+        "documento": "docs/modulos/sobreposicao_uc.md",
+        "codigos_anomalia": ["SOBREPOSICAO_TOTAL_UC", "SOBREPOSICAO_PARCIAL_UC"],
+        "categorias": ["sobreposição"],
+    },
+    {
+        "codigo": "DURACAO_IMPACTO",
+        "nome": "Duração e impacto atípico",
+        "descricao": "Outliers de duração, volume de UCs ou impacto fora do padrão esperado.",
+        "escopo": "ocorrência/interrupção",
+        "criterio_curto": "duração alta, muitas UCs afetadas ou contenções fora do padrão",
+        "impacto": ["DIC/FIC", "DEC/FEC", "qualidade"],
+        "orientacao_analista": "Verificar se o outlier é evento real, erro de data/hora ou problema de composição do RAW.",
+        "documento": "docs/modulos/duracao_impacto.md",
+        "codigos_anomalia": ["OUTLIER_BRUTO"],
+        "categorias": ["integridade"],
+    },
+    {
+        "codigo": "COMPONENTE_CAUSA",
+        "nome": "Componente/causa",
+        "descricao": "Divergência de grupo, componente e causa frente à referência IQS, serviços e reclamações.",
+        "escopo": "ocorrência/interrupção",
+        "criterio_curto": "par componente/causa inválido ou divergente das evidências",
+        "impacto": ["classificação IQS", "ressarcimento", "qualidade"],
+        "orientacao_analista": "Comparar código e descrição atuais com sugestão, serviços, reclamações e referência IQS.",
+        "documento": "docs/modulos/componente_causa.md",
+        "codigos_anomalia": ["VIOLACAO_COMP_CAUSA", "ANALISE_TECNICA_9282"],
+        "categorias": ["regulatória"],
+    },
+    {
+        "codigo": "FALHA_EQUIPAMENTO_RA",
+        "nome": "Suspeita falha RA",
+        "descricao": "Religadores/equipamentos com FIC recorrente, baixa reclamação e possível falha de comunicação.",
+        "escopo": "equipamento/alimentador/conjunto",
+        "criterio_curto": "ocorrências sucessivas no equipamento/dia com FIC recorrente e reclamação incompatível",
+        "impacto": ["FIC", "ressarcimento", "operação"],
+        "orientacao_analista": "Conferir serviços, sequência de eventos, reclamações e atuação automática do equipamento.",
+        "documento": "docs/modulos/falha_equipamento_ra.md",
+        "codigos_anomalia": ["SUSPEITA_FALHA_RA", "SUSPEITA_FORTE_FALHA_RA"],
+        "categorias": ["equipamento", "operacional"],
+    },
+    {
+        "codigo": "INTERRUPCAO_SEM_UC",
+        "nome": "Interrupção sem UC",
+        "descricao": "Interrupções ou ocorrências sem UC apurável que podem indicar lacuna de integração ou exportação indevida.",
+        "escopo": "interrupção/ocorrência",
+        "criterio_curto": "interrupção relevante sem UC associada ou sem lastro apurável",
+        "impacto": ["qualidade", "IQS"],
+        "orientacao_analista": "Confirmar se a interrupção deve ser bloqueada, complementada ou mantida como evidência operacional.",
+        "documento": "docs/modulos/interrupcao_sem_uc.md",
+        "codigos_anomalia": ["INTERRUPCAO_SEM_UC", "OCORRENCIA_SEM_UC"],
+        "categorias": ["sem_uc"],
+    },
+    {
+        "codigo": "DUPLICIDADE_TIPO",
+        "nome": "Duplicidade de tipo",
+        "descricao": "Duplicidades ou mistura de tipo de interrupção/protocolo que podem afetar apuração.",
+        "escopo": "UC/interrupção",
+        "criterio_curto": "mesma UC/interrupção com tipos ou protocolos incompatíveis",
+        "impacto": ["DIC/FIC", "qualidade"],
+        "orientacao_analista": "Separar evento real de duplicidade sistêmica antes de sugerir correção.",
+        "documento": "docs/modulos/duplicidade_tipo.md",
+        "codigos_anomalia": ["DUPLICIDADE_TIPO", "TIPO_PROTOCOLO_DIVERGENTE"],
+        "categorias": ["duplicidade"],
+    },
+    {
+        "codigo": "DIA_CRITICO_ISE",
+        "nome": "Dia crítico / ISE",
+        "descricao": "Eventos vinculados a dia crítico, ISE ou DISE que exigem validação regulatória específica.",
+        "escopo": "conjunto/dia/regional",
+        "criterio_curto": "protocolo ou janela crítica com impacto regulatório",
+        "impacto": ["DICRI", "DISE", "ressarcimento"],
+        "orientacao_analista": "Validar janela, conjunto, protocolo e evidência antes de alterar apuração.",
+        "documento": "docs/modulos/dia_critico_ise.md",
+        "codigos_anomalia": ["DIA_CRITICO", "ISE", "DISE"],
+        "categorias": ["ise", "dia_critico"],
+    },
+    {
+        "codigo": "GOVERNANCA_IQS",
+        "nome": "Governança IQS",
+        "descricao": "Itens que dependem de decisão humana, auditoria ou regra operacional antes do pacote IQS.",
+        "escopo": "governança/exportação",
+        "criterio_curto": "ajuste com impacto em exportação IQS ou regra operacional auditável",
+        "impacto": ["IQS", "governança"],
+        "orientacao_analista": "Registrar decisão, justificativa e valores atuais/sugeridos antes de aprovar.",
+        "documento": "docs/modulos/ajuste_manual_iqs.md",
+        "codigos_anomalia": ["ESTADO_7_MANOBRA"],
+        "categorias": ["operacional", "governança"],
+    },
+]
+
+
+def module_catalog() -> list[dict[str, object]]:
+    return [dict(item) for item in ANOMALY_MODULES]
+
 
 def list_anomalies() -> dict[str, object]:
     rows = _list_postgres_anomalies()
     return {
         "resumo": _summary_from_rows(rows, "RAW/SILVER/GOLD"),
         "items": rows,
+        "modulos": _modules_with_counts(rows),
         "fonte": "postgres",
     }
 
@@ -207,12 +311,18 @@ def _postgres_anomaly_detail(id_anomalia: str) -> dict[str, object] | None:
 
 
 def _summary_row(row: dict[str, Any]) -> dict[str, object]:
+    module = _module_for(row["anomalia_codigo"], row["categoria"])
     return {
         "id_anomalia": row["id_anomalia"],
         "registro_id": row["registro_id"],
         "anomalia_codigo": row["anomalia_codigo"],
         "nome": row["nome"],
         "categoria": row["categoria"],
+        "modulo_codigo": module["codigo"],
+        "modulo_nome": module["nome"],
+        "modulo_descricao": module["descricao"],
+        "modulo_orientacao": module["orientacao_analista"],
+        "modulo_documento": module["documento"],
         "severidade": row["severidade"],
         "confianca": float(row["confianca"] or 0),
         "status": _status_label(row["status_anomalia"]),
@@ -244,12 +354,14 @@ def _detail_row(
 ) -> dict[str, object]:
     impact = row.get("impacto") or {}
     suggestion = suggestion or {}
+    module = _module_for(row["anomalia_codigo"], row["categoria"])
     return {
         "id_anomalia": row["id_anomalia"],
         "registro_id": row["registro_id"],
         "anomalia_codigo": row["anomalia_codigo"],
         "nome": row["nome"],
         "categoria": row["categoria"],
+        "modulo": module,
         "severidade": row["severidade"],
         "confianca": float(row["confianca"] or 0),
         "status": _status_label(row["status_anomalia"]),
@@ -303,6 +415,46 @@ def _summary_from_rows(rows: list[dict[str, object]], source: str) -> dict[str, 
         "impacto_dec": round(sum(float(row["impacto_dec"]) for row in rows), 4),
         "impacto_ressarcimento": round(sum(float(row["impacto_ressarcimento"]) for row in rows), 2),
         "fonte": source,
+    }
+
+
+def _modules_with_counts(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    modules = []
+    for module in ANOMALY_MODULES:
+        module_rows = [row for row in rows if row.get("modulo_codigo") == module["codigo"]]
+        modules.append(
+            {
+                **module,
+                "total": len(module_rows),
+                "pendentes": sum(1 for row in module_rows if row.get("status") == "pendente"),
+                "alto_risco": sum(1 for row in module_rows if row.get("severidade") in {"alta", "crítica"}),
+                "impacto_ressarcimento": round(sum(float(row.get("impacto_ressarcimento") or 0) for row in module_rows), 2),
+                "impacto_dec": round(sum(float(row.get("impacto_dec") or 0) for row in module_rows), 4),
+            }
+        )
+    return modules
+
+
+def _module_for(code: str | None, category: str | None) -> dict[str, object]:
+    normalized_code = str(code or "").upper()
+    normalized_category = str(category or "").lower()
+    for module in ANOMALY_MODULES:
+        if normalized_code in {str(item).upper() for item in module["codigos_anomalia"]}:
+            return module
+    for module in ANOMALY_MODULES:
+        if normalized_category in {str(item).lower() for item in module["categorias"]}:
+            return module
+    return {
+        "codigo": "OUTRAS_ANOMALIAS",
+        "nome": "Outras anomalias",
+        "descricao": "Suspeitas ainda não classificadas em módulo específico.",
+        "escopo": "variável",
+        "criterio_curto": "critério registrado no detalhe da anomalia",
+        "impacto": ["qualidade"],
+        "orientacao_analista": "Revisar detalhe, evidências e decidir se deve virar módulo governado.",
+        "documento": "docs/modulos/README.md",
+        "codigos_anomalia": [],
+        "categorias": [],
     }
 
 

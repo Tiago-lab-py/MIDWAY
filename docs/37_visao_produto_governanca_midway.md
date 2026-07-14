@@ -101,6 +101,15 @@ Usado para direcionar investigação.
 | Grupo/componente/causa | divergência técnica e referência IQS |
 | Tipo de suspeita | sobreposição, sem UC, duração, ressarcimento, componente/causa |
 
+No ranking por conjunto, a visão intermediária deve separar:
+
+- ocorrências longas: duração maior ou igual a 3 minutos;
+- ocorrências curtas: duração menor que 3 minutos;
+- CHI/CI líquido regulatório;
+- CHI/CI expurgado por Dia Crítico;
+- CHI/CI expurgado por ISE/DISE;
+- CHI/CI de UCs não faturadas, para visão cliente/operação.
+
 Perguntas que este nível responde:
 
 - Qual alimentador ou chave explica o maior volume de suspeitas?
@@ -159,10 +168,19 @@ Quando o dicionário oficial não estiver disponível, a interface deve mostrar 
 
 Campos de busca e filtros devem aceitar código ou texto. Para o analista, selecionar `92 - Religador` é melhor que digitar apenas `92`.
 
+Na tela `Produto`, dicionários devem aparecer como cobertura estatística e qualidade da legibilidade, não como listas extensas. A busca detalhada por código deve ficar nas telas operacionais que precisam do campo ou em uma tela administrativa específica de dicionários.
+
 Na hierarquia elétrica, conjunto e alimentador são campos obrigatórios de leitura humana:
 
 - número do conjunto + nome do conjunto;
 - número/código do alimentador + nome do alimentador.
+
+Na fase local, esses nomes são enriquecidos pelos arquivos:
+
+- `data/input/Referencia_DEC FEC CONJUNTO Ano_Copel.csv`;
+- `data/input/Referencia_Alimentador_Copel.CSV`.
+
+Pendência para migração empresarial: extrair e versionar os nomes diretamente do IQS/cadastro oficial da empresa, substituindo a referência local.
 
 Se o nome não estiver disponível na base, a tela deve exibir o número/código e marcar `nome não disponível`, preservando a rastreabilidade.
 

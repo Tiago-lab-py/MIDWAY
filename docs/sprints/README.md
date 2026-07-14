@@ -22,9 +22,9 @@ Toda sprint deve declarar:
 8. plano de rollback ou contenção;
 9. impacto em React, Streamlit, API, banco e exportação IQS.
 
-## Sprints planejadas
+## Sprints ativas e planejadas
 
 | Sprint | Tema | Status |
 | --- | --- | --- |
-| `01_transicao_segura_react_streamlit_governanca.md` | Transição segura para visão de produto governada | Planejada |
-
+| `01_transicao_segura_react_streamlit_governanca.md` | Transição segura para visão de produto governada | Iniciada |
+| `02_drilldown_impacto.md` | Drill-down de impacto regulatório e operação | Iniciada |

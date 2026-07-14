@@ -4,6 +4,7 @@ const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8001'
 
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: 'D' },
+  { id: 'produto', label: 'Produto', icon: 'P' },
   { id: 'executivo', label: 'Executivo', icon: 'E', profiles: ['GESTOR', 'ADM'] },
   { id: 'anomalias', label: 'Anomalias', icon: '!' },
   { id: 'analise_tecnica', label: 'Análise Técnica', icon: 'A' },
@@ -86,6 +87,25 @@ function StatusPill({ value }) {
   const normalized = String(value || '').toLowerCase()
   const tone = normalized.includes('pendente') ? 'warning' : normalized.includes('aprov') ? 'success' : 'info'
   return <span className={`pill pill-${tone}`}>{value || '—'}</span>
+}
+
+function CodeLabel({ codigo, nome, descricao }) {
+  const text = nome || descricao || 'descrição não disponível'
+  return (
+    <span className={`code-label ${nome || descricao ? '' : 'code-label-missing'}`}>
+      <strong>{codigo || '—'}</strong>
+      <span>{text}</span>
+    </span>
+  )
+}
+
+function MetricPair({ topLabel, topValue, bottomLabel, bottomValue }) {
+  return (
+    <span className="metric-pair">
+      <span><small>{topLabel}</small><strong>{topValue}</strong></span>
+      <span><small>{bottomLabel}</small><strong>{bottomValue}</strong></span>
+    </span>
+  )
 }
 
 function ImpactCard({ label, antes, depois, ganho, ganhoPct }) {
@@ -190,7 +210,7 @@ function MiniDatabaseStatus({ health }) {
   )
 }
 
-function DataTable({ columns, rows, empty = 'Nenhum item encontrado.', sortable = false, initialSort = null }) {
+function DataTable({ columns, rows, empty = 'Nenhum item encontrado.', sortable = false, initialSort = null, onRowClick = null, rowKey = null }) {
   const [sortConfig, setSortConfig] = useState(initialSort)
   const sortedRows = useMemo(() => {
     if (!sortable || !sortConfig?.key) return rows
@@ -240,7 +260,11 @@ function DataTable({ columns, rows, empty = 'Nenhum item encontrado.', sortable 
         </thead>
         <tbody>
           {sortedRows.map((row, rowIndex) => (
-            <tr key={row.id_fila || row.id_ajuste || row.id_evento || `${rowIndex}`}>
+            <tr
+              key={rowKey ? rowKey(row, rowIndex) : row.id_fila || row.id_ajuste || row.id_evento || `${rowIndex}`}
+              className={onRowClick ? 'clickable-row' : ''}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
               {columns.map((column) => (
                 <td key={column.key}>
                   {column.render ? column.render(row) : textValue(row[column.key])}
@@ -862,6 +886,7 @@ function AnomalyDetailModal({ detail, loading, onClose, onRegisterDecision }) {
                 <SeverityBadge value={detail.severidade} />
                 <ConfidenceBadge value={detail.confianca} />
                 <StatusPill value={detail.status} />
+                <span className="pill pill-success">{detail.modulo?.codigo || detail.categoria}</span>
                 <span className="pill pill-info">{detail.categoria}</span>
               </div>
             </div>
@@ -880,6 +905,25 @@ function AnomalyDetailModal({ detail, loading, onClose, onRegisterDecision }) {
           </section>
 
           <section className="content-grid">
+            <div className="panel">
+              <div className="panel-title">
+                <div>
+                  <h3>Módulo de anomalia</h3>
+                  <p>{detail.modulo?.descricao || 'Módulo não classificado.'}</p>
+                </div>
+              </div>
+              <KeyValueGrid
+                data={{
+                  codigo: detail.modulo?.codigo,
+                  nome: detail.modulo?.nome,
+                  escopo: detail.modulo?.escopo,
+                  criterio: detail.modulo?.criterio_curto,
+                  orientacao_analista: detail.modulo?.orientacao_analista,
+                  documento: detail.modulo?.documento,
+                }}
+              />
+            </div>
+
             <div className="panel">
               <div className="panel-title">
                 <div>
@@ -957,10 +1001,9 @@ function AnomalyDetailModal({ detail, loading, onClose, onRegisterDecision }) {
   )
 }
 
-function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
+function AnomaliasPage({ resumo, items, modulos, loading, onOpenDetail }) {
   const total = Number(resumo?.total || 0)
   const [tipoAtivo, setTipoAtivo] = useState('todos')
-  const [filtroPos, setFiltroPos] = useState('todos')
   const [anomaliaSelecionadaId, setAnomaliaSelecionadaId] = useState('')
   const [notaDecisao, setNotaDecisao] = useState('')
 
@@ -983,25 +1026,45 @@ function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
     return base
   }, [items])
   const tiposAnomalia = useMemo(() => {
+    const moduleRows = (modulos || []).filter((modulo) => Number(modulo.total || 0) > 0)
+    if (moduleRows.length) {
+      return [
+        { id: 'todos', label: 'Todos os módulos', total, descricao: 'Visão geral das suspeitas.' },
+        ...moduleRows
+          .sort((a, b) => Number(b.total || 0) - Number(a.total || 0) || String(a.nome).localeCompare(String(b.nome)))
+          .map((modulo) => ({
+            id: modulo.codigo,
+            label: modulo.nome,
+            total: modulo.total,
+            descricao: modulo.descricao,
+            orientacao: modulo.orientacao_analista,
+            impacto: modulo.impacto || [],
+            documento: modulo.documento,
+          })),
+      ]
+    }
     const mapa = new Map()
     ;(items || []).forEach((item) => {
-      const categoria = item.categoria || item.anomalia_codigo || 'Outras'
-      mapa.set(categoria, (mapa.get(categoria) || 0) + 1)
+      const categoria = item.modulo_codigo || item.categoria || item.anomalia_codigo || 'Outras'
+      mapa.set(categoria, {
+        label: item.modulo_nome || item.categoria || item.anomalia_codigo || 'Outras',
+        total: (mapa.get(categoria)?.total || 0) + 1,
+        descricao: item.modulo_descricao,
+        orientacao: item.modulo_orientacao,
+      })
     })
     return [
-      { id: 'todos', label: 'Todos', total },
+      { id: 'todos', label: 'Todos os módulos', total, descricao: 'Visão geral das suspeitas.' },
       ...Array.from(mapa.entries())
-        .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
-        .map(([label, count]) => ({ id: label, label, total: count })),
+        .sort((a, b) => b[1].total - a[1].total || String(a[1].label).localeCompare(String(b[1].label)))
+        .map(([id, data]) => ({ id, label: data.label, total: data.total, descricao: data.descricao, orientacao: data.orientacao })),
     ]
-  }, [items, total])
+  }, [items, modulos, total])
   const itensFiltrados = useMemo(() => {
     return (items || []).filter((item) => {
-      const tipoOk = tipoAtivo === 'todos' || item.categoria === tipoAtivo || item.anomalia_codigo === tipoAtivo
-      const posOk = filtroPos === 'todos' || posStatus(item) === filtroPos
-      return tipoOk && posOk
+      return tipoAtivo === 'todos' || item.modulo_codigo === tipoAtivo || item.categoria === tipoAtivo || item.anomalia_codigo === tipoAtivo
     })
-  }, [items, tipoAtivo, filtroPos])
+  }, [items, tipoAtivo])
   const topAnomalias = useMemo(() => {
     return [...itensFiltrados]
       .sort((a, b) => {
@@ -1023,6 +1086,9 @@ function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
       { validado: 0, nao_validado: 0, sem_info: 0 },
     )
   }, [items])
+  const moduloAtivo = useMemo(() => {
+    return tiposAnomalia.find((tipo) => tipo.id === tipoAtivo) || tiposAnomalia[0] || null
+  }, [tipoAtivo, tiposAnomalia])
   const timelineResumo = useMemo(() => {
     if (!anomaliaSelecionada) return []
     return [
@@ -1059,18 +1125,18 @@ function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
           ))}
         </div>
 
-        <div className="anomaly-pos-filter">
-          <span>Validação Pós</span>
-          {[
-            ['todos', 'Todos'],
-            ['validado', 'Validado pela Pós'],
-            ['nao_validado', 'Não validado'],
-            ['sem_info', 'Sem informação'],
-          ].map(([id, label]) => (
-            <button key={id} className={filtroPos === id ? 'active' : ''} onClick={() => setFiltroPos(id)}>
-              {label}
-            </button>
-          ))}
+        <div className="module-guide">
+          <div>
+            <span className="pill pill-info">{moduloAtivo?.id || 'todos'}</span>
+            <h2>{moduloAtivo?.label || 'Módulos de anomalia'}</h2>
+            <p>{moduloAtivo?.descricao || 'Selecione um módulo para entender regra, impacto e ação esperada.'}</p>
+          </div>
+          <div className="module-guide-side">
+            {(moduloAtivo?.impacto || ['DIC/FIC', 'DEC/FEC', 'ressarcimento', 'qualidade']).map((impacto) => (
+              <span className="pill" key={impacto}>{impacto}</span>
+            ))}
+            <small>{moduloAtivo?.orientacao || 'O analista deve verificar evidências, impacto e recomendação antes de decidir.'}</small>
+          </div>
         </div>
 
         <section className="anomaly-cockpit-grid">
@@ -1095,8 +1161,8 @@ function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
                   </span>
                   <span className="anomaly-card-row-title">{item.nome || item.categoria}</span>
                   <span className="anomaly-card-row-meta">
-                    <small>{item.categoria || 'Sem tipo'}</small>
-                    <small>Pós: {posStatus(item) === 'validado' ? 'validado' : posStatus(item) === 'nao_validado' ? 'não validado' : 'sem info'}</small>
+                    <small>{item.modulo_nome || item.categoria || 'Sem módulo'}</small>
+                    <small>{item.categoria || item.anomalia_codigo || 'Sem tipo'}</small>
                     <small>{currencyFormat(item.impacto_ressarcimento)}</small>
                   </span>
                 </button>
@@ -1109,7 +1175,7 @@ function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
             <div className="panel-title compact-title">
               <div>
                 <h2>Suporte à tomada de decisão</h2>
-                <p>{anomaliaSelecionada ? anomaliaSelecionada.nome : 'Selecione uma anomalia para investigar.'}</p>
+                <p>{anomaliaSelecionada ? `${anomaliaSelecionada.modulo_nome || anomaliaSelecionada.categoria} · ${anomaliaSelecionada.nome}` : 'Selecione uma anomalia para investigar.'}</p>
               </div>
               {anomaliaSelecionada && <StatusPill value={anomaliaSelecionada.status} />}
             </div>
@@ -1125,8 +1191,13 @@ function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
 
                 <div className="anomaly-summary-panel">
                   <p>{anomaliaSelecionada.descricao || 'Sem descrição resumida.'}</p>
+                  <div className="decision-box">
+                    <strong>O que o analista deve verificar</strong>
+                    <span>{anomaliaSelecionada.modulo_orientacao || moduloAtivo?.orientacao || 'Revisar evidências e impacto antes de decidir.'}</span>
+                  </div>
                   <div className="tag-list">
                     <span className="pill pill-info">{anomaliaSelecionada.origem || 'origem não informada'}</span>
+                    <span className="pill pill-success">{anomaliaSelecionada.modulo_codigo || 'módulo não informado'}</span>
                     <span className="pill">Conjunto {textValue(anomaliaSelecionada.conjunto)}</span>
                     <span className="pill">Ocorrência {textValue(anomaliaSelecionada.ocorrencia)}</span>
                     <span className="pill pill-money">FIC {decimalFormat(anomaliaSelecionada.impacto_fic, 2)}</span>
@@ -1149,15 +1220,15 @@ function AnomaliasPage({ resumo, items, loading, onOpenDetail }) {
 
           <aside className="investigation-card anomaly-decision-panel">
             <h2>Painel de decisão</h2>
-            <p>Registre a hipótese, revise evidências e abra a edição governada quando estiver pronto.</p>
+            <p>Registre a hipótese, revise evidências e abra a edição governada quando estiver pronto. A validação Pós aparece como evidência, não como filtro principal.</p>
             <label>
               Nota técnica da análise
               <textarea value={notaDecisao} onChange={(event) => setNotaDecisao(event.target.value)} placeholder="Ex.: confirmado outlier, aguardar evidência da Pós, propor ajuste..." />
             </label>
             <div className="decision-step-list">
               <span><strong>1</strong><small>Validar Pós: {anomaliaSelecionada ? posStatus(anomaliaSelecionada).replace('_', ' ') : '—'}</small></span>
-              <span><strong>2</strong><small>Comparar impacto DEC/FIC/ressarcimento</small></span>
-              <span><strong>3</strong><small>Decidir: aprovar, rejeitar ou editar proposta</small></span>
+              <span><strong>2</strong><small>Comparar regra do módulo e evidências</small></span>
+              <span><strong>3</strong><small>Decidir: aprovar, rejeitar, editar ou pedir análise</small></span>
             </div>
             <div className="row-actions">
               <button className="primary-button" disabled={!anomaliaSelecionada} onClick={() => onOpenDetail(anomaliaSelecionada?.id_anomalia)}>
@@ -2829,6 +2900,599 @@ function AdministracaoPage({
   )
 }
 
+function ProdutoConjuntoDetail({ detail, loading, error, onClose, onOpenOccurrence }) {
+  const resumo = detail?.resumo || {}
+  const alimentadorColumns = [
+    {
+      key: 'alimentador_exibicao',
+      label: 'Alimentador',
+      render: (row) => <CodeLabel codigo={row.alimentador} nome={row.alimentador_nome} descricao="descrição não disponível" />,
+      sortValue: (row) => row.alimentador,
+    },
+    { key: 'ocorrencias', label: 'Ocorrências', render: (row) => numberFormat(row.ocorrencias) },
+    {
+      key: 'ocorrencias_longas',
+      label: 'Longas/curtas',
+      render: (row) => (
+        <MetricPair
+          topLabel="Longas ≥ 3 min"
+          topValue={numberFormat(row.ocorrencias_longas)}
+          bottomLabel="Curtas < 3 min"
+          bottomValue={numberFormat(row.ocorrencias_curtas)}
+        />
+      ),
+      sortValue: (row) => row.ocorrencias_longas,
+    },
+    {
+      key: 'chi_liquido',
+      label: 'CHI/CI líquido',
+      render: (row) => <MetricPair topLabel="CHI" topValue={decimalFormat(row.chi_liquido, 2)} bottomLabel="CI" bottomValue={numberFormat(row.ci_liquido)} />,
+      sortValue: (row) => row.chi_liquido,
+    },
+    { key: 'ucs', label: 'UCs', render: (row) => numberFormat(row.ucs) },
+    { key: 'duracao_maxima_h', label: 'Duração máx.', render: (row) => `${decimalFormat(row.duracao_maxima_h, 2)} h` },
+  ]
+
+  const ocorrenciaColumns = [
+    { key: 'ocorrencia', label: 'Ocorrência' },
+    {
+      key: 'alimentador_exibicao',
+      label: 'Alimentador',
+      render: (row) => <CodeLabel codigo={row.alimentador} nome={row.alimentador_nome} descricao="descrição não disponível" />,
+      sortValue: (row) => row.alimentador,
+    },
+    { key: 'inicio', label: 'Início', render: (row) => dateTime(row.inicio) },
+    {
+      key: 'chi_liquido',
+      label: 'CHI/CI',
+      render: (row) => <MetricPair topLabel="CHI" topValue={decimalFormat(row.chi_liquido, 2)} bottomLabel="CI" bottomValue={numberFormat(row.ci_liquido)} />,
+      sortValue: (row) => row.chi_liquido,
+    },
+    { key: 'ucs', label: 'UCs', render: (row) => numberFormat(row.ucs) },
+    { key: 'duracao_maxima_h', label: 'Duração máx.', render: (row) => `${decimalFormat(row.duracao_maxima_h, 2)} h` },
+    { key: 'componentes', label: 'Comp./causa', render: (row) => `${row.componentes || '—'} / ${row.causas || '—'}` },
+  ]
+
+  const componenteColumns = [
+    { key: 'grupo_exibicao', label: 'Grupo' },
+    { key: 'componente_exibicao', label: 'Componente' },
+    { key: 'causa_exibicao', label: 'Causa' },
+    { key: 'ocorrencias', label: 'Ocorrências', render: (row) => numberFormat(row.ocorrencias) },
+    {
+      key: 'chi_liquido',
+      label: 'CHI/CI',
+      render: (row) => <MetricPair topLabel="CHI" topValue={decimalFormat(row.chi_liquido, 2)} bottomLabel="CI" bottomValue={numberFormat(row.ci_liquido)} />,
+      sortValue: (row) => row.chi_liquido,
+    },
+  ]
+
+  return (
+    <section className="panel product-detail-panel">
+      <div className="panel-title">
+        <div>
+          <h2>Detalhe do conjunto</h2>
+          <p>{resumo.conjunto_exibicao || 'Selecione um conjunto no ranking para abrir o drill-down intermediário.'}</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={onClose}>Fechar detalhe</button>
+      </div>
+
+      {loading && <div className="alert">Carregando detalhe do conjunto...</div>}
+      {error && <div className="alert">Erro no detalhe: {error}</div>}
+
+      <div className="metrics-grid compact">
+        <Card label="Ocorrências" value={numberFormat(resumo.ocorrencias)} hint={resumo.regional_exibicao || 'regional'} tone="blue" />
+        <Card label="UCs" value={numberFormat(resumo.ucs)} hint="UCs apuráveis no conjunto" tone="green" />
+        <Card label="DIC/CHI líquido" value={decimalFormat(resumo.chi_liquido, 2)} hint="soma regulatória do conjunto" tone="orange" />
+        <Card label="FIC/CI líquido" value={numberFormat(resumo.ci_liquido)} hint="soma regulatória do conjunto" tone="purple" />
+        <Card label="DEC estimado" value={decimalFormat(resumo.dec_liquido_estimado, 2)} hint="CHI ÷ UC faturada COPEL" tone="blue" />
+        <Card label="FEC estimado" value={decimalFormat(resumo.fec_liquido_estimado, 2)} hint="CI ÷ UC faturada COPEL" tone="blue" />
+      </div>
+
+      <div className="summary-strip">
+        <span><strong>{numberFormat(resumo.linhas_longas)}</strong> linha(s) longa(s)</span>
+        <span><strong>{numberFormat(resumo.linhas_curtas)}</strong> linha(s) curta(s)</span>
+        <span><strong>{decimalFormat(resumo.chi_expurgo_dia_critico, 2)}</strong> CHI dia crítico</span>
+        <span><strong>{decimalFormat(resumo.chi_expurgo_ise, 2)}</strong> CHI ISE/DISE</span>
+        <span><strong>{numberFormat(resumo.denominador_copel)}</strong> UC faturada COPEL</span>
+      </div>
+
+      <div className="product-grid product-grid-wide">
+        <div className="panel panel-nested">
+          <div className="panel-title">
+            <div>
+              <h3>Alimentadores do conjunto</h3>
+              <p>Prioriza alimentadores por impacto regulatório e volume de ocorrências.</p>
+            </div>
+          </div>
+          <DataTable
+            columns={alimentadorColumns}
+            rows={detail?.alimentadores || []}
+            sortable
+            initialSort={{ key: 'chi_liquido', direction: 'desc' }}
+            empty="Sem alimentadores para este conjunto."
+          />
+        </div>
+
+        <div className="panel panel-nested">
+          <div className="panel-title">
+            <div>
+              <h3>Grupo/componente/causa</h3>
+              <p>Códigos técnicos com descrição quando a referência IQS está disponível.</p>
+            </div>
+          </div>
+          <DataTable
+            columns={componenteColumns}
+            rows={detail?.componentes_causas || []}
+            sortable
+            initialSort={{ key: 'chi_liquido', direction: 'desc' }}
+            empty="Sem composição técnica para este conjunto."
+          />
+        </div>
+      </div>
+
+      <div className="panel panel-nested">
+        <div className="panel-title">
+          <div>
+            <h3>Ocorrências para investigação</h3>
+            <p>Lista curta para direcionar o analista; clique na ocorrência para abrir o detalhe técnico completo.</p>
+          </div>
+        </div>
+        <DataTable
+          columns={ocorrenciaColumns}
+          rows={detail?.ocorrencias || []}
+          sortable
+          initialSort={{ key: 'chi_liquido', direction: 'desc' }}
+          onRowClick={(row) => onOpenOccurrence?.(row.ocorrencia)}
+          rowKey={(row) => `ocorrencia-${row.ocorrencia}`}
+          empty="Sem ocorrências para este conjunto."
+        />
+      </div>
+    </section>
+  )
+}
+
+function ProdutoPage({ visao, dicionarios, cockpit, token, onOpenOccurrence }) {
+  const [tableFilter, setTableFilter] = useState('')
+  const [conjuntoDetail, setConjuntoDetail] = useState(null)
+  const [conjuntoDetailLoading, setConjuntoDetailLoading] = useState(false)
+  const [conjuntoDetailError, setConjuntoDetailError] = useState('')
+  const paginas = visao?.paginas_react || []
+  const dictionaryItems = dicionarios?.items || []
+  const cockpitCards = cockpit?.cards || []
+  const filteredPages = useMemo(() => {
+    const term = tableFilter.trim().toLowerCase()
+    if (!term) return paginas
+    return paginas.filter((page) =>
+      [page.codigo, page.nome, page.objetivo, page.status].some((value) =>
+        String(value || '').toLowerCase().includes(term),
+      ),
+    )
+  }, [paginas, tableFilter])
+
+  const dictionaryTypes = useMemo(() => {
+    const types = new Map()
+    dictionaryItems.forEach((item) => {
+      if (!types.has(item.tipo)) types.set(item.tipo, item.tipo_nome || item.tipo)
+    })
+    return [...types.entries()].sort((left, right) => left[1].localeCompare(right[1], 'pt-BR'))
+  }, [dictionaryItems])
+
+  const dictionaryStats = useMemo(() => {
+    const labels = new Map(dictionaryTypes)
+    const tipos = dicionarios?.resumo?.tipos || {}
+    const rows = Object.entries(tipos)
+      .map(([tipo, totalTipo]) => ({
+        tipo,
+        nome: labels.get(tipo) || tipo,
+        total: Number(totalTipo || 0),
+      }))
+      .sort((left, right) => right.total - left.total || left.nome.localeCompare(right.nome, 'pt-BR'))
+    const pendentes = dictionaryItems.filter((item) => item.status === 'nome_pendente' || !item.descricao_disponivel).length
+    const comDescricao = dictionaryItems.filter((item) => item.descricao_disponivel).length
+    return {
+      rows,
+      pendentes,
+      comDescricao,
+      cobertura: dictionaryItems.length ? comDescricao / dictionaryItems.length : 0,
+    }
+  }, [dicionarios, dictionaryItems, dictionaryTypes])
+
+  const pageColumns = [
+    { key: 'nome', label: 'Página' },
+    { key: 'objetivo', label: 'Objetivo' },
+    {
+      key: 'status',
+      label: 'Status',
+      render: (row) => <span className={`pill pill-${statusTone[row.status] || 'info'}`}>{row.status}</span>,
+    },
+  ]
+
+  const statusTone = {
+    implementado: 'success',
+    implementado_inicial: 'success',
+    iniciada: 'warning',
+    planejada: 'info',
+    existente_a_reorientar: 'warning',
+    existente_a_expandir: 'warning',
+  }
+
+  function formatProductMetric(item) {
+    if (item.unidade === 'BRL') return currencyFormat(item.valor)
+    if (item.codigo === 'fec_liquido') return decimalFormat(item.valor, 2)
+    if (item.codigo === 'dic_liquido') return decimalFormat(item.valor, 2)
+    if (item.codigo === 'dec_liquido') return decimalFormat(item.valor, 2)
+    if (item.unidade === 'hora' || item.unidade === 'hora/cons' || item.unidade === 'freq/cons') return decimalFormat(item.valor, 4)
+    return numberFormat(item.valor)
+  }
+
+  async function handleOpenConjunto(row) {
+    if (!row?.conjunto || !token) return
+    try {
+      setConjuntoDetailLoading(true)
+      setConjuntoDetailError('')
+      setConjuntoDetail({
+        status: 'carregando',
+        resumo: {
+          ...row,
+          conjunto_exibicao: row.conjunto_exibicao,
+          dec_liquido_estimado: 0,
+          fec_liquido_estimado: 0,
+        },
+        alimentadores: [],
+        ocorrencias: [],
+        componentes_causas: [],
+      })
+      const response = await fetch(
+        `${API_URL}/api/produto/detalhe-conjunto/${encodeURIComponent(row.conjunto)}?limite_alimentadores=20&limite_ocorrencias=30`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao consultar detalhe do conjunto.')
+      }
+      setConjuntoDetail(result)
+    } catch (requestError) {
+      setConjuntoDetailError(requestError.message)
+    } finally {
+      setConjuntoDetailLoading(false)
+    }
+  }
+
+  const regionalColumns = [
+    { key: 'regional_exibicao', label: 'Regional' },
+    { key: 'ocorrencias', label: 'Ocorrências', render: (row) => numberFormat(row.ocorrencias) },
+    { key: 'ucs', label: 'UCs', render: (row) => numberFormat(row.ucs) },
+    { key: 'chi_liquido', label: 'DIC/CHI líq.', render: (row) => decimalFormat(row.chi_liquido, 2) },
+    { key: 'ci_liquido', label: 'FIC/CI líq.', render: (row) => numberFormat(row.ci_liquido) },
+    { key: 'comp_total_prodist', label: 'Compensação', render: (row) => currencyFormat(row.comp_total_prodist) },
+  ]
+
+  const conjuntoColumns = [
+    { key: 'regional_exibicao', label: 'Regional' },
+    {
+      key: 'conjunto_exibicao',
+      label: 'Conjunto',
+      render: (row) => <CodeLabel codigo={row.conjunto} nome={row.conjunto_nome} descricao="descrição não disponível" />,
+      sortValue: (row) => row.conjunto,
+    },
+    {
+      key: 'ocorrencias_longas',
+      label: 'Ocor. longas/curtas',
+      render: (row) => (
+        <MetricPair
+          topLabel="Longas ≥ 3 min"
+          topValue={numberFormat(row.ocorrencias_longas)}
+          bottomLabel="Curtas < 3 min"
+          bottomValue={numberFormat(row.ocorrencias_curtas)}
+        />
+      ),
+      sortValue: (row) => row.ocorrencias_longas,
+    },
+    {
+      key: 'chi_liquido',
+      label: 'Líquido CHI/CI',
+      render: (row) => <MetricPair topLabel="CHI" topValue={decimalFormat(row.chi_liquido, 2)} bottomLabel="CI" bottomValue={numberFormat(row.ci_liquido)} />,
+      sortValue: (row) => row.chi_liquido,
+    },
+    {
+      key: 'chi_expurgo_dia_critico',
+      label: 'Expurgo dia crítico',
+      render: (row) => (
+        <MetricPair
+          topLabel="CHI"
+          topValue={decimalFormat(row.chi_expurgo_dia_critico, 2)}
+          bottomLabel="CI"
+          bottomValue={numberFormat(row.ci_expurgo_dia_critico)}
+        />
+      ),
+      sortValue: (row) => row.chi_expurgo_dia_critico,
+    },
+    {
+      key: 'chi_expurgo_ise',
+      label: 'Expurgo ISE',
+      render: (row) => (
+        <MetricPair
+          topLabel="CHI"
+          topValue={decimalFormat(row.chi_expurgo_ise, 2)}
+          bottomLabel="CI"
+          bottomValue={numberFormat(row.ci_expurgo_ise)}
+        />
+      ),
+      sortValue: (row) => row.chi_expurgo_ise,
+    },
+    {
+      key: 'chi_nao_faturado',
+      label: 'Não faturado',
+      render: (row) => (
+        <MetricPair
+          topLabel="CHI"
+          topValue={decimalFormat(row.chi_nao_faturado, 2)}
+          bottomLabel="CI"
+          bottomValue={numberFormat(row.ci_nao_faturado)}
+        />
+      ),
+      sortValue: (row) => row.chi_nao_faturado,
+    },
+  ]
+
+  return (
+    <>
+      <PageHero
+        eyebrow="Sprint 02"
+        title="Visão de Produto Governada"
+        description="Base paralela para evoluir React, manter Streamlit como laboratório e orientar decisões humanas com evidências, impacto e código + descrição."
+        sideLabel="Status"
+        sideValue={visao?.sprint?.status || 'contrato'}
+        sideContent={<MiniDatabaseStatus health={{ database: { status: visao ? 'ok' : 'carregando', tables: 0, views: 0 } }} />}
+      />
+
+      {!visao && <div className="alert">Carregando visão de produto...</div>}
+
+      <section className="metrics-grid compact">
+        <Card label="Lentes" value={numberFormat(visao?.lentes?.length)} hint="regulatória + cliente/operação" tone="blue" />
+        <Card label="Níveis" value={numberFormat(visao?.niveis?.length)} hint="macro, intermediário, detalhe" tone="green" />
+        <Card label="Páginas" value={numberFormat(visao?.paginas_react?.length)} hint="mapa React da sprint" tone="orange" />
+        <Card label="Dicionários" value={numberFormat(dicionarios?.resumo?.total_disponivel || visao?.dicionarios_humanos?.length)} hint="código + descrição" tone="purple" />
+      </section>
+
+      <section className="panel">
+        <div className="panel-title">
+          <div>
+            <h2>Cockpit macro inicial</h2>
+            <p>Priorização por impacto regulatório e operacional, sem substituir análise humana.</p>
+          </div>
+          <span className={`pill pill-${cockpit?.status === 'ok' ? 'success' : 'warning'}`}>{cockpit?.status || 'carregando'}</span>
+        </div>
+        {(cockpit?.alertas || []).map((alerta, index) => (
+          <div className="alert" key={`${alerta.tipo}-${index}`}>{alerta.mensagem}</div>
+        ))}
+        <div className="metrics-grid compact">
+          {cockpitCards.map((item) => (
+            <Card
+              key={item.codigo}
+              label={item.titulo}
+              value={formatProductMetric(item)}
+              hint={`${item.lente} · ${item.descricao}`}
+              tone={item.lente === 'regulatoria' ? 'blue' : 'orange'}
+            />
+          ))}
+          {!cockpitCards.length && (
+            <Card label="Cockpit" value="—" hint="fonte analítica indisponível no momento" tone="orange" />
+          )}
+        </div>
+      </section>
+
+      <section className="product-stack">
+        <div className="panel">
+          <div className="panel-title">
+            <div>
+              <h2>Ranking regional</h2>
+              <p>Ordenável por impacto de DIC/CHI, FIC/CI e compensação.</p>
+            </div>
+          </div>
+          <DataTable
+            columns={regionalColumns}
+            rows={cockpit?.rankings?.regional || []}
+            sortable
+            initialSort={{ key: 'chi_liquido', direction: 'desc' }}
+            empty="Ranking regional indisponível."
+          />
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <div>
+              <h2>Top conjuntos</h2>
+              <p>Ocorrências longas usam corte ≥ 3 minutos; expurgos Dia Crítico/ISE e não faturados mostram CHI e CI.</p>
+            </div>
+          </div>
+          <DataTable
+            columns={conjuntoColumns}
+            rows={cockpit?.rankings?.conjunto || []}
+            sortable
+            initialSort={{ key: 'chi_liquido', direction: 'desc' }}
+            onRowClick={handleOpenConjunto}
+            rowKey={(row) => `conjunto-${row.conjunto}`}
+            empty="Ranking de conjuntos indisponível."
+          />
+        </div>
+      </section>
+
+      {(conjuntoDetail || conjuntoDetailLoading || conjuntoDetailError) && (
+        <ProdutoConjuntoDetail
+          detail={conjuntoDetail}
+          loading={conjuntoDetailLoading}
+          error={conjuntoDetailError}
+          onOpenOccurrence={onOpenOccurrence}
+          onClose={() => {
+            setConjuntoDetail(null)
+            setConjuntoDetailError('')
+          }}
+        />
+      )}
+
+      <section className="product-grid">
+        <div className="panel">
+          <div className="panel-title">
+            <div>
+              <h2>Lentes de análise</h2>
+              <p>Separação obrigatória entre PRODIST/faturados e visão cliente/operação.</p>
+            </div>
+          </div>
+          <div className="product-card-list">
+            {(visao?.lentes || []).map((lens) => (
+              <article className="product-card" key={lens.codigo}>
+                <span className="pill pill-info">{lens.nome}</span>
+                <p>{lens.descricao}</p>
+                <div className="tag-list">
+                  {(lens.principais_metricas || []).map((metric) => (
+                    <span className="pill" key={metric}>{metric}</span>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <div>
+              <h2>Níveis de navegação</h2>
+              <p>Do risco macro até ocorrência, interrupção e UC.</p>
+            </div>
+          </div>
+          <div className="decision-steps">
+            {(visao?.niveis || []).map((level, index) => (
+              <span key={level.codigo}>
+                <strong>{index + 1}</strong>
+                <em>{level.nome}</em>
+                <small>{level.descricao}</small>
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="product-grid product-grid-wide">
+        <div className="panel">
+          <div className="panel-title">
+            <div>
+              <h2>Mapa React da Sprint 01</h2>
+              <p>Tabela interativa inicial: ordenação no cabeçalho e filtro por texto/código.</p>
+            </div>
+            <label className="product-search">
+              <span>Filtrar</span>
+              <input
+                value={tableFilter}
+                onChange={(event) => setTableFilter(event.target.value)}
+                placeholder="Página, objetivo ou status"
+              />
+            </label>
+          </div>
+          <DataTable
+            columns={pageColumns}
+            rows={filteredPages}
+            sortable
+            initialSort={{ key: 'nome', direction: 'asc' }}
+            empty="Nenhuma página encontrada para o filtro."
+          />
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <div>
+              <h2>Decisão humana assistida</h2>
+              <p>O algoritmo recomenda, mas o analista decide e justifica divergências.</p>
+            </div>
+          </div>
+          <div className="decision-box">
+            <strong>Regra de ouro</strong>
+            <span>{visao?.decisao_humana?.regra_ouro || '—'}</span>
+          </div>
+          <div className="product-card-list product-card-list-compact">
+            {(visao?.decisao_humana?.campos_obrigatorios || []).map((field) => (
+              <span className="pill pill-info" key={field}>{field}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="product-grid">
+        <div className="panel">
+          <div className="panel-title">
+            <div>
+              <h2>Hierarquia elétrica humana</h2>
+              <p>Conjunto e alimentador devem aparecer com número e nome.</p>
+            </div>
+          </div>
+          <div className="product-card-list">
+            {(visao?.hierarquia_eletrica || []).map((item) => (
+              <article className="product-card" key={item.campo}>
+                <span className="pill pill-success">{item.campo}</span>
+                <strong>{item.exibicao}</strong>
+                <small>{item.obrigatorio ? 'Obrigatório' : 'Quando disponível'}</small>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">
+            <div>
+              <h2>Dicionários humanos</h2>
+              <p>Todo código técnico precisa de nome ou descrição para o analista.</p>
+            </div>
+          </div>
+          <div className="product-card-list">
+            {(visao?.dicionarios_humanos || []).map((item) => (
+              <article className="product-card" key={item.codigo}>
+                <strong>{item.codigo}</strong>
+                <p>{item.descricao}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title">
+          <div>
+            <h2>Cobertura de dicionários humanos</h2>
+            <p>Resumo estatístico da legibilidade dos códigos técnicos usados pelas telas operacionais.</p>
+          </div>
+          <span className="pill pill-info">sem lista extensa</span>
+        </div>
+        <div className="summary-strip">
+          <span><strong>{numberFormat(dicionarios?.resumo?.total_disponivel)}</strong> códigos mapeados</span>
+          <span><strong>{decimalFormat(dictionaryStats.cobertura * 100, 1)}%</strong> com descrição</span>
+          <span><strong>{numberFormat(dictionaryStats.pendentes)}</strong> pendência(s) de nome</span>
+          <span><strong>{numberFormat(dicionarios?.resumo?.tipos?.alimentador)}</strong> alimentador(es)</span>
+          <span><strong>{numberFormat(dicionarios?.resumo?.tipos?.conjunto_eletrico)}</strong> conjunto(s)</span>
+        </div>
+        <div className="product-stat-layout">
+          <div className="anomaly-bar-list">
+            {dictionaryStats.rows.slice(0, 8).map((row) => (
+              <span key={row.tipo}>
+                <small>{row.nome}</small>
+                <strong style={{ width: `${Math.max(8, (row.total / Math.max(dicionarios?.resumo?.total_disponivel || 1, 1)) * 100)}%` }}>{numberFormat(row.total)}</strong>
+              </span>
+            ))}
+          </div>
+          <div className="decision-box">
+            <strong>Para que serve aqui?</strong>
+            <span>
+              Apenas medir cobertura de leitura humana. A busca detalhada por código deve ficar nas telas operacionais ou em uma tela própria de administração de dicionários.
+            </span>
+          </div>
+        </div>
+        <p className="panel-footnote">
+          Regra: {dicionarios?.regras?.exibicao_humana || 'código - nome/descrição'}; nesta tela Produto entram resumos e qualidade da cobertura, não listas operacionais extensas.
+        </p>
+      </section>
+    </>
+  )
+}
+
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
   const [token, setToken] = useState(() => localStorage.getItem('midway_token') || '')
@@ -2846,6 +3510,7 @@ export default function App() {
   const [geracoesIqs, setGeracoesIqs] = useState([])
   const [anomaliasResumo, setAnomaliasResumo] = useState(null)
   const [anomalias, setAnomalias] = useState([])
+  const [anomaliasModulos, setAnomaliasModulos] = useState([])
   const [verificacoes, setVerificacoes] = useState(null)
   const [sqlScripts, setSqlScripts] = useState([])
   const [alteracoes, setAlteracoes] = useState([])
@@ -2855,6 +3520,9 @@ export default function App() {
   const [perfisFuncoes, setPerfisFuncoes] = useState([])
   const [execucoes, setExecucoes] = useState([])
   const [tiposExecucao, setTiposExecucao] = useState([])
+  const [produtoVisao, setProdutoVisao] = useState(null)
+  const [produtoDicionarios, setProdutoDicionarios] = useState(null)
+  const [produtoCockpit, setProdutoCockpit] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loginLoading, setLoginLoading] = useState(false)
   const [authorizing, setAuthorizing] = useState(false)
@@ -2881,16 +3549,17 @@ export default function App() {
     try {
       setLoading(true)
       const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
+      const decFecRequest = fetch(`${API_URL}/api/executivo/9282/dec-fec`).catch(() => null)
       const [healthResponse, painelResponse, decFecResponse, filaResponse, ajustesResponse, auditoriaResponse] = await Promise.all([
         fetch(`${API_URL}/api/health`),
         fetch(`${API_URL}/api/executivo/9282/painel`),
-        fetch(`${API_URL}/api/executivo/9282/dec-fec`),
+        decFecRequest,
         fetch(`${API_URL}/api/executivo/9282/fila-tecnica?limit=100`),
         fetch(`${API_URL}/api/executivo/9282/ajustes-auto?limit=100`),
         fetch(`${API_URL}/api/executivo/9282/auditoria?limit=100`),
       ])
 
-      const responses = [healthResponse, painelResponse, decFecResponse, filaResponse, ajustesResponse, auditoriaResponse]
+      const responses = [healthResponse, painelResponse, filaResponse, ajustesResponse, auditoriaResponse]
       const failed = responses.find((response) => !response.ok)
       if (failed) {
         const detail = await failed.json().catch(() => null)
@@ -2899,7 +3568,7 @@ export default function App() {
 
       setHealth(await healthResponse.json())
       setPainel(await painelResponse.json())
-      setDecFec(await decFecResponse.json())
+      setDecFec(decFecResponse?.ok ? await decFecResponse.json() : null)
       setFila(await filaResponse.json())
       setAjustes(await ajustesResponse.json())
       setAuditoria(await auditoriaResponse.json())
@@ -2931,6 +3600,9 @@ export default function App() {
           fetch(`${API_URL}/api/iqs/modelos`, { headers: authHeaders }),
           fetch(`${API_URL}/api/iqs/geracoes`, { headers: authHeaders }),
           fetch(`${API_URL}/api/anomalias`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/produto/visao`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/produto/dicionarios?limite=10000`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/produto/cockpit?limite=20`, { headers: authHeaders }),
         ]
         const [
           verificacoesResponse,
@@ -2945,6 +3617,9 @@ export default function App() {
           modelosIqsResponse,
           geracoesIqsResponse,
           anomaliasResponse,
+          produtoVisaoResponse,
+          produtoDicionariosResponse,
+          produtoCockpitResponse,
         ] =
           await Promise.all(protectedRequests)
         const protectedResponses = [
@@ -2960,6 +3635,9 @@ export default function App() {
           modelosIqsResponse,
           geracoesIqsResponse,
           anomaliasResponse,
+          produtoVisaoResponse,
+          produtoDicionariosResponse,
+          produtoCockpitResponse,
         ]
         if (protectedResponses.some((response) => response.status === 401)) {
           clearSession('Sessão expirada ou inválida. Faça login novamente.')
@@ -2987,7 +3665,11 @@ export default function App() {
           const anomalyPayload = await anomaliasResponse.json()
           setAnomaliasResumo(anomalyPayload.resumo)
           setAnomalias(anomalyPayload.items || [])
+          setAnomaliasModulos(anomalyPayload.modulos || [])
         }
+        if (produtoVisaoResponse.ok) setProdutoVisao(await produtoVisaoResponse.json())
+        if (produtoDicionariosResponse.ok) setProdutoDicionarios(await produtoDicionariosResponse.json())
+        if (produtoCockpitResponse.ok) setProdutoCockpit(await produtoCockpitResponse.json())
       }
       setError('')
     } catch (requestError) {
@@ -3256,6 +3938,15 @@ export default function App() {
         onOpenOccurrence={handleOpenOccurrence}
       />
     ),
+    produto: (
+      <ProdutoPage
+        visao={produtoVisao}
+        dicionarios={produtoDicionarios}
+        cockpit={produtoCockpit}
+        token={token}
+        onOpenOccurrence={handleOpenOccurrence}
+      />
+    ),
     executivo: (
       <ExecutivoPage
         resumo={resumo}
@@ -3274,6 +3965,7 @@ export default function App() {
       <AnomaliasPage
         resumo={anomaliasResumo}
         items={anomalias}
+        modulos={anomaliasModulos}
         loading={loading}
         onOpenDetail={handleOpenAnomalyDetail}
       />
