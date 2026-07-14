@@ -190,7 +190,11 @@ D:\MIDWAY
     34_governanca_exportacao_iqs.md
     35_contrato_exportacao_iqs.md
     36_regras_prodist_copel.md
+    37_visao_produto_governanca_midway.md
     modulos/
+      README.md
+      *.md
+    sprints/
       README.md
       *.md
     historico/

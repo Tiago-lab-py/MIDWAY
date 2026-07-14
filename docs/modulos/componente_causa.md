@@ -29,7 +29,9 @@ Detectar divergências de componente/causa entre OMS/ADMS, serviços ADMS, recla
 ## Evidências
 
 - par atual `COD_COMP_INTRP/COD_CAUSA_INTRP`;
+- nomes/descrições do grupo, componente e causa atuais;
 - pares de serviço;
+- nomes/descrições do grupo, componente e causa sugeridos;
 - grupos IQS de componente/causa;
 - score de reclamação;
 - descrição textual da reclamação;
@@ -52,6 +54,8 @@ Detectar divergências de componente/causa entre OMS/ADMS, serviços ADMS, recla
 - `COD_COMP_INTRP`;
 - `COD_CAUSA_INTRP`;
 - `COD_GRUPO_COMP_INTRP`, quando derivado do componente.
+
+Na interface, esses campos devem ser exibidos como código + nome/descrição. Exemplo: `92 - Religador/Chave automática`.
 
 ## Exportação IQS
 

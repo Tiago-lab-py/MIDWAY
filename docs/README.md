@@ -15,6 +15,8 @@ Este índice define a documentação oficial do MIDWAY. Arquivos fora desta list
 | `docs/34_governanca_exportacao_iqs.md` | Governança comum para decisão humana e pacote IQS |
 | `docs/35_contrato_exportacao_iqs.md` | Contrato rígido de layout, encoding, datas e quebra UNIX/LF |
 | `docs/36_regras_prodist_copel.md` | Regras PRODIST Módulo 8 e filtros particulares COPEL |
+| `docs/37_visao_produto_governanca_midway.md` | Visão de produto, níveis de navegação, React/Streamlit e governança |
+| `docs/sprints/README.md` | Planejamento ativo de sprints e regra de transição segura |
 
 ## Catálogo de módulos
 
@@ -41,6 +43,8 @@ Este índice define a documentação oficial do MIDWAY. Arquivos fora desta list
 Os documentos antigos foram movidos para `docs/historico/`.
 
 Eles preservam decisões e contexto, mas não são especificação vigente. Se algum conceito antigo ainda for útil, ele deve ser migrado para um documento ativo ou para um módulo em `docs/modulos/`.
+
+Sprints ativas devem ficar em `docs/sprints/`. Sprints antigas em `docs/historico/sprint/` são apenas memória técnica.
 
 ## Regra de manutenção
 

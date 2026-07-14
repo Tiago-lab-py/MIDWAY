@@ -39,6 +39,7 @@ Fluxo detalhado:
 docs/14_fluxo_oficial_atual.md
 docs/35_contrato_exportacao_iqs.md
 docs/36_regras_prodist_copel.md
+docs/37_visao_produto_governanca_midway.md
 ```
 
 ## Estrutura do Projeto

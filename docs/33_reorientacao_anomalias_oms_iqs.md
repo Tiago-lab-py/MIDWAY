@@ -108,6 +108,8 @@ Não deve ser uma tela exclusiva de `92/82`. `92/82` entra como um lote/módulo 
 | `docs/34_governanca_exportacao_iqs.md` | Decisão humana, aprovação e pacote IQS |
 | `docs/35_contrato_exportacao_iqs.md` | Regras rígidas de layout, UNIX/LF, `ISO-8859-1`, datas e inteiros |
 | `docs/36_regras_prodist_copel.md` | Regras PRODIST Módulo 8 e filtros COPEL para DIC/FIC, DEC/FEC e compensação |
+| `docs/37_visao_produto_governanca_midway.md` | Visão macro/intermediária/detalhada, React/Streamlit, governança e lente cliente |
+| `docs/sprints/README.md` | Planejamento ativo das transições e entregas |
 
 ### Histórico arquivado
 

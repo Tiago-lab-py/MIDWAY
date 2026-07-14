@@ -21,6 +21,19 @@ Todo módulo deve declarar:
 | `exportacao_iqs` | Quando aplicável | Pasta, arquivo e condição de exportação |
 | `risco_falso_positivo` | Sim | Cuidados para evitar ajuste indevido |
 | `status_governanca` | Sim | Pendente, em análise, aprovada, rejeitada, aplicada |
+| `dicionarios_humanos` | Quando houver código | Fonte de nomes/descrições exibidos junto aos códigos |
+
+## Legibilidade humana
+
+Todo módulo que exponha código operacional deve indicar o dicionário ou tabela de referência para mostrar `código - descrição`.
+
+Exemplos: grupo, componente, causa, tipo de interrupção, protocolo de justificativa, motivo de tratamento, regional, conjunto, alimentador e equipamento.
+
+Para hierarquia elétrica, a exibição mínima deve ser:
+
+- número do conjunto + nome do conjunto;
+- número/código do alimentador + nome do alimentador;
+- número/código da chave/equipamento + descrição, quando disponível.
 
 ## Contrato de exportação IQS
 
