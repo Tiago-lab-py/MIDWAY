@@ -3,13 +3,26 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8001'
 
 const menuItems = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'D' },
-  { id: 'produto', label: 'Produto', icon: 'P' },
-  { id: 'executivo', label: 'Executivo', icon: 'E', profiles: ['GESTOR', 'ADM'] },
-  { id: 'anomalias', label: 'Anomalias', icon: '!' },
-  { id: 'analise_tecnica', label: 'Análise Técnica', icon: 'A' },
+  { id: 'dashboard', label: 'Visão Geral', icon: 'V' },
+  { id: 'tratativas_massa', label: 'Tratativas em Massa', icon: 'T' },
+  { id: 'aprovacao', label: 'Aprovação', icon: 'A', profiles: ['GESTOR', 'ADM'] },
+  { id: 'ocorrencias', label: 'Ocorrências', icon: 'O' },
+  { id: 'alteracoes_manuais', label: 'Ajustes Manuais', icon: 'M' },
+  { id: 'executivo', label: 'Saída IQS', icon: 'I', profiles: ['GESTOR', 'ADM'] },
   { id: 'administracao', label: 'Administração', icon: 'G', profiles: ['ADM'] },
 ]
+
+const EXECUCAO_MODULO_MAP = {
+  CORRECAO_9282: 'correcao_9282',
+  COMPONENTE_CAUSA: 'agente_comp_causa',
+  FALHA_EQUIPAMENTO_RA: 'suspeita_falha_ra',
+  DURACAO_IMPACTO: 'analise_tecnica_cache',
+  RESSARCIMENTO_ATIPICO: 'analise_tecnica_cache',
+  SOBREPOSICAO_UC: 'exportacao_sobreposicao',
+  INTERRUPCAO_SEM_UC: 'interrupcao_sem_uc',
+  DUPLICIDADE_TIPO: 'auditoria_duplicidade_tipo',
+  DIA_CRITICO_ISE: 'simulacao_ise',
+}
 
 function numberFormat(value) {
   return new Intl.NumberFormat('pt-BR').format(Number(value || 0))
@@ -85,7 +98,13 @@ function ConfidenceBadge({ value }) {
 
 function StatusPill({ value }) {
   const normalized = String(value || '').toLowerCase()
-  const tone = normalized.includes('pendente') ? 'warning' : normalized.includes('aprov') ? 'success' : 'info'
+  const tone = normalized.includes('erro') || normalized.includes('cancel')
+    ? 'danger'
+    : normalized.includes('process') || normalized.includes('aberto') || normalized.includes('pendente')
+      ? 'warning'
+      : normalized.includes('concl') || normalized.includes('aprov')
+        ? 'success'
+        : 'info'
   return <span className={`pill pill-${tone}`}>{value || '—'}</span>
 }
 
@@ -640,40 +659,202 @@ function RankingRegionalPanel({ cockpit }) {
   )
 }
 
-function AjustesGovernadosPanel({ resumo, modulos }) {
+function AjustesGovernadosPanel({
+  resumo,
+  modulos,
+  analiseTecnicaResumos,
+  suspeitasRa,
+  execucoes = [],
+  onAtualizarAlgoritmo,
+  onAceitarAlgoritmo,
+  onRejeitarAlgoritmo,
+  actionDisabled = false,
+  accepting = false,
+  runningAlgorithm = '',
+}) {
+  const [algoritmoVisualizado, setAlgoritmoVisualizado] = useState(null)
   const manualModuleCodes = new Set(['GOVERNANCA_IQS', 'AJUSTE_MANUAL_IQS'])
-  const modules = modulos || []
+  const modules = (modulos || []).map((module) => {
+    const enriched = { ...module }
+    const applyTechnicalSummary = (key) => {
+      const technicalSummary = analiseTecnicaResumos?.[key]?.resumo || {}
+      const total = Number(technicalSummary.QTD_OCORRENCIAS || 0)
+      enriched.metricas_materializadas = total > 0 || Number(technicalSummary.RESSARCIMENTO_ESTIMADO_TOTAL || 0) > 0
+      enriched.total = enriched.metricas_materializadas ? total : enriched.total
+      enriched.impacto_chi = enriched.metricas_materializadas ? Number(technicalSummary.CHI_LIQUIDO_TOTAL || 0) : enriched.impacto_chi
+      enriched.impacto_ci = enriched.metricas_materializadas ? Number(technicalSummary.CI_LIQUIDO_TOTAL || 0) : enriched.impacto_ci
+      enriched.impacto_ressarcimento = enriched.metricas_materializadas
+        ? Number(technicalSummary.RESSARCIMENTO_ESTIMADO_TOTAL || 0)
+        : enriched.impacto_ressarcimento
+      enriched.origem_metricas = enriched.metricas_materializadas ? 'análise técnica' : enriched.origem_metricas
+    }
+
+    if (module.codigo === 'COMPONENTE_CAUSA') applyTechnicalSummary('violacao_componente_causa')
+    if (module.codigo === 'DURACAO_IMPACTO') applyTechnicalSummary('duracao_suspeita')
+    if (module.codigo === 'RESSARCIMENTO_ATIPICO') applyTechnicalSummary('ressarcimento')
+    if (module.codigo === 'FALHA_EQUIPAMENTO_RA') {
+      const raResumo = suspeitasRa?.resumo || {}
+      const total = Number(raResumo.equipamentos_dia || 0)
+      enriched.metricas_materializadas = Boolean(suspeitasRa?.status) || total > 0
+      enriched.total = total
+      enriched.impacto_chi = Number(raResumo.chi_liquido || 0)
+      enriched.impacto_ci = Number(raResumo.ci_liquido || 0)
+      enriched.impacto_ressarcimento = Number(raResumo.comp_fic_estimado || 0)
+      enriched.origem_metricas = 'suspeita falha RA'
+    }
+    if (module.codigo === 'RECLAMACOES_SERVICOS') {
+      enriched.metricas_materializadas = true
+      enriched.total = Number(resumo.fila_reclamacao || 0)
+      enriched.origem_metricas = 'fila técnica'
+    }
+    enriched.metricas_materializadas = Boolean(
+      enriched.metricas_materializadas ||
+      Number(enriched.total || 0) > 0 ||
+      Number(enriched.impacto_chi || 0) > 0 ||
+      Number(enriched.impacto_ci || 0) > 0 ||
+      Number(enriched.impacto_ressarcimento || 0) > 0,
+    )
+    return enriched
+  })
   const automatedModules = modules.filter((module) => !manualModuleCodes.has(module.codigo))
-  const manualModules = modules.filter((module) => manualModuleCodes.has(module.codigo))
-  const fallbackManualModules = manualModules.length
-    ? manualModules
-    : [
-        {
-          codigo: 'AJUSTE_MANUAL_IQS',
-          nome: 'Ajuste manual IQS',
-          descricao: 'Decisão humana governada quando o algoritmo apenas sugere ou há conflito de evidência.',
-          total: resumo?.fila_tecnica_total,
-          pendentes: resumo?.fila_aberta,
-          impacto_ressarcimento: 0,
-        },
-      ]
-  const filaTotal = Number(resumo.fila_tecnica_total || 0)
-  const autoTotal = automatedModules.reduce((acc, module) => acc + Number(module.total || 0), 0)
-  const manualTotal = fallbackManualModules.reduce((acc, module) => acc + Number(module.total || 0), 0)
+  const latestExecucaoByTipo = useMemo(() => {
+    const latest = new Map()
+    ;(execucoes || []).forEach((execucao) => {
+      const tipo = String(execucao.tipo_lote || '').toLowerCase()
+      if (!tipo || latest.has(tipo)) return
+      latest.set(tipo, execucao)
+    })
+    return latest
+  }, [execucoes])
+  const correcao9282Module = {
+    codigo: 'CORRECAO_9282',
+    nome: 'Correção especializada 92/82',
+    descricao: 'Reclassificação componente/causa com evidência robusta; módulo específico, não eixo central do produto.',
+    escopo: 'ocorrência/interrupção',
+    documento: 'docs/modulos/correcao_9282.md',
+    criterio_curto: 'serviço robusto e evidência técnica para troca de componente/causa',
+    orientacao_analista: 'Verificar coerência do lote 92/82, amostra de ocorrências e impacto antes de aceitar.',
+    origem_metricas: 'governança PostgreSQL',
+    metricas_materializadas: true,
+    total: resumo.ajustes_auto_9282,
+    impacto_chi: 0,
+    impacto_ci: 0,
+    impacto_ressarcimento: 0,
+  }
+
+  function metricDisplay(module, value, formatter = numberFormat) {
+    if (!module.metricas_materializadas && Number(value || 0) === 0) return '—'
+    return formatter(value)
+  }
+
+  function detalhesAlgoritmo(module) {
+    if (!module) return {}
+    return {
+      algoritmo: module.nome || module.codigo,
+      codigo_modulo: module.codigo,
+      escopo: module.escopo,
+      documento: module.documento,
+      origem_metricas: module.origem_metricas || 'pendente de materialização',
+      quantidade_casos: metricDisplay(module, module.total),
+      impacto_chi: metricDisplay(module, module.impacto_chi, (value) => decimalFormat(value, 2)),
+      impacto_ci: metricDisplay(module, module.impacto_ci),
+      impacto_ressarcimento: metricDisplay(module, module.impacto_ressarcimento, currencyFormat),
+      regra: module.criterio_curto || module.descricao || 'Regra do módulo catalogado.',
+      orientacao_aprovador: module.orientacao_analista || 'Verificar coerência do lote, impacto e risco antes de aceitar ou rejeitar.',
+      decisao: 'A decisão nesta tela vale para a tratativa em massa do algoritmo, não para ocorrência isolada.',
+    }
+  }
+
+  function tipoExecucaoModulo(module) {
+    return EXECUCAO_MODULO_MAP[module?.codigo] || null
+  }
+
+  function ultimaExecucaoModulo(module) {
+    const tipoExecucao = tipoExecucaoModulo(module)
+    return tipoExecucao ? latestExecucaoByTipo.get(tipoExecucao) : null
+  }
+
+  function statusExecucaoModulo(module) {
+    return String(ultimaExecucaoModulo(module)?.status_lote || '').toUpperCase()
+  }
+
+  function moduloEmExecucao(module) {
+    const status = statusExecucaoModulo(module)
+    return status === 'ABERTO' || status === 'PROCESSANDO'
+  }
+
+  function moduloPodeSerDecidido(module) {
+    return module?.codigo === 'CORRECAO_9282' && Boolean(tipoExecucaoModulo(module)) && module.metricas_materializadas && statusExecucaoModulo(module) === 'CONCLUIDO'
+  }
+
+  function mensagemExecucao(ultimaExecucao) {
+    const mensagem = String(ultimaExecucao?.mensagem || '').trim()
+    if (!mensagem) return ''
+    const linhas = mensagem.split('\n').map((line) => line.trim()).filter(Boolean)
+    const linhaErro = [...linhas].reverse().find((line) => (
+      line.includes('IO Error') ||
+      line.includes('Cannot open file') ||
+      line.includes('already open') ||
+      line.includes('sendo usado') ||
+      line.includes('PID ') ||
+      line.includes('ModuleNotFoundError') ||
+      line.includes('Exception:')
+    ))
+    const linhaUtil = linhaErro || [...linhas].reverse().find((line) => !line.startsWith('File ') && !line.startsWith('Traceback'))
+    return (linhaUtil || mensagem).slice(0, 360)
+  }
+
+  function renderExecucaoStatus(module) {
+    const tipoExecucao = tipoExecucaoModulo(module)
+    const ultimaExecucao = ultimaExecucaoModulo(module)
+    const dataReferencia = ultimaExecucao?.finalizado_em || ultimaExecucao?.iniciado_em
+    const mensagem = mensagemExecucao(ultimaExecucao)
+    return (
+      <div className="module-run-status">
+        <span><strong>Executor backend</strong><small>{tipoExecucao || 'não mapeado'}</small></span>
+        <span><strong>Última atualização</strong><small>{dataReferencia ? dateTime(dataReferencia) : 'sem execução registrada'}</small></span>
+        <span><strong>Status</strong><small><StatusPill value={tipoExecucao ? (ultimaExecucao?.status_lote || 'SEM EXECUÇÃO') : 'PENDENTE DE MATERIALIZAÇÃO'} /></small></span>
+        <span><strong>Lote</strong><small>{ultimaExecucao?.id_lote ? String(ultimaExecucao.id_lote).slice(0, 8) : '—'}</small></span>
+        {mensagem && <span className="module-run-message"><strong>Mensagem</strong><small>{mensagem}</small></span>}
+      </div>
+    )
+  }
 
   function moduleCard(module, mode) {
+    const isAuto = mode === 'auto'
+    const updateDisabled = actionDisabled || !tipoExecucaoModulo(module) || runningAlgorithm === module.codigo
+    const decisionDisabled = actionDisabled || accepting || !moduloPodeSerDecidido(module)
     return (
       <article className="module-summary-card" key={`${mode}-${module.codigo}`}>
         <div>
           <span className={`pill pill-${mode === 'auto' ? 'success' : 'warning'}`}>{mode === 'auto' ? 'algoritmo' : 'manual'}</span>
           <h3>{module.nome || module.codigo}</h3>
           <p>{module.descricao || module.criterio_curto || 'Módulo catalogado para análise governada.'}</p>
+          <small className="module-summary-source">{module.origem_metricas || 'pendente de materialização'}</small>
         </div>
         <div className="module-summary-metrics">
-          <span><strong>{numberFormat(module.total)}</strong><small>casos</small></span>
-          <span><strong>{numberFormat(module.pendentes)}</strong><small>pendentes</small></span>
-          <span><strong>{currencyFormat(module.impacto_ressarcimento)}</strong><small>impacto</small></span>
+          <span><strong>{metricDisplay(module, module.total)}</strong><small>casos</small></span>
+          <span><strong>{metricDisplay(module, module.impacto_chi, (value) => decimalFormat(value, 2))}</strong><small>CHI</small></span>
+          <span><strong>{metricDisplay(module, module.impacto_ci)}</strong><small>CI</small></span>
+          <span><strong>{metricDisplay(module, module.impacto_ressarcimento, currencyFormat)}</strong><small>R$</small></span>
         </div>
+        {isAuto && renderExecucaoStatus(module)}
+        {isAuto && (
+          <div className="module-action-row">
+            <button className="secondary-button" type="button" onClick={() => setAlgoritmoVisualizado(module)}>
+              Visualizar
+            </button>
+            <button className="secondary-button" type="button" disabled={updateDisabled} onClick={() => onAtualizarAlgoritmo?.(module)}>
+              {runningAlgorithm === module.codigo ? 'Solicitando...' : moduloEmExecucao(module) ? 'Rodar novamente' : 'Atualizar'}
+            </button>
+            <button className="primary-button" type="button" disabled={decisionDisabled} onClick={() => onAceitarAlgoritmo?.(module)}>
+              Aceitar
+            </button>
+            <button className="secondary-button danger-button" type="button" disabled={decisionDisabled} onClick={() => onRejeitarAlgoritmo?.(module)}>
+              Rejeitar
+            </button>
+          </div>
+        )}
       </article>
     )
   }
@@ -687,14 +868,6 @@ function AjustesGovernadosPanel({ resumo, modulos }) {
         </div>
       </div>
 
-      <div className="summary-strip">
-        <span><strong>{numberFormat(resumo.ajustes_auto_9282)}</strong> ajuste(s) automáticos autorizáveis</span>
-        <span><strong>{numberFormat(autoTotal)}</strong> suspeita(s) detectadas por algoritmo</span>
-        <span><strong>{numberFormat(filaTotal)}</strong> item(ns) em fila técnica/manual</span>
-        <span><strong>{numberFormat(resumo.fila_servico_conflito)}</strong> conflito(s) de serviço</span>
-        <span><strong>{numberFormat(resumo.fila_reclamacao)}</strong> caso(s) por reclamação</span>
-      </div>
-
       <div className="adjustment-panel-grid">
         <div className="adjustment-lane adjustment-lane-auto">
           <div className="compact-title">
@@ -706,51 +879,77 @@ function AjustesGovernadosPanel({ resumo, modulos }) {
               <span className="pill pill-success">exportável com governança</span>
               <h3>Correção especializada 92/82</h3>
               <p>Reclassificação componente/causa com evidência robusta; módulo específico, não eixo central do produto.</p>
+              <small className="module-summary-source">governança PostgreSQL</small>
             </div>
             <div className="module-summary-metrics">
               <span><strong>{numberFormat(resumo.ajustes_auto_9282)}</strong><small>automáticos</small></span>
               <span><strong>{numberFormat(resumo.qtd_candidatos_autorizacao)}</strong><small>candidatos</small></span>
               <span><strong>{numberFormat(resumo.qtd_autorizados_autorizacao)}</strong><small>autorizados</small></span>
+              <span><strong>{numberFormat(resumo.qtd_rejeitados_autorizacao)}</strong><small>rejeitados</small></span>
+            </div>
+            {renderExecucaoStatus(correcao9282Module)}
+            <div className="module-action-row">
+              <button className="secondary-button" type="button" onClick={() => setAlgoritmoVisualizado(correcao9282Module)}>
+                Visualizar
+              </button>
+              <button className="secondary-button" type="button" disabled={actionDisabled || runningAlgorithm === correcao9282Module.codigo} onClick={() => onAtualizarAlgoritmo?.(correcao9282Module)}>
+                {runningAlgorithm === correcao9282Module.codigo ? 'Solicitando...' : moduloEmExecucao(correcao9282Module) ? 'Rodar novamente' : 'Atualizar'}
+              </button>
+              <button className="primary-button" type="button" disabled={actionDisabled || accepting || !moduloPodeSerDecidido(correcao9282Module)} onClick={() => onAceitarAlgoritmo?.(correcao9282Module)}>
+                Aceitar
+              </button>
+              <button className="secondary-button danger-button" type="button" disabled={actionDisabled || !moduloPodeSerDecidido(correcao9282Module)} onClick={() => onRejeitarAlgoritmo?.(correcao9282Module)}>
+                Rejeitar
+              </button>
             </div>
           </article>
           {automatedModules.map((module) => moduleCard(module, 'auto'))}
           {!automatedModules.length && <p className="muted-text">Catálogo de módulos automáticos ainda não carregado.</p>}
-        </div>
-
-        <div className="adjustment-lane adjustment-lane-manual">
-          <div className="compact-title">
-            <h3>Manual / Decisão humana</h3>
-            <p>O analista decide, registra justificativa e pode divergir da sugestão do algoritmo.</p>
-          </div>
-          {fallbackManualModules.map((module) => moduleCard(module, 'manual'))}
-          <article className="module-summary-card">
-            <div>
-              <span className="pill pill-info">governança</span>
-              <h3>Fila técnica</h3>
-              <p>Casos com conflito, baixa confiança ou necessidade de evidência operacional antes de alterar IQS.</p>
-            </div>
-            <div className="module-summary-metrics">
-              <span><strong>{numberFormat(resumo.fila_aberta)}</strong><small>abertos</small></span>
-              <span><strong>{percent(resumo.fila_servico_conflito, filaTotal)}</strong><small>conflito</small></span>
-              <span><strong>{percent(resumo.fila_reclamacao, filaTotal)}</strong><small>reclamação</small></span>
-            </div>
-          </article>
+          {algoritmoVisualizado && (
+            <article className="adjustment-detail-preview">
+              <div className="panel-title compact-title">
+                <div>
+                  <h3>Visualização intermediária do algoritmo</h3>
+                  <p>Dados do lote, regra aplicada e orientação antes da decisão em massa.</p>
+                </div>
+                <button className="secondary-button" type="button" onClick={() => setAlgoritmoVisualizado(null)}>Fechar</button>
+              </div>
+              <KeyValueGrid data={detalhesAlgoritmo(algoritmoVisualizado)} />
+            </article>
+          )}
         </div>
       </div>
     </section>
   )
 }
 
-function DashboardPage({ resumo, health, decFec, cockpit, modulos, token, onOpenOccurrence }) {
+function DashboardPage({ resumo, health, decFec, cockpit, modulos, analiseTecnicaResumos, suspeitasRa, token, onOpenOccurrence }) {
   return (
     <>
       <PageHero
-        title="Dashboard Executivo"
-        description="Visão executiva das tratativas, autorização em massa, fila técnica e auditoria PostgreSQL."
+        title="Visão Geral MIDWAY"
+        description="História executiva dos ganhos da ferramenta: impacto regulatório, anomalias detectadas, automações, decisões humanas e prontidão para IQS."
         sideLabel="ANOMES"
         sideValue={resumo.anomes}
         sideContent={<MiniDatabaseStatus health={health} />}
       />
+
+      <section className="panel dashboard-section">
+        <div className="panel-title">
+          <div>
+            <h2>Fluxo da ferramenta</h2>
+            <p>Leitura para gestores, Pós Operação e TI: da identificação do problema até a saída controlada para o IQS.</p>
+          </div>
+        </div>
+        <div className="decision-steps">
+          <span><strong>1</strong><em>Visão Geral</em><small>Mostra ganhos, impactos e saúde do ciclo.</small></span>
+          <span><strong>2</strong><em>Anomalias</em><small>Aponta outliers e suspeitas por módulo.</small></span>
+          <span><strong>3</strong><em>Análise Técnica</em><small>Investiga ocorrência, alimentador, conjunto e evidências.</small></span>
+          <span><strong>4</strong><em>Automáticos</em><small>Gerencia saídas dos algoritmos aprováveis.</small></span>
+          <span><strong>5</strong><em>Manuais</em><small>Registra decisão humana e justificativa.</small></span>
+          <span><strong>6</strong><em>Saída IQS</em><small>Autoriza e gera o pacote final governado.</small></span>
+        </div>
+      </section>
 
       <CockpitMacroPanel cockpit={cockpit} />
 
@@ -828,7 +1027,12 @@ function DashboardPage({ resumo, health, decFec, cockpit, modulos, token, onOpen
 
       <RankingRegionalPanel cockpit={cockpit} />
 
-      <AjustesGovernadosPanel resumo={resumo} modulos={modulos} />
+      <AjustesGovernadosPanel
+        resumo={resumo}
+        modulos={modulos}
+        analiseTecnicaResumos={analiseTecnicaResumos}
+        suspeitasRa={suspeitasRa}
+      />
 
     </>
   )
@@ -851,8 +1055,8 @@ function ExecutivoPage({
   return (
     <>
       <PageHero
-        title="Executivo"
-        description="Mesa do gestor para revisar impacto, autorizar alterações governadas e aprovar o pacote de envio ao IQS."
+        title="Saída IQS"
+        description="Etapa final governada: revisar impacto, autorizar alterações aprovadas e gerar o pacote físico aceito pelo IQS."
         sideLabel="Perfil"
         sideValue={user?.perfil}
       />
@@ -913,6 +1117,190 @@ function ExecutivoPage({
         generating={generatingIqs}
         title="Geração do Arquivo para IQS"
         description="Após a autorização em massa, selecione os modelos que compõem o pacote de envio ao IQS."
+      />
+    </>
+  )
+}
+
+function TratativasMassaPage({
+  resumo,
+  modulos,
+  analiseTecnicaResumos,
+  suspeitasRa,
+  execucoes,
+  onRefresh,
+  onAtualizarAlgoritmo,
+  onAceitarAlgoritmo,
+  onRejeitarAlgoritmo,
+  accepting,
+  runningAlgorithm,
+  loading,
+  loaded,
+}) {
+  if (loading || !loaded) {
+    return (
+      <>
+        <PageHero
+          title="Tratativas em Massa"
+          description="Rode, atualize e revise os lotes gerados por algoritmos antes de encaminhar para aprovação governada."
+          sideLabel="API"
+          sideValue={loading ? 'carregando' : 'sem dados'}
+        />
+        <section className="panel dashboard-section">
+          <div className="panel-title">
+            <div>
+              <h2>Aguardando carga da API</h2>
+              <p>Os indicadores de tratativas em massa serão exibidos somente após a resposta atual da API.</p>
+            </div>
+            <button className="secondary-button" type="button" onClick={onRefresh}>Atualizar</button>
+          </div>
+          <div className="summary-strip">
+            <span><strong>—</strong> ajustes automáticos</span>
+            <span><strong>—</strong> candidatos</span>
+            <span><strong>—</strong> fila técnica</span>
+            <span><strong>—</strong> conflitos</span>
+          </div>
+        </section>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <PageHero
+        title="Tratativas em Massa"
+        description="Rode, atualize e revise os lotes gerados por algoritmos antes de encaminhar para aprovação governada."
+        sideLabel="API"
+        sideValue={loading ? 'atualizando' : 'carregada'}
+      />
+
+      <section className="panel dashboard-section">
+        <div className="panel-title">
+          <div>
+            <h2>Ciclo da tratativa em massa</h2>
+            <p>O algoritmo gera o lote, o analista verifica coerência e somente os itens governados seguem para aprovação.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={onRefresh}>Atualizar lote</button>
+        </div>
+        <div className="decision-steps">
+          <span><strong>1</strong><em>Rodar algoritmo</em><small>Atualiza candidatos e impactos.</small></span>
+          <span><strong>2</strong><em>Verificar coerência</em><small>Compara original, sugerido e evidências.</small></span>
+          <span><strong>3</strong><em>Separar exceções</em><small>Conflitos vão para ocorrência/manual.</small></span>
+          <span><strong>4</strong><em>Enviar aprovação</em><small>Lote coerente segue para gestor.</small></span>
+        </div>
+      </section>
+
+      <AjustesGovernadosPanel
+        resumo={resumo}
+        modulos={modulos}
+        analiseTecnicaResumos={analiseTecnicaResumos}
+        suspeitasRa={suspeitasRa}
+        execucoes={execucoes}
+        onAtualizarAlgoritmo={onAtualizarAlgoritmo}
+        onAceitarAlgoritmo={onAceitarAlgoritmo}
+        onRejeitarAlgoritmo={onRejeitarAlgoritmo}
+        accepting={accepting}
+        runningAlgorithm={runningAlgorithm}
+      />
+    </>
+  )
+}
+
+function AprovacaoPage({
+  resumo,
+  ajustes,
+  user,
+  onAutorizar,
+  actionMessage,
+  authorizing,
+  onOpenOccurrence,
+}) {
+  const canManage = hasProfile(user, ['GESTOR', 'ADM'])
+  return (
+    <>
+      <PageHero
+        title="Aprovação"
+        description="Mesa do gestor para aprovar tratativas em massa antes de qualquer implantação ou geração de arquivo IQS."
+        sideLabel="Perfil"
+        sideValue={user?.perfil}
+      />
+
+      {!canManage && (
+        <div className="alert">Seu perfil pode consultar esta página, mas apenas GESTOR/ADM aprova tratativas em massa.</div>
+      )}
+
+      <section className="metrics-grid compact">
+        <Card label="Candidatos" value={numberFormat(resumo.qtd_candidatos_autorizacao)} hint="aguardando decisão" tone="blue" />
+        <Card label="Autorizados" value={numberFormat(resumo.qtd_autorizados_autorizacao)} hint="liberados para IQS" tone="green" />
+        <Card label="Rejeitados/duplicados" value={numberFormat(resumo.qtd_rejeitados_autorizacao)} hint="não implantados" tone="orange" />
+        <Card label="Última autorização" value={dateTime(resumo.ultima_autorizacao_em)} hint="trilha de auditoria" tone="purple" />
+      </section>
+
+      <section className="executive-layout">
+        <article className="panel executive-action-panel">
+          <div className="panel-title">
+            <div>
+              <h2>Aprovar lote automático</h2>
+              <p>Autoriza alterações automáticas com evidência robusta. Duplicidades são ignoradas pela API.</p>
+            </div>
+            <button className="primary-button" disabled={!canManage || authorizing} onClick={onAutorizar}>
+              {authorizing ? 'Autorizando...' : 'Aprovar tratativas'}
+            </button>
+          </div>
+          <p className="panel-note">
+            Use esta ação após revisar a coerência do lote em Tratativas em Massa. Pendências devem ficar para Ocorrências ou Ajustes Manuais.
+          </p>
+        </article>
+
+        <article className="panel">
+          <div className="panel-title">
+            <div>
+              <h2>Regra de governança</h2>
+              <p>A aprovação em massa não substitui decisão humana quando houver baixa confiança, conflito ou evidência operacional divergente.</p>
+            </div>
+          </div>
+          <div className="decision-steps">
+            <span><strong>1</strong><em>Revisar lote</em><small>Impacto e amostras coerentes.</small></span>
+            <span><strong>2</strong><em>Aprovar</em><small>Gestor autoriza em massa.</small></span>
+            <span><strong>3</strong><em>Liberar IQS</em><small>Somente aprovados entram no pacote.</small></span>
+          </div>
+        </article>
+      </section>
+
+      {actionMessage && <div className="alert alert-success">{actionMessage}</div>}
+
+      <AjustesPage ajustes={ajustes} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
+    </>
+  )
+}
+
+function SaidaIqsPage({
+  modelosIqs,
+  geracoesIqs,
+  validacaoIqs,
+  user,
+  onCreateGeracaoIqs,
+  generatingIqs,
+}) {
+  return (
+    <>
+      <PageHero
+        title="Saída IQS"
+        description="Última etapa operacional: validar pré-requisitos e gerar o pacote físico no padrão aceito pelo IQS."
+        sideLabel="Perfil"
+        sideValue={user?.perfil}
+      />
+
+      <IqsValidationPanel validacaoIqs={validacaoIqs} />
+
+      <IqsGenerationPanel
+        modelos={modelosIqs}
+        geracoes={geracoesIqs}
+        user={user}
+        onCreate={onCreateGeracaoIqs}
+        generating={generatingIqs}
+        title="Geração do Arquivo para IQS"
+        description="Gere somente após aprovação governada das tratativas. O pacote físico deve respeitar layout, encoding, datas e quebras exigidas pelo IQS."
       />
     </>
   )
@@ -1229,7 +1617,7 @@ function AnomaliasPage({ resumo, items, modulos, suspeitasRa, loading, onOpenDet
         const impactoA = Number(a.impacto_ressarcimento || 0) + Number(a.impacto_dec || 0) * 1000
         return impactoB - impactoA
       })
-      .slice(0, 8)
+      .slice(0, 12)
   }, [itensFiltrados])
   const anomaliaSelecionada = useMemo(() => {
     return topAnomalias.find((item) => item.id_anomalia === anomaliaSelecionadaId) || topAnomalias[0] || null
@@ -1258,164 +1646,176 @@ function AnomaliasPage({ resumo, items, modulos, suspeitasRa, loading, onOpenDet
   return (
     <>
       <PageHero
-        eyebrow="MIDWAY"
+        eyebrow="Triagem"
         title="Anomalias"
-        description="Cockpit para investigar outliers do conjunto de dados, filtrar por tipo e apoiar decisão técnica sem depender de tabelas extensas."
+        description="Mesa de investigação por módulo: priorize suspeitas, veja evidências e encaminhe a decisão humana sem navegar por tabelas extensas."
         sideLabel="Fonte dos dados"
         sideValue={resumo?.fonte || 'RAW/SILVER/GOLD'}
       />
 
       <div className="metrics-grid compact">
-        <Card label="Anomalias" value={numberFormat(total)} hint="dados processados" tone="blue" />
+        <Card label="Anomalias" value={numberFormat(total)} hint="suspeitas materializadas" tone="blue" />
         <Card label="Pendentes" value={numberFormat(resumo?.pendentes)} hint={`${percent(resumo?.pendentes, total)} aguardando decisão`} tone="orange" />
         <Card label="Alto risco" value={numberFormat(resumo?.alto_risco)} hint="alta ou crítica" tone="purple" />
-        <Card label="Validado Pós" value={numberFormat(posResumo.validado)} hint={`${numberFormat(posResumo.sem_info)} sem informação`} tone="green" />
+        <Card label="Impacto estimado" value={currencyFormat(resumo?.impacto_ressarcimento)} hint="ressarcimento em anomalias" tone="green" />
       </div>
 
-      <SuspeitaRaPanel suspeitasRa={suspeitasRa} />
-
-      <section className="anomaly-workbench">
-        <div className="anomaly-tabs">
-          {tiposAnomalia.map((tipo) => (
-            <button key={tipo.id} className={tipoAtivo === tipo.id ? 'active' : ''} onClick={() => setTipoAtivo(tipo.id)}>
-              <strong>{tipo.label}</strong>
-              <small>{numberFormat(tipo.total)}</small>
-            </button>
-          ))}
+      <section className="panel dashboard-section">
+        <div className="decision-steps">
+          <span><strong>1</strong><em>Detectar</em><small>Agentes localizam outliers por módulo.</small></span>
+          <span><strong>2</strong><em>Priorizar</em><small>Impacto, severidade e confiança ordenam a fila.</small></span>
+          <span><strong>3</strong><em>Evidenciar</em><small>Analista confere regra, origem e Pós Operação.</small></span>
+          <span><strong>4</strong><em>Decidir</em><small>Proposta manual ou automática segue governança.</small></span>
         </div>
-
-        <div className="module-guide">
-          <div>
-            <span className="pill pill-info">{moduloAtivo?.id || 'todos'}</span>
-            <h2>{moduloAtivo?.label || 'Módulos de anomalia'}</h2>
-            <p>{moduloAtivo?.descricao || 'Selecione um módulo para entender regra, impacto e ação esperada.'}</p>
-          </div>
-          <div className="module-guide-side">
-            {(moduloAtivo?.impacto || ['DIC/FIC', 'DEC/FEC', 'ressarcimento', 'qualidade']).map((impacto) => (
-              <span className="pill" key={impacto}>{impacto}</span>
-            ))}
-            <small>{moduloAtivo?.orientacao || 'O analista deve verificar evidências, impacto e recomendação antes de decidir.'}</small>
-          </div>
-        </div>
-
-        <section className="anomaly-cockpit-grid">
-          <article className="investigation-card anomaly-card-list">
-            <div className="panel-title compact-title">
-              <div>
-                <h2>Outliers priorizados</h2>
-                <p>{numberFormat(itensFiltrados.length)} caso(s) no recorte atual. Clique para analisar sem abrir uma tabela gigante.</p>
-              </div>
-            </div>
-            {loading && <div className="alert">Carregando anomalias...</div>}
-            <div className="anomaly-card-stack">
-              {topAnomalias.map((item) => (
-                <button
-                  className={`anomaly-card-row ${anomaliaSelecionada?.id_anomalia === item.id_anomalia ? 'active' : ''}`}
-                  key={item.id_anomalia || item.anomalia_codigo}
-                  onClick={() => setAnomaliaSelecionadaId(item.id_anomalia)}
-                >
-                  <span className="anomaly-card-row-head">
-                    <strong>{item.anomalia_codigo || item.id_anomalia}</strong>
-                    <SeverityBadge value={item.severidade} />
-                  </span>
-                  <span className="anomaly-card-row-title">{item.nome || item.categoria}</span>
-                  <span className="anomaly-card-row-meta">
-                    <small>{item.modulo_nome || item.categoria || 'Sem módulo'}</small>
-                    <small>{item.categoria || item.anomalia_codigo || 'Sem tipo'}</small>
-                    <small>{currencyFormat(item.impacto_ressarcimento)}</small>
-                  </span>
-                </button>
-              ))}
-              {!topAnomalias.length && <p className="muted-text">Nenhuma anomalia no recorte escolhido.</p>}
-            </div>
-          </article>
-
-          <article className="investigation-card anomaly-decision-main">
-            <div className="panel-title compact-title">
-              <div>
-                <h2>Suporte à tomada de decisão</h2>
-                <p>{anomaliaSelecionada ? `${anomaliaSelecionada.modulo_nome || anomaliaSelecionada.categoria} · ${anomaliaSelecionada.nome}` : 'Selecione uma anomalia para investigar.'}</p>
-              </div>
-              {anomaliaSelecionada && <StatusPill value={anomaliaSelecionada.status} />}
-            </div>
-
-            {anomaliaSelecionada ? (
-              <>
-                <div className="risk-tile-grid">
-                  <span className="risk-tile risk-tile-critical"><strong>{numberFormat(anomaliasPorSeveridade.critica)}</strong><small>Críticas no lote</small></span>
-                  <span className="risk-tile risk-tile-danger"><strong>{decimalFormat(Number(anomaliaSelecionada.confianca || 0) * 100, 1)}%</strong><small>Confiança</small></span>
-                  <span className="risk-tile risk-tile-warning"><strong>{decimalFormat(anomaliaSelecionada.impacto_dec)}</strong><small>DEC impacto</small></span>
-                  <span className="risk-tile risk-tile-info"><strong>{currencyFormat(anomaliaSelecionada.impacto_ressarcimento)}</strong><small>Ressarcimento</small></span>
-                </div>
-
-                <div className="anomaly-summary-panel">
-                  <p>{anomaliaSelecionada.descricao || 'Sem descrição resumida.'}</p>
-                  <div className="decision-box">
-                    <strong>O que o analista deve verificar</strong>
-                    <span>{anomaliaSelecionada.modulo_orientacao || moduloAtivo?.orientacao || 'Revisar evidências e impacto antes de decidir.'}</span>
-                  </div>
-                  <div className="tag-list">
-                    <span className="pill pill-info">{anomaliaSelecionada.origem || 'origem não informada'}</span>
-                    <span className="pill pill-success">{anomaliaSelecionada.modulo_codigo || 'módulo não informado'}</span>
-                    <span className="pill">Conjunto {textValue(anomaliaSelecionada.conjunto)}</span>
-                    <span className="pill">Ocorrência {textValue(anomaliaSelecionada.ocorrencia)}</span>
-                    <span className="pill pill-money">FIC {decimalFormat(anomaliaSelecionada.impacto_fic, 2)}</span>
-                  </div>
-                </div>
-
-                <div className="anomaly-timeline">
-                  {timelineResumo.map((item) => (
-                    <span key={item.label} className={`timeline-dot timeline-dot-${item.tone}`}>
-                      <small>{item.label}</small>
-                      <strong>{item.value}</strong>
-                    </span>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="muted-text">Sem anomalia selecionada.</p>
-            )}
-          </article>
-
-          <aside className="investigation-card anomaly-decision-panel">
-            <h2>Painel de decisão</h2>
-            <p>Registre a hipótese, revise evidências e abra a edição governada quando estiver pronto. A validação Pós aparece como evidência, não como filtro principal.</p>
-            <label>
-              Nota técnica da análise
-              <textarea value={notaDecisao} onChange={(event) => setNotaDecisao(event.target.value)} placeholder="Ex.: confirmado outlier, aguardar evidência da Pós, propor ajuste..." />
-            </label>
-            <div className="decision-step-list">
-              <span><strong>1</strong><small>Validar Pós: {anomaliaSelecionada ? posStatus(anomaliaSelecionada).replace('_', ' ') : '—'}</small></span>
-              <span><strong>2</strong><small>Comparar regra do módulo e evidências</small></span>
-              <span><strong>3</strong><small>Decidir: aprovar, rejeitar, editar ou pedir análise</small></span>
-            </div>
-            <div className="row-actions">
-              <button className="primary-button" disabled={!anomaliaSelecionada} onClick={() => onOpenDetail(anomaliaSelecionada?.id_anomalia)}>
-                Abrir edição/decisão
-              </button>
-              <button className="secondary-button" disabled={!anomaliaSelecionada} onClick={() => setNotaDecisao('')}>
-                Limpar nota
-              </button>
-            </div>
-          </aside>
-        </section>
       </section>
 
-      <section className="investigation-card anomaly-chart-panel">
-        <div className="panel-title compact-title">
-          <div>
-            <h2>Distribuição do recorte</h2>
-            <p>Leitura visual simples para evitar garimpo em linhas demais.</p>
+      <section className="anomaly-triage-shell">
+        <aside className="panel anomaly-module-sidebar">
+          <div className="compact-title">
+            <h2>Módulos</h2>
+            <p>Escolha o tipo de suspeita para filtrar a investigação.</p>
           </div>
-        </div>
-        <div className="anomaly-bar-list">
-          {tiposAnomalia.filter((tipo) => tipo.id !== 'todos').slice(0, 8).map((tipo) => (
-            <span key={tipo.id}>
-              <small>{tipo.label}</small>
-              <strong style={{ width: `${Math.max(8, (tipo.total / Math.max(total, 1)) * 100)}%` }}>{numberFormat(tipo.total)}</strong>
-            </span>
-          ))}
-        </div>
+          <div className="anomaly-module-list">
+            {tiposAnomalia.map((tipo) => (
+              <button
+                key={tipo.id}
+                className={tipoAtivo === tipo.id ? 'active' : ''}
+                onClick={() => {
+                  setTipoAtivo(tipo.id)
+                  setAnomaliaSelecionadaId('')
+                }}
+              >
+                <span>
+                  <strong>{tipo.label}</strong>
+                  <small>{tipo.descricao || 'Suspeitas do módulo.'}</small>
+                </span>
+                <em>{numberFormat(tipo.total)}</em>
+              </button>
+            ))}
+          </div>
+          <div className="anomaly-mini-summary">
+            <span><strong>{numberFormat(posResumo.validado)}</strong><small>validado Pós</small></span>
+            <span><strong>{numberFormat(posResumo.sem_info)}</strong><small>sem info Pós</small></span>
+          </div>
+        </aside>
+
+        <section className="panel anomaly-results-panel">
+          <div className="panel-title">
+            <div>
+              <span className="pill pill-info">{moduloAtivo?.id || 'todos'}</span>
+              <h2>{moduloAtivo?.label || 'Suspeitas priorizadas'}</h2>
+              <p>{numberFormat(itensFiltrados.length)} caso(s) no recorte. {moduloAtivo?.descricao || 'Selecione um caso para montar o dossiê.'}</p>
+            </div>
+          </div>
+          {loading && <div className="alert">Carregando anomalias...</div>}
+          <div className="anomaly-priority-list">
+            {topAnomalias.map((item, index) => (
+              <button
+                className={`anomaly-priority-card ${anomaliaSelecionada?.id_anomalia === item.id_anomalia ? 'active' : ''}`}
+                key={item.id_anomalia || item.anomalia_codigo}
+                onClick={() => setAnomaliaSelecionadaId(item.id_anomalia)}
+              >
+                <span className="anomaly-rank">{index + 1}</span>
+                <span className="anomaly-priority-main">
+                  <strong>{item.nome || item.categoria || item.anomalia_codigo}</strong>
+                  <small>{item.modulo_nome || item.modulo_codigo || 'Sem módulo'} · {item.anomalia_codigo || 'sem código'}</small>
+                  <small>Ocorrência {textValue(item.ocorrencia)} · Conjunto {textValue(item.conjunto)}</small>
+                </span>
+                <span className="anomaly-priority-metrics">
+                  <SeverityBadge value={item.severidade} />
+                  <small>{decimalFormat(Number(item.confianca || 0) * 100, 1)}% confiança</small>
+                  <small>{currencyFormat(item.impacto_ressarcimento)}</small>
+                </span>
+              </button>
+            ))}
+            {!topAnomalias.length && <p className="muted-text">Nenhuma anomalia no recorte escolhido.</p>}
+          </div>
+        </section>
+
+        <aside className="panel anomaly-dossier-panel">
+          <div className="panel-title compact-title">
+            <div>
+              <h2>Dossiê da suspeita</h2>
+              <p>{anomaliaSelecionada ? 'Resumo para decisão e aprofundamento.' : 'Selecione uma suspeita no centro.'}</p>
+            </div>
+            {anomaliaSelecionada && <StatusPill value={anomaliaSelecionada.status} />}
+          </div>
+
+          {anomaliaSelecionada ? (
+            <>
+              <div className="anomaly-dossier-head">
+                <strong>{anomaliaSelecionada.nome || anomaliaSelecionada.anomalia_codigo}</strong>
+                <p>{anomaliaSelecionada.descricao || 'Sem descrição resumida.'}</p>
+                <div className="tag-list">
+                  <span className="pill pill-success">{anomaliaSelecionada.modulo_codigo || 'módulo não informado'}</span>
+                  <span className="pill pill-info">{anomaliaSelecionada.origem || 'origem não informada'}</span>
+                  <span className="pill">Pós {posStatus(anomaliaSelecionada).replace('_', ' ')}</span>
+                </div>
+              </div>
+
+              <div className="anomaly-dossier-metrics">
+                <span><small>Confiança</small><strong>{decimalFormat(Number(anomaliaSelecionada.confianca || 0) * 100, 1)}%</strong></span>
+                <span><small>DEC</small><strong>{decimalFormat(anomaliaSelecionada.impacto_dec)}</strong></span>
+                <span><small>FIC</small><strong>{decimalFormat(anomaliaSelecionada.impacto_fic, 2)}</strong></span>
+                <span><small>R$</small><strong>{currencyFormat(anomaliaSelecionada.impacto_ressarcimento)}</strong></span>
+              </div>
+
+              <div className="decision-box">
+                <strong>O que verificar</strong>
+                <span>{anomaliaSelecionada.modulo_orientacao || moduloAtivo?.orientacao || 'Revisar evidências, impacto e recomendação antes de decidir.'}</span>
+              </div>
+
+              <div className="anomaly-timeline">
+                {timelineResumo.map((item) => (
+                  <span key={item.label} className={`timeline-dot timeline-dot-${item.tone}`}>
+                    <small>{item.label}</small>
+                    <strong>{item.value}</strong>
+                  </span>
+                ))}
+              </div>
+
+              <label className="anomaly-note">
+                Nota técnica
+                <textarea value={notaDecisao} onChange={(event) => setNotaDecisao(event.target.value)} placeholder="Registre hipótese, evidência pendente ou encaminhamento..." />
+              </label>
+
+              <div className="row-actions">
+                <button className="primary-button" onClick={() => onOpenDetail(anomaliaSelecionada.id_anomalia)}>
+                  Abrir detalhe/decisão
+                </button>
+                <button className="secondary-button" onClick={() => setNotaDecisao('')}>
+                  Limpar nota
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="muted-text">Sem anomalia selecionada.</p>
+          )}
+        </aside>
+      </section>
+
+      <section className="anomaly-support-grid">
+        <details className="panel anomaly-support-panel">
+          <summary>Agente específico: Suspeita falha RA</summary>
+          <SuspeitaRaPanel suspeitasRa={suspeitasRa} />
+        </details>
+
+        <section className="panel anomaly-chart-panel">
+          <div className="panel-title compact-title">
+            <div>
+              <h2>Distribuição por módulo</h2>
+              <p>Visão de volume para priorização gerencial.</p>
+            </div>
+          </div>
+          <div className="anomaly-bar-list">
+            {tiposAnomalia.filter((tipo) => tipo.id !== 'todos').slice(0, 8).map((tipo) => (
+              <span key={tipo.id}>
+                <small>{tipo.label}</small>
+                <strong style={{ width: `${Math.max(8, (tipo.total / Math.max(total, 1)) * 100)}%` }}>{numberFormat(tipo.total)}</strong>
+              </span>
+            ))}
+          </div>
+        </section>
       </section>
     </>
   )
@@ -1847,8 +2247,8 @@ function AjustesPage({ ajustes, resumo, onOpenOccurrence, embedded = false }) {
     <>
       {!embedded && (
         <PageHero
-          title="Ajustes IQS"
-          description="Registros automáticos autorizados pelo Executivo e prontos para exportação controlada."
+          title="Gerenciamento de automáticos"
+          description="Módulos e registros tratados por algoritmo, com evidência, autorização e trilha para exportação governada."
           sideLabel="Ajustes"
           sideValue={numberFormat(resumo.ajustes_auto_9282)}
         />
@@ -1856,8 +2256,8 @@ function AjustesPage({ ajustes, resumo, onOpenOccurrence, embedded = false }) {
       <section className="panel">
         <div className="panel-title">
           <div>
-            <h2>Ajustes Automáticos</h2>
-            <p>Origem automática governada.</p>
+            <h2>Registros automáticos governados</h2>
+            <p>Saídas dos agentes e algoritmos que podem seguir para autorização quando a regra estiver aprovada.</p>
           </div>
         </div>
         <DataTable
@@ -1897,25 +2297,17 @@ function AjustesPage({ ajustes, resumo, onOpenOccurrence, embedded = false }) {
   )
 }
 
-function AnaliseTecnicaPage({
+function OcorrenciasPage({
   resumo,
   fila,
-  ajustes,
-  alteracoes,
-  produtoCockpit,
-  user,
   token,
   onOpenOccurrence,
-  onCreateAlteracao,
-  onApproveAlteracao,
-  onRejectAlteracao,
-  savingDecision,
 }) {
   return (
     <>
       <PageHero
-        title="Análise Técnica"
-        description="Investigação por ocorrência/interrupção/UC, fila técnica, ajustes IQS e propostas manuais."
+        title="Ocorrências"
+        description="Busca e investigação pontual para localizar ocorrências problemáticas por impacto, data/hora, componente, causa, alimentador, conjunto e evidências."
         sideLabel="Fila"
         sideValue={numberFormat(resumo.fila_aberta)}
       />
@@ -1927,20 +2319,9 @@ function AnaliseTecnicaPage({
         <Card label="Ajustes IQS" value={numberFormat(resumo.ajustes_auto_9282)} hint="autorizados" tone="green" />
       </section>
 
-      <ProdutoDrillDownBI cockpit={produtoCockpit} />
       <AnaliseImpactoPanel anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
       <FilaPreview anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
       <FilaPage fila={fila} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
-      <AjustesPage ajustes={ajustes} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
-      <AlteracoesPage
-        alteracoes={alteracoes}
-        user={user}
-        onCreate={onCreateAlteracao}
-        onApprove={onApproveAlteracao}
-        onReject={onRejectAlteracao}
-        savingDecision={savingDecision}
-        embedded
-      />
     </>
   )
 }
@@ -2234,8 +2615,8 @@ function AlteracoesPage({ alteracoes, user, onCreate, onApprove, onReject, savin
     <>
       {!embedded && (
         <PageHero
-          title="Alterações"
-          description="Fluxo governado: Analista cria proposta; Gestor aprova ou rejeita; IQS recebe somente aprovados."
+          title="Alterações manuais"
+          description="Fluxo de decisão humana: analista propõe, gestor aprova ou rejeita, e toda divergência da recomendação fica justificada."
           sideLabel="Registros"
           sideValue={numberFormat(alteracoes.length)}
         />
@@ -2245,7 +2626,7 @@ function AlteracoesPage({ alteracoes, user, onCreate, onApprove, onReject, savin
         <section className="panel">
           <div className="panel-title">
             <div>
-              <h2>Nova Proposta de Alteração</h2>
+              <h2>Nova proposta manual</h2>
               <p>Use antes/depois em JSON para deixar a decisão auditável.</p>
             </div>
           </div>
@@ -4160,11 +4541,13 @@ export default function App() {
   const [produtoCockpit, setProdutoCockpit] = useState(null)
   const [produtoSuspeitasRa, setProdutoSuspeitasRa] = useState(null)
   const [produtoValidacaoIqs, setProdutoValidacaoIqs] = useState(null)
+  const [analiseTecnicaResumos, setAnaliseTecnicaResumos] = useState({})
   const [loading, setLoading] = useState(true)
   const [loginLoading, setLoginLoading] = useState(false)
   const [authorizing, setAuthorizing] = useState(false)
   const [savingDecision, setSavingDecision] = useState(false)
   const [generatingIqs, setGeneratingIqs] = useState(false)
+  const [runningAlgorithm, setRunningAlgorithm] = useState('')
   const [occurrenceDetail, setOccurrenceDetail] = useState(null)
   const [occurrenceLoading, setOccurrenceLoading] = useState(false)
   const [anomalyDetail, setAnomalyDetail] = useState(null)
@@ -4182,9 +4565,10 @@ export default function App() {
     if (message) setError(message)
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options = {}) => {
+    const silent = Boolean(options.silent)
     try {
-      setLoading(true)
+      if (!silent) setLoading(true)
       const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
       const decFecRequest = fetch(`${API_URL}/api/executivo/9282/dec-fec`).catch(() => null)
       const [healthResponse, painelResponse, decFecResponse, filaResponse, ajustesResponse, auditoriaResponse] = await Promise.all([
@@ -4237,6 +4621,10 @@ export default function App() {
           fetch(`${API_URL}/api/iqs/modelos`, { headers: authHeaders }),
           fetch(`${API_URL}/api/iqs/geracoes`, { headers: authHeaders }),
           fetch(`${API_URL}/api/anomalias`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/qualidade/analise-tecnica?problema=violacao_componente_causa&limit=1`, { headers: authHeaders }).catch(() => null),
+          fetch(`${API_URL}/api/qualidade/analise-tecnica?problema=duracao_suspeita&limit=1`, { headers: authHeaders }).catch(() => null),
+          fetch(`${API_URL}/api/qualidade/analise-tecnica?problema=ressarcimento&limit=1`, { headers: authHeaders }).catch(() => null),
+          fetch(`${API_URL}/api/qualidade/analise-tecnica?problema=9282&limit=1`, { headers: authHeaders }).catch(() => null),
           fetch(`${API_URL}/api/produto/visao`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/dicionarios?limite=10000`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/cockpit?limite=20`, { headers: authHeaders }),
@@ -4256,6 +4644,10 @@ export default function App() {
           modelosIqsResponse,
           geracoesIqsResponse,
           anomaliasResponse,
+          analiseCompCausaResponse,
+          analiseDuracaoResponse,
+          analiseRessarcimentoResponse,
+          analise9282Response,
           produtoVisaoResponse,
           produtoDicionariosResponse,
           produtoCockpitResponse,
@@ -4276,13 +4668,17 @@ export default function App() {
           modelosIqsResponse,
           geracoesIqsResponse,
           anomaliasResponse,
+          analiseCompCausaResponse,
+          analiseDuracaoResponse,
+          analiseRessarcimentoResponse,
+          analise9282Response,
           produtoVisaoResponse,
           produtoDicionariosResponse,
           produtoCockpitResponse,
           produtoSuspeitasRaResponse,
           produtoValidacaoIqsResponse,
         ]
-        if (protectedResponses.some((response) => response.status === 401)) {
+        if (protectedResponses.some((response) => response?.status === 401)) {
           clearSession('Sessão expirada ou inválida. Faça login novamente.')
           return
         }
@@ -4310,6 +4706,12 @@ export default function App() {
           setAnomalias(anomalyPayload.items || [])
           setAnomaliasModulos(anomalyPayload.modulos || [])
         }
+        const technicalSummaries = {}
+        if (analiseCompCausaResponse?.ok) technicalSummaries.violacao_componente_causa = await analiseCompCausaResponse.json()
+        if (analiseDuracaoResponse?.ok) technicalSummaries.duracao_suspeita = await analiseDuracaoResponse.json()
+        if (analiseRessarcimentoResponse?.ok) technicalSummaries.ressarcimento = await analiseRessarcimentoResponse.json()
+        if (analise9282Response?.ok) technicalSummaries.correcao_9282 = await analise9282Response.json()
+        setAnaliseTecnicaResumos(technicalSummaries)
         if (produtoVisaoResponse.ok) setProdutoVisao(await produtoVisaoResponse.json())
         if (produtoDicionariosResponse.ok) setProdutoDicionarios(await produtoDicionariosResponse.json())
         if (produtoCockpitResponse.ok) setProdutoCockpit(await produtoCockpitResponse.json())
@@ -4320,7 +4722,24 @@ export default function App() {
     } catch (requestError) {
       setError(requestError.message)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
+    }
+  }, [clearSession, token])
+
+  const loadExecucoes = useCallback(async () => {
+    if (!token) return
+    try {
+      const response = await fetch(`${API_URL}/api/governanca/execucoes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (response.status === 401) {
+        clearSession('Sessão expirada ou inválida. Faça login novamente.')
+        return
+      }
+      if (!response.ok) return
+      setExecucoes(await response.json())
+    } catch {
+      // Mantém o último status visível; evita abrir endpoints DuckDB durante jobs ativos.
     }
   }, [clearSession, token])
 
@@ -4328,7 +4747,18 @@ export default function App() {
     load()
   }, [load])
 
+  useEffect(() => {
+    if (!token) return undefined
+    const hasActiveExecution = execucoes.some((execucao) => ['ABERTO', 'PROCESSANDO'].includes(String(execucao.status_lote || '').toUpperCase()))
+    if (!hasActiveExecution) return undefined
+    const timer = window.setInterval(() => {
+      loadExecucoes()
+    }, 10000)
+    return () => window.clearInterval(timer)
+  }, [execucoes, loadExecucoes, token])
+
   const resumo = painel[0] || {}
+  const painelLoaded = painel.length > 0
   const filaTotal = Number(resumo.fila_tecnica_total || 0)
 
   const cards = useMemo(
@@ -4384,6 +4814,61 @@ export default function App() {
     } finally {
       setAuthorizing(false)
     }
+  }
+
+  async function handleAtualizarAlgoritmo(module) {
+    const tipoLote = EXECUCAO_MODULO_MAP[module?.codigo]
+    if (!tipoLote) {
+      setActionMessage('')
+      setError(`Algoritmo ${module?.nome || module?.codigo || '—'} ainda não possui executor backend mapeado.`)
+      return
+    }
+    try {
+      setRunningAlgorithm(module.codigo)
+      setError('')
+      setActionMessage('')
+      const response = await fetch(`${API_URL}/api/governanca/execucoes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          tipo_lote: tipoLote,
+          anomes: resumo.anomes || '202606',
+          parametros: {
+            origem_tela: 'tratativas_massa',
+            modulo: module.codigo,
+            algoritmo: module.nome || module.codigo,
+          },
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao solicitar atualização no backend.')
+      }
+      setActionMessage(`Execução enviada ao backend: ${tipoLote} · lote ${String(result.id_lote || '').slice(0, 8)}. A tela atualizará o status automaticamente.`)
+      await loadExecucoes()
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setRunningAlgorithm('')
+    }
+  }
+
+  async function handleAceitarAlgoritmo(module) {
+    if (module?.codigo !== 'CORRECAO_9282') {
+      setActionMessage('')
+      setError(`Aceite governado do algoritmo ${module?.nome || module?.codigo || '—'} ainda não possui endpoint de aprovação em lote. Atualize e visualize as evidências, mas não será enviado ao IQS por esta ação.`)
+      return
+    }
+    setActionMessage(`Aceitando a tratativa em massa do algoritmo ${module?.nome || module?.codigo || '—'} pela rotina governada disponível.`)
+    await handleAutorizar()
+  }
+
+  function handleRejeitarAlgoritmo(module) {
+    setActionMessage('')
+    setError(`Rejeição da tratativa em massa do algoritmo ${module?.nome || module?.codigo || '—'} ainda precisa de endpoint governado com justificativa de lote.`)
   }
 
   async function handleCreateAlteracao(payload) {
@@ -4581,58 +5066,66 @@ export default function App() {
         decFec={decFec}
         cockpit={produtoCockpit}
         modulos={anomaliasModulos}
+        analiseTecnicaResumos={analiseTecnicaResumos}
+        suspeitasRa={produtoSuspeitasRa}
         token={token}
         onOpenOccurrence={handleOpenOccurrence}
       />
     ),
-    produto: (
-      <ProdutoPage
-        visao={produtoVisao}
-        dicionarios={produtoDicionarios}
-        cockpit={produtoCockpit}
+    tratativas_massa: (
+      <TratativasMassaPage
+        resumo={resumo}
+        modulos={anomaliasModulos}
+        analiseTecnicaResumos={analiseTecnicaResumos}
+        suspeitasRa={produtoSuspeitasRa}
+        execucoes={execucoes}
+        onRefresh={load}
+        onAtualizarAlgoritmo={handleAtualizarAlgoritmo}
+        onAceitarAlgoritmo={handleAceitarAlgoritmo}
+        onRejeitarAlgoritmo={handleRejeitarAlgoritmo}
+        accepting={authorizing}
+        runningAlgorithm={runningAlgorithm}
+        loading={loading}
+        loaded={painelLoaded}
+      />
+    ),
+    aprovacao: (
+      <AprovacaoPage
+        resumo={resumo}
+        ajustes={ajustes}
+        user={user}
+        onAutorizar={handleAutorizar}
+        actionMessage={actionMessage}
+        authorizing={authorizing}
+        onOpenOccurrence={handleOpenOccurrence}
+      />
+    ),
+    ocorrencias: (
+      <OcorrenciasPage
+        resumo={resumo}
+        fila={fila}
         token={token}
         onOpenOccurrence={handleOpenOccurrence}
+      />
+    ),
+    alteracoes_manuais: (
+      <AlteracoesPage
+        alteracoes={alteracoes}
+        user={user}
+        onCreate={handleCreateAlteracao}
+        onApprove={(item) => decideAlteracao(item, 'aprovar')}
+        onReject={(item) => decideAlteracao(item, 'rejeitar')}
+        savingDecision={savingDecision}
       />
     ),
     executivo: (
-      <ExecutivoPage
-        resumo={resumo}
-        cards={cards}
+      <SaidaIqsPage
         modelosIqs={modelosIqs}
         geracoesIqs={geracoesIqs}
         validacaoIqs={produtoValidacaoIqs}
         user={user}
-        onAutorizar={handleAutorizar}
         onCreateGeracaoIqs={handleCreateGeracaoIqs}
-        actionMessage={actionMessage}
-        authorizing={authorizing}
         generatingIqs={generatingIqs}
-      />
-    ),
-    anomalias: (
-      <AnomaliasPage
-        resumo={anomaliasResumo}
-        items={anomalias}
-        modulos={anomaliasModulos}
-        suspeitasRa={produtoSuspeitasRa}
-        loading={loading}
-        onOpenDetail={handleOpenAnomalyDetail}
-      />
-    ),
-    analise_tecnica: (
-      <AnaliseTecnicaPage
-        resumo={resumo}
-        fila={fila}
-        ajustes={ajustes}
-        alteracoes={alteracoes}
-        produtoCockpit={produtoCockpit}
-        user={user}
-        token={token}
-        onOpenOccurrence={handleOpenOccurrence}
-        onCreateAlteracao={handleCreateAlteracao}
-        onApproveAlteracao={(item) => decideAlteracao(item, 'aprovar')}
-        onRejectAlteracao={(item) => decideAlteracao(item, 'rejeitar')}
-        savingDecision={savingDecision}
       />
     ),
     administracao: (

@@ -607,12 +607,11 @@ def _ranking_regional(con: duckdb.DuckDBPyConnection, limite: int) -> list[dict[
         FROM base b
         {ressarcimento_join}
         ORDER BY b.chi_liquido DESC, b.ci_liquido DESC, COMP_TOTAL_PRODIST DESC
-        LIMIT ?
         """,
-        [limite],
     ).fetchall()
 
-    return [
+    official_regionals = {"CSL", "LES", "NRT", "NRO", "OES"}
+    records = [
         {
             "regional": _clean(row[0]),
             "regional_exibicao": _display(_clean(row[0]), _static_region_name(_clean(row[0]))),
@@ -628,6 +627,29 @@ def _ranking_regional(con: duckdb.DuckDBPyConnection, limite: int) -> list[dict[
         }
         for row in rows
     ]
+    regional_records = [record for record in records if record["regional"] in official_regionals]
+    regional_records.sort(
+        key=lambda record: (
+            float(record.get("chi_liquido") or 0),
+            float(record.get("ci_liquido") or 0),
+            float(record.get("comp_total_prodist") or 0),
+        ),
+        reverse=True,
+    )
+    copel_record = {
+        "regional": "COPEL",
+        "regional_exibicao": _display("COPEL", _static_region_name("COPEL")),
+        "ocorrencias": sum(float(record.get("ocorrencias") or 0) for record in regional_records),
+        "interrupcoes": sum(float(record.get("interrupcoes") or 0) for record in regional_records),
+        "ucs": sum(float(record.get("ucs") or 0) for record in regional_records),
+        "conjuntos": sum(float(record.get("conjuntos") or 0) for record in regional_records),
+        "ci_liquido": sum(float(record.get("ci_liquido") or 0) for record in regional_records),
+        "chi_liquido": sum(float(record.get("chi_liquido") or 0) for record in regional_records),
+        "duracao_maxima_h": max((float(record.get("duracao_maxima_h") or 0) for record in regional_records), default=0),
+        "comp_total_prodist": sum(float(record.get("comp_total_prodist") or 0) for record in regional_records),
+        "ucs_com_compensacao": sum(float(record.get("ucs_com_compensacao") or 0) for record in regional_records),
+    }
+    return [copel_record, *regional_records[: max(limite, len(official_regionals))]]
 
 
 def _static_region_name(codigo: str) -> str:

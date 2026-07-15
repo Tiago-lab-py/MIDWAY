@@ -546,10 +546,31 @@ p {
   margin-top: 1.25rem;
 }
 
+.summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin: 0.8rem 0 1rem;
+}
+
+.summary-strip span {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.3);
+  color: #bfdbfe;
+  padding: 0.65rem 0.85rem;
+}
+
+.summary-strip strong {
+  color: #f8fafc;
+  margin-right: 0.25rem;
+}
+
 .adjustment-panel-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
+  align-items: start;
   margin-top: 1rem;
 }
 
@@ -562,10 +583,6 @@ p {
 
 .adjustment-lane-auto {
   box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.08);
-}
-
-.adjustment-lane-manual {
-  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.1);
 }
 
 .adjustment-lane .compact-title h3 {
@@ -606,9 +623,19 @@ p {
   margin: 0;
 }
 
+.module-summary-source {
+  display: block;
+  color: #93c5fd;
+  font-size: 0.72rem;
+  font-weight: 800;
+  margin-top: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .module-summary-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
@@ -632,12 +659,87 @@ p {
   font-size: 0.72rem;
 }
 
+.module-run-status {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  grid-column: 1 / -1;
+  border: 1px solid rgba(96, 165, 250, 0.14);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.22);
+  padding: 0.65rem;
+}
+
+.module-run-status > span,
+.module-run-status > span > strong,
+.module-run-status > span > small {
+  display: block;
+}
+
+.module-run-status > span > strong {
+  color: #bfdbfe;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.module-run-status > span > small {
+  color: #f8fafc;
+  margin-top: 0.25rem;
+}
+
+.module-run-message {
+  grid-column: 1 / -1;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding-top: 0.55rem;
+}
+
+.module-run-message small {
+  color: #fecaca;
+}
+
+.module-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  grid-column: 1 / -1;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  margin-top: 0.2rem;
+  padding-top: 0.75rem;
+}
+
+.adjustment-detail-preview {
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.16), transparent 44%),
+    rgba(15, 23, 42, 0.62);
+  padding: 1rem;
+}
+
 .panel-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.panel-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.danger-button {
+  border-color: rgba(248, 113, 113, 0.38);
+  color: #fecaca;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: rgba(127, 29, 29, 0.28);
 }
 
 .primary-button,
@@ -664,16 +766,21 @@ p {
   background: rgba(15, 23, 42, 0.7);
 }
 
-.primary-button:hover,
-.secondary-button:hover {
+.primary-button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: rgba(96, 165, 250, 0.65);
 }
 
-.primary-button:disabled {
-  cursor: wait;
-  opacity: 0.7;
+.primary-button:disabled,
+.secondary-button:disabled,
+.danger-button:disabled,
+.mini-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
   transform: none;
+  box-shadow: none;
+  filter: grayscale(0.45);
 }
 
 .admin-tabs {
@@ -1576,6 +1683,216 @@ p {
   color: #fff;
   padding: 0.35rem 0.65rem;
   text-align: right;
+}
+
+.anomaly-triage-shell {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.72fr) minmax(420px, 1.25fr) minmax(320px, 0.86fr);
+  gap: 1rem;
+  align-items: start;
+  margin: 1rem 0;
+}
+
+.anomaly-module-sidebar,
+.anomaly-dossier-panel {
+  position: sticky;
+  top: 1rem;
+}
+
+.anomaly-module-list,
+.anomaly-priority-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.anomaly-module-list {
+  max-height: 66vh;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.anomaly-module-list button,
+.anomaly-priority-card {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.28);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.anomaly-module-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  padding: 0.85rem;
+}
+
+.anomaly-module-list button.active,
+.anomaly-priority-card.active,
+.anomaly-module-list button:hover,
+.anomaly-priority-card:hover {
+  border-color: rgba(96, 165, 250, 0.58);
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.16), transparent 48%),
+    rgba(30, 41, 59, 0.7);
+}
+
+.anomaly-module-list span,
+.anomaly-module-list strong,
+.anomaly-module-list small {
+  display: block;
+}
+
+.anomaly-module-list strong {
+  color: #f8fafc;
+}
+
+.anomaly-module-list small {
+  color: #94a3b8;
+  line-height: 1.35;
+  margin-top: 0.25rem;
+}
+
+.anomaly-module-list em {
+  align-self: start;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.16);
+  color: #bfdbfe;
+  font-style: normal;
+  font-weight: 900;
+  padding: 0.22rem 0.55rem;
+}
+
+.anomaly-mini-summary,
+.anomaly-dossier-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.anomaly-mini-summary {
+  margin-top: 0.9rem;
+}
+
+.anomaly-mini-summary span,
+.anomaly-dossier-metrics span {
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.32);
+  padding: 0.75rem;
+}
+
+.anomaly-mini-summary strong,
+.anomaly-mini-summary small,
+.anomaly-dossier-metrics strong,
+.anomaly-dossier-metrics small {
+  display: block;
+}
+
+.anomaly-mini-summary strong,
+.anomaly-dossier-metrics strong {
+  color: #f8fafc;
+}
+
+.anomaly-mini-summary small,
+.anomaly-dossier-metrics small {
+  color: #94a3b8;
+  font-size: 0.74rem;
+}
+
+.anomaly-results-panel {
+  min-width: 0;
+}
+
+.anomaly-priority-list {
+  max-height: 72vh;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.anomaly-priority-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(145px, auto);
+  gap: 0.85rem;
+  align-items: center;
+  padding: 0.9rem;
+}
+
+.anomaly-rank {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.22);
+  color: #bfdbfe;
+  font-weight: 900;
+}
+
+.anomaly-priority-main,
+.anomaly-priority-metrics,
+.anomaly-dossier-panel,
+.anomaly-dossier-head {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.anomaly-priority-main strong,
+.anomaly-dossier-head strong {
+  color: #f8fafc;
+  line-height: 1.35;
+}
+
+.anomaly-priority-main small,
+.anomaly-priority-metrics small {
+  color: #94a3b8;
+  overflow-wrap: anywhere;
+}
+
+.anomaly-priority-metrics {
+  justify-items: end;
+  text-align: right;
+}
+
+.anomaly-dossier-head p {
+  color: #cbd5e1;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.anomaly-note {
+  display: grid;
+  gap: 0.45rem;
+  color: #cbd5e1;
+  font-weight: 800;
+}
+
+.anomaly-note textarea {
+  min-height: 110px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.36);
+  color: #e8eefc;
+  font: inherit;
+  padding: 0.85rem;
+  resize: vertical;
+}
+
+.anomaly-support-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.anomaly-support-panel > summary {
+  cursor: pointer;
+  color: #f8fafc;
+  font-weight: 900;
+}
+
+.anomaly-support-panel > .panel {
+  margin-top: 1rem;
 }
 
 .iqs-generation-form {
@@ -2544,7 +2861,9 @@ th {
   .result-grid,
   .analysis-filter-grid,
   .analysis-summary-strip,
-  .adjustment-panel-grid {
+  .adjustment-panel-grid,
+  .anomaly-triage-shell,
+  .anomaly-support-grid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -2595,8 +2914,22 @@ th {
   .analysis-summary-strip,
   .adjustment-panel-grid,
   .module-summary-card,
-  .module-summary-metrics {
+  .module-summary-metrics,
+  .module-run-status,
+  .anomaly-triage-shell,
+  .anomaly-support-grid,
+  .anomaly-priority-card {
     grid-template-columns: 1fr;
+  }
+
+  .anomaly-module-sidebar,
+  .anomaly-dossier-panel {
+    position: static;
+  }
+
+  .anomaly-priority-metrics {
+    justify-items: start;
+    text-align: left;
   }
 
   .governed-form {

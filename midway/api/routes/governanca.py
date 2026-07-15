@@ -5,10 +5,12 @@ import os
 import secrets
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -26,6 +28,14 @@ from midway.api.serialization import api_row, api_rows
 from midway.db.postgres import create_postgres_engine, get_config, validate_postgres
 
 router = APIRouter(prefix="/api", tags=["governanca"])
+EXECUCAO_LOTE_LOCK = threading.Lock()
+DUCKDB_BUSY_MAX_TENTATIVAS = 30
+DUCKDB_BUSY_INTERVALO_SEGUNDOS = 10
+
+
+def _duckdb_em_uso(saida: str) -> bool:
+    texto = saida.lower()
+    return "cannot open file" in texto and ("already open" in texto or "sendo usado" in texto)
 
 
 class LoginRequest(BaseModel):
@@ -241,7 +251,7 @@ EXECUCOES_PERMITIDAS = {
         "descricao": "Identifica outros componentes/causas candidatos a ajuste com evidência de serviços, referência IQS e reclamações.",
         "etapas": [{"module": "midway.auditoria.agente_comp_causa", "env": {}}],
     },
-    "suspeita_falha_RA": {
+    "suspeita_falha_ra": {
         "titulo": "run.bat suspeita_falha_RA — Suspeita falha RA",
         "descricao": "Identifica religadores automáticos com ocorrências sucessivas no mesmo dia, sem reclamações, mas com FIC/ressarcimento FIC relevante.",
         "etapas": [{"module": "midway.auditoria.suspeita_falha_ra", "env": {}}],
@@ -260,6 +270,16 @@ EXECUCOES_PERMITIDAS = {
         "titulo": "run.bat interrupcao_sem_uc — Interrupções sem UC",
         "descricao": "Exporta interrupções sem UC para análise de ESTADO 7.",
         "etapas": [{"module": "midway.auditoria.interrupcao_sem_uc", "env": {}}],
+    },
+    "auditoria_duplicidade_tipo": {
+        "titulo": "run.bat auditoria_duplicidade_tipo — Duplicidade de tipo",
+        "descricao": "Audita duplicidade de interrupção por COD_TIPO_INTRP 1, 2 e 3.",
+        "etapas": [{"module": "midway.auditoria.duplicidade_tipo_intrp", "env": {}}],
+    },
+    "simulacao_ise": {
+        "titulo": "run.bat simulacao_ise — Dia crítico / ISE",
+        "descricao": "Materializa gold_simulacao_ise_uc e exporta evidências de potencial ISE/DISE.",
+        "etapas": [{"script": "tools/gerar_simulacao_ise.py", "env": {}}],
     },
     "auditar_ajuste_inicio_manobra": {
         "titulo": "run.bat auditar_ajuste_inicio_manobra — Auditoria manobra",
@@ -371,39 +391,56 @@ def _executar_lote_background(id_lote: str, tipo_lote: str, anomes: str) -> None
     root = _repo_root()
     env_base = os.environ.copy()
     env_base["ANOMES"] = anomes
-    _atualizar_lote(id_lote, "PROCESSANDO", f"Processamento iniciado: {config['titulo']}.")
+    _atualizar_lote(
+        id_lote,
+        "ABERTO",
+        f"Solicitação recebida: {config['titulo']}. Aguardando fila de execução para evitar bloqueio do DuckDB.",
+    )
     saidas: list[str] = []
     try:
-        for etapa in config["etapas"]:
-            env = {**env_base, **etapa.get("env", {})}
-            args = [str(arg) for arg in etapa.get("args", [])]
-            module = etapa.get("module")
-            script = etapa.get("script")
-            if module:
-                command = [sys.executable, "-m", str(module), *args]
-                command_label = f"python -m {module}" + (f" {' '.join(args)}" if args else "")
-            elif script:
-                script_path = root / str(script)
-                command = [sys.executable, str(script_path), *args]
-                command_label = f"python {script}" + (f" {' '.join(args)}" if args else "")
-            else:
-                raise RuntimeError("Etapa de processamento sem módulo ou script.")
-            process = subprocess.run(
-                command,
-                cwd=str(root),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=60 * 60 * 6,
-                check=False,
-            )
-            saida = "\n".join([process.stdout.strip(), process.stderr.strip()]).strip()
-            if saida:
-                saidas.append(f"$ {command_label}\n{saida}")
-            if process.returncode != 0:
-                _atualizar_lote(id_lote, "ERRO", "\n\n".join(saidas) or f"Falha em {command_label}.")
-                return
-        _atualizar_lote(id_lote, "CONCLUIDO", "\n\n".join(saidas) or "Processamento concluído.")
+        with EXECUCAO_LOTE_LOCK:
+            _atualizar_lote(id_lote, "PROCESSANDO", f"Processamento iniciado: {config['titulo']}.")
+            for etapa in config["etapas"]:
+                env = {**env_base, **etapa.get("env", {})}
+                args = [str(arg) for arg in etapa.get("args", [])]
+                module = etapa.get("module")
+                script = etapa.get("script")
+                if module:
+                    command = [sys.executable, "-m", str(module), *args]
+                    command_label = f"python -m {module}" + (f" {' '.join(args)}" if args else "")
+                elif script:
+                    script_path = root / str(script)
+                    command = [sys.executable, str(script_path), *args]
+                    command_label = f"python {script}" + (f" {' '.join(args)}" if args else "")
+                else:
+                    raise RuntimeError("Etapa de processamento sem módulo ou script.")
+                process = None
+                saida = ""
+                for tentativa in range(1, DUCKDB_BUSY_MAX_TENTATIVAS + 1):
+                    process = subprocess.run(
+                        command,
+                        cwd=str(root),
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=60 * 60 * 6,
+                        check=False,
+                    )
+                    saida = "\n".join([process.stdout.strip(), process.stderr.strip()]).strip()
+                    if process.returncode == 0 or not _duckdb_em_uso(saida) or tentativa == DUCKDB_BUSY_MAX_TENTATIVAS:
+                        break
+                    _atualizar_lote(
+                        id_lote,
+                        "PROCESSANDO",
+                        f"{command_label}: DuckDB em uso por outro processo. Nova tentativa {tentativa + 1}/{DUCKDB_BUSY_MAX_TENTATIVAS} em {DUCKDB_BUSY_INTERVALO_SEGUNDOS} segundos.",
+                    )
+                    time.sleep(DUCKDB_BUSY_INTERVALO_SEGUNDOS)
+                if saida:
+                    saidas.append(f"$ {command_label}\n{saida}")
+                if process and process.returncode != 0:
+                    _atualizar_lote(id_lote, "ERRO", "\n\n".join(saidas) or f"Falha em {command_label}.")
+                    return
+            _atualizar_lote(id_lote, "CONCLUIDO", "\n\n".join(saidas) or "Processamento concluído.")
     except Exception as exc:
         _atualizar_lote(id_lote, "ERRO", f"Erro ao executar processamento: {exc}")
 
@@ -584,7 +621,7 @@ def confirmar_reset_senha_publico(
 
 @router.get("/governanca/usuarios")
 def listar_usuarios(
-    user: AuthUser = Depends(require_profiles("ADM", "GESTOR")),
+    user: AuthUser = Depends(require_profiles("ADM")),
 ) -> list[dict[str, object]]:
     schema = _schema()
     engine = create_postgres_engine()
@@ -1166,8 +1203,7 @@ def listar_execucoes(user: AuthUser = Depends(require_profiles("ADM", "GESTOR", 
 @router.post("/governanca/execucoes")
 def iniciar_execucao(
     payload: ExecucaoRequest,
-    background_tasks: BackgroundTasks,
-    user: AuthUser = Depends(require_profiles("ADM")),
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR")),
 ) -> dict[str, object]:
     tipo_lote = payload.tipo_lote.strip().lower()
     anomes = payload.anomes.strip()
@@ -1203,7 +1239,8 @@ def iniciar_execucao(
             },
         )
 
-    background_tasks.add_task(_executar_lote_background, id_lote, tipo_lote, anomes)
+    thread = threading.Thread(target=_executar_lote_background, args=(id_lote, tipo_lote, anomes), daemon=True)
+    thread.start()
     audit_event(
         "EXECUCAO_LOTE_SOLICITADA",
         "midway_execucao_lote",

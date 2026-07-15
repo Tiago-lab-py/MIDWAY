@@ -29,6 +29,34 @@ def _fetch_rows(con: duckdb.DuckDBPyConnection, sql: str, params: list[object]) 
     return api_rows(df.to_dict(orient="records"))
 
 
+def _duckdb_busy_message(exc: Exception) -> str:
+    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
+    useful = [
+        line
+        for line in lines
+        if "IO Error" in line
+        or "Cannot open file" in line
+        or "already open" in line
+        or "sendo usado" in line
+        or "PID " in line
+    ]
+    message = " ".join(useful or lines[:2])
+    return message or str(exc)
+
+
+def _connect_processed_readonly(db_path: Path) -> duckdb.DuckDBPyConnection:
+    try:
+        return duckdb.connect(str(db_path), read_only=True)
+    except (duckdb.Error, OSError) as exc:
+        raise HTTPException(
+            status_code=423,
+            detail=(
+                "DuckDB processado está ocupado por outro processo. "
+                f"Feche API/job antigo, Streamlit ou notebook usando o arquivo e tente novamente. Detalhe: {_duckdb_busy_message(exc)}"
+            ),
+        ) from None
+
+
 def _table_exists(con: duckdb.DuckDBPyConnection, table_name: str) -> bool:
     return (
         con.execute(
@@ -95,7 +123,7 @@ def busca_qualidade(
         """
         params = [valor_busca, valor_busca, valor_busca, limit]
 
-    with duckdb.connect(str(db_path), read_only=True) as con:
+    with _connect_processed_readonly(db_path) as con:
         return _fetch_rows(
             con,
             f"""
@@ -191,7 +219,7 @@ def opcoes_analise_tecnica(
     if not db_path.exists():
         raise HTTPException(status_code=404, detail=f"DuckDB processado não encontrado: {db_path}")
 
-    with duckdb.connect(str(db_path), read_only=True) as con:
+    with _connect_processed_readonly(db_path) as con:
         if not _table_exists(con, "gold_iqs_referencia_componente_causa"):
             raise HTTPException(status_code=404, detail="Referência IQS de grupo/componente/causa não encontrada.")
 
@@ -311,7 +339,7 @@ def analise_tecnica_impacto(
       + LEAST(COALESCE(MAX_SCORE_RECLAMACAO, 0) / 5, 20)
     """
 
-    with duckdb.connect(str(db_path), read_only=True) as con:
+    with _connect_processed_readonly(db_path) as con:
         origem_sql, usando_cache = source_sql(con)
         cte_sql = f"""
             WITH origem AS (
@@ -387,7 +415,7 @@ def detalhe_ocorrencia(
     if not db_path.exists():
         raise HTTPException(status_code=404, detail=f"DuckDB processado não encontrado: {db_path}")
 
-    with duckdb.connect(str(db_path), read_only=True) as con:
+    with _connect_processed_readonly(db_path) as con:
         ocorrencia = _fetch_rows(
             con,
             """
