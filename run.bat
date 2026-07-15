@@ -386,6 +386,13 @@ if /I "%~1"=="auditoria_duplicidade_tipo" (
     goto fim
 )
 
+if /I "%~1"=="simulacao_ise" (
+    echo Gerando simulacao ISE / Dia Critico...
+    "%PYTHON_EXE%" "%SCRIPT_DIR%tools\gerar_simulacao_ise.py"
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="full" (
     echo Executando extracao...
     "%PYTHON_EXE%" -m midway.extract.adms
@@ -491,6 +498,7 @@ echo   run.bat validar_dados                Executa testes e metricas de qualida
 echo   run.bat metricas_qualidade           Gera metricas estatisticas de qualidade
 echo   run.bat amostras_auditoria           Exporta amostras para verificacao manual
 echo   run.bat auditoria_duplicidade_tipo   Verifica duplicidade por COD_TIPO_INTRP 1, 2 e 3
+echo   run.bat simulacao_ise                Gera simulacao ISE / Dia Critico
 echo   run.bat full                         Executa extracao e depois tratamento
 echo   run.bat full_mais_apuracao           Executa extracao, tratamento, consumidores, UC fatura, apuracao e exportacoes auxiliares
 echo.

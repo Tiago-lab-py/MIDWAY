@@ -57,6 +57,28 @@ def tabela_fonte(con: duckdb.DuckDBPyConnection) -> str:
     )
 
 
+def colunas_tabela(con: duckdb.DuckDBPyConnection, table_name: str) -> set[str]:
+    return {
+        linha[0].upper()
+        for linha in con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'main'
+              AND lower(table_name) = lower(?)
+            """,
+            [table_name],
+        ).fetchall()
+    }
+
+
+def expr_regional(colunas: set[str]) -> str:
+    for coluna in ("REGIONAL_EXPORT", "SIGLA_REGIONAL", "REGIONAL"):
+        if coluna in colunas:
+            return f"CAST({coluna} AS VARCHAR)"
+    return "'N/I'"
+
+
 def auditar_duplicidade_tipo_intrp() -> None:
     if not PROCESSED_DUCKDB_PATH.exists():
         raise RuntimeError(f"DuckDB processado nao encontrado: {PROCESSED_DUCKDB_PATH}")
@@ -65,26 +87,33 @@ def auditar_duplicidade_tipo_intrp() -> None:
 
     con = duckdb.connect(str(PROCESSED_DUCKDB_PATH), read_only=True)
     fonte = tabela_fonte(con)
+    colunas = colunas_tabela(con, fonte)
+    regional_sql = expr_regional(colunas)
 
     con.execute(
         f"""
         CREATE TEMP TABLE interrupcao_tipo_base AS
-        SELECT DISTINCT
-            REGIONAL_EXPORT AS REGIONAL,
-            CAST(NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
+        SELECT
+            MIN({regional_sql}) AS REGIONAL,
+            MIN(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
             CAST(NUM_SEQ_INTRP AS VARCHAR) AS NUM_SEQ_INTRP,
-            CAST(NUM_OPER_CHV_INTRP AS VARCHAR) AS NUM_OPER_CHV_INTRP,
-            CAST(NUM_POSTO_UCI AS VARCHAR) AS NUM_POSTO_UCI,
-            CAST(COD_CAUSA_INTRP AS VARCHAR) AS COD_CAUSA_INTRP,
-            CAST(COD_COMP_INTRP AS VARCHAR) AS COD_COMP_INTRP,
-            CAST(COD_TIPO_INTRP AS VARCHAR) AS COD_TIPO_INTRP,
-            DATA_HORA_INIC_INTRP,
-            DATA_HORA_FIM_INTRP,
-            CAST(ESTADO_INTRP AS VARCHAR) AS ESTADO_INTRP,
-            CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR) AS NUM_MOTIVO_TRAT_DIF_UCI,
-            CAST(INDIC_SIT_PROCES_INDIC_UCI AS VARCHAR) AS INDIC_SIT_PROCES_INDIC_UCI
+            MIN(CAST(NUM_OPER_CHV_INTRP AS VARCHAR)) AS NUM_OPER_CHV_INTRP,
+            MIN(CAST(NUM_POSTO_UCI AS VARCHAR)) AS NUM_POSTO_UCI,
+            MIN(CAST(COD_CAUSA_INTRP AS VARCHAR)) AS COD_CAUSA_INTRP,
+            MIN(CAST(COD_COMP_INTRP AS VARCHAR)) AS COD_COMP_INTRP,
+            TRIM(CAST(COD_TIPO_INTRP AS VARCHAR)) AS COD_TIPO_INTRP,
+            MIN(DATA_HORA_INIC_INTRP) AS DATA_HORA_INIC_INTRP,
+            MAX(DATA_HORA_FIM_INTRP) AS DATA_HORA_FIM_INTRP,
+            MIN(CAST(ESTADO_INTRP AS VARCHAR)) AS ESTADO_INTRP,
+            MIN(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)) AS NUM_MOTIVO_TRAT_DIF_UCI,
+            MIN(CAST(INDIC_SIT_PROCES_INDIC_UCI AS VARCHAR)) AS INDIC_SIT_PROCES_INDIC_UCI,
+            COUNT(*) AS QTD_LINHAS_UC,
+            COUNT(DISTINCT NUM_POSTO_UCI) AS QTD_UCS
         FROM {fonte}
         WHERE TRIM(CAST(COD_TIPO_INTRP AS VARCHAR)) IN ('1', '2', '3')
+        GROUP BY
+            CAST(NUM_SEQ_INTRP AS VARCHAR),
+            TRIM(CAST(COD_TIPO_INTRP AS VARCHAR))
         """
     )
 
