@@ -1210,6 +1210,8 @@ function TratativasMassaPage({
 function AprovacaoPage({
   resumo,
   ajustes,
+  modulos = [],
+  execucoes = [],
   user,
   onAutorizar,
   actionMessage,
@@ -1217,6 +1219,108 @@ function AprovacaoPage({
   onOpenOccurrence,
 }) {
   const canManage = hasProfile(user, ['GESTOR', 'ADM'])
+  const [incluirJustificativas, setIncluirJustificativas] = useState(true)
+  const [justificativaGestor, setJustificativaGestor] = useState(
+    'Aprovação governada das tratativas em massa revisadas pelo gestor, com critérios técnicos e impacto regulatório considerados.',
+  )
+  const latestExecucaoByTipo = useMemo(() => {
+    const latest = new Map()
+    ;(execucoes || []).forEach((execucao) => {
+      const tipo = String(execucao.tipo_lote || '').toLowerCase()
+      if (!tipo || latest.has(tipo)) return
+      latest.set(tipo, execucao)
+    })
+    return latest
+  }, [execucoes])
+  const tratativasAutomatizadas = useMemo(() => {
+    const catalogo = [
+      {
+        codigo: 'CORRECAO_9282',
+        nome: 'Correção especializada 92/82',
+        quantidade: Number(resumo.qtd_candidatos_autorizacao || resumo.qtd_autorizados_autorizacao || 0),
+        autorizados: Number(resumo.qtd_autorizados_autorizacao || 0),
+        rejeitados: Number(resumo.qtd_rejeitados_autorizacao || 0),
+        ultima: resumo.ultima_autorizacao_em,
+        justificativa: 'Critério 92/82: serviço ADMS com evidência robusta, par componente/causa válido e baixa necessidade de decisão manual.',
+        aprovavel: true,
+      },
+      ...(modulos || [])
+        .filter((modulo) => !['GOVERNANCA_IQS', 'AJUSTE_MANUAL_IQS'].includes(modulo.codigo))
+        .map((modulo) => ({
+          codigo: modulo.codigo,
+          nome: modulo.nome || modulo.codigo,
+          quantidade: Number(modulo.total || 0),
+          autorizados: 0,
+          rejeitados: 0,
+          ultima: null,
+          justificativa: modulo.criterio_curto || modulo.descricao || 'Tratativa automatizada catalogada para análise governada.',
+          aprovavel: false,
+        })),
+    ]
+    return catalogo
+      .filter((item, index, self) => self.findIndex((candidate) => candidate.codigo === item.codigo) === index)
+      .map((item) => {
+        const tipoExecucao = EXECUCAO_MODULO_MAP[item.codigo]
+        const execucao = tipoExecucao ? latestExecucaoByTipo.get(tipoExecucao) : null
+        const statusExecucao = execucao?.status_lote || (tipoExecucao ? 'SEM EXECUÇÃO' : 'SEM EXECUTOR')
+        const statusAprovacao = item.aprovavel
+          ? Number(item.autorizados || 0) > 0
+            ? 'ACEITO'
+            : statusExecucao
+          : 'NÃO IMPLANTA EM LOTE'
+        return {
+          ...item,
+          tipoExecucao,
+          execucao,
+          statusAprovacao,
+          selecionavel: canManage && item.aprovavel && Number(item.quantidade || 0) > 0,
+        }
+      })
+  }, [canManage, execucoes, latestExecucaoByTipo, modulos, resumo])
+  const codigosSelecionaveis = useMemo(
+    () => tratativasAutomatizadas.filter((item) => item.selecionavel).map((item) => item.codigo),
+    [tratativasAutomatizadas],
+  )
+  const [tratativasSelecionadas, setTratativasSelecionadas] = useState([])
+  useEffect(() => {
+    setTratativasSelecionadas((atuais) => {
+      const validos = atuais.filter((codigo) => codigosSelecionaveis.includes(codigo))
+      if (validos.length > 0 || codigosSelecionaveis.length === 0) return validos
+      return codigosSelecionaveis
+    })
+  }, [codigosSelecionaveis])
+  const processosAceitos = useMemo(() => {
+    const selecionadas = new Set(tratativasSelecionadas)
+    return tratativasAutomatizadas.filter((processo) => selecionadas.has(processo.codigo))
+  }, [tratativasAutomatizadas, tratativasSelecionadas])
+  function toggleTratativa(codigo) {
+    setTratativasSelecionadas((atuais) => (
+      atuais.includes(codigo) ? atuais.filter((item) => item !== codigo) : [...atuais, codigo]
+    ))
+  }
+  const justificativasUnicas = useMemo(() => {
+    const unicas = []
+    processosAceitos.forEach((processo) => {
+      const justificativa = String(processo.justificativa || '').trim()
+      if (justificativa && !unicas.includes(justificativa)) unicas.push(justificativa)
+    })
+    return unicas
+  }, [processosAceitos])
+  const resumoAprovacao = {
+    processos: processosAceitos.length,
+    autorizados: processosAceitos.reduce((total, item) => total + Number(item.quantidade || 0), 0),
+    rejeitados: processosAceitos.reduce((total, item) => total + Number(item.rejeitados || 0), 0),
+    justificativas: justificativasUnicas.length,
+  }
+  const autorizarComContexto = () => {
+    if (processosAceitos.length === 0) return
+    onAutorizar?.({
+      justificativa: justificativaGestor,
+      incluirJustificativasProcessos: incluirJustificativas,
+      justificativasProcessos: justificativasUnicas,
+      processosSelecionados: processosAceitos.map((processo) => processo.codigo),
+    })
+  }
   return (
     <>
       <PageHero
@@ -1230,13 +1334,6 @@ function AprovacaoPage({
         <div className="alert">Seu perfil pode consultar esta página, mas apenas GESTOR/ADM aprova tratativas em massa.</div>
       )}
 
-      <section className="metrics-grid compact">
-        <Card label="Candidatos" value={numberFormat(resumo.qtd_candidatos_autorizacao)} hint="aguardando decisão" tone="blue" />
-        <Card label="Autorizados" value={numberFormat(resumo.qtd_autorizados_autorizacao)} hint="liberados para IQS" tone="green" />
-        <Card label="Rejeitados/duplicados" value={numberFormat(resumo.qtd_rejeitados_autorizacao)} hint="não implantados" tone="orange" />
-        <Card label="Última autorização" value={dateTime(resumo.ultima_autorizacao_em)} hint="trilha de auditoria" tone="purple" />
-      </section>
-
       <section className="executive-layout">
         <article className="panel executive-action-panel">
           <div className="panel-title">
@@ -1244,9 +1341,74 @@ function AprovacaoPage({
               <h2>Aprovar lote automático</h2>
               <p>Autoriza alterações automáticas com evidência robusta. Duplicidades são ignoradas pela API.</p>
             </div>
-            <button className="primary-button" disabled={!canManage || authorizing} onClick={onAutorizar}>
+            <button className="primary-button" disabled={!canManage || authorizing || processosAceitos.length === 0} onClick={autorizarComContexto}>
               {authorizing ? 'Autorizando...' : 'Aprovar tratativas'}
             </button>
+          </div>
+          <div className="approval-summary-grid">
+            <span><strong>{numberFormat(resumoAprovacao.processos)}</strong><small>processo(s) aceito(s)</small></span>
+            <span><strong>{numberFormat(resumoAprovacao.autorizados)}</strong><small>alterações selecionadas</small></span>
+            <span><strong>{numberFormat(resumoAprovacao.justificativas)}</strong><small>justificativa(s) única(s)</small></span>
+          </div>
+          <div className="approval-treatment-list">
+            {tratativasAutomatizadas.map((tratativa) => {
+              const selected = tratativasSelecionadas.includes(tratativa.codigo)
+              const dataReferencia = tratativa.ultima || tratativa.execucao?.finalizado_em || tratativa.execucao?.iniciado_em
+              return (
+                <label className={`approval-treatment-row ${!tratativa.selecionavel ? 'approval-treatment-row-disabled' : ''}`} key={tratativa.codigo}>
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    disabled={!tratativa.selecionavel}
+                    onChange={() => toggleTratativa(tratativa.codigo)}
+                  />
+                  <span className="approval-treatment-main">
+                    <strong>{tratativa.nome}</strong>
+                    <small>{tratativa.justificativa}</small>
+                  </span>
+                  <span className="approval-treatment-status">
+                    <StatusPill value={tratativa.statusAprovacao} />
+                    <small>{dataReferencia ? dateTime(dataReferencia) : 'sem atualização'}</small>
+                  </span>
+                  <span className="approval-treatment-metrics">
+                    <strong>{numberFormat(tratativa.quantidade)}</strong>
+                    <small>{tratativa.aprovavel ? 'candidatos' : 'casos'}</small>
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+          <label className="approval-check">
+            <input
+              type="checkbox"
+              checked={incluirJustificativas}
+              disabled={!canManage || justificativasUnicas.length === 0}
+              onChange={(event) => setIncluirJustificativas(event.target.checked)}
+            />
+            <span>Incluir as justificativas únicas dos processos aceitos na Tratativa em Massa.</span>
+          </label>
+          <label className="approval-justification">
+            Justificativa única do gestor
+            <textarea
+              value={justificativaGestor}
+              disabled={!canManage}
+              onChange={(event) => setJustificativaGestor(event.target.value)}
+              placeholder="Registre a justificativa única da aprovação em massa."
+            />
+          </label>
+          <div className="accepted-process-list">
+            {processosAceitos.length === 0 ? (
+              <span>Nenhuma tratativa automatizada marcada para aprovação.</span>
+            ) : processosAceitos.map((processo) => (
+              <span key={processo.codigo}>
+                <strong>{processo.nome}</strong>
+                <small>
+                  {numberFormat(processo.quantidade)} selecionado(s)
+                  {processo.ultima ? ` · última autorização ${dateTime(processo.ultima)}` : ''}
+                </small>
+                <em>{processo.justificativa}</em>
+              </span>
+            ))}
           </div>
           <p className="panel-note">
             Use esta ação após revisar a coerência do lote em Tratativas em Massa. Pendências devem ficar para Ocorrências ou Ajustes Manuais.
@@ -1269,8 +1431,6 @@ function AprovacaoPage({
       </section>
 
       {actionMessage && <div className="alert alert-success">{actionMessage}</div>}
-
-      <AjustesPage ajustes={ajustes} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
     </>
   )
 }
@@ -4792,15 +4952,23 @@ export default function App() {
     [resumo, filaTotal],
   )
 
-  async function handleAutorizar() {
+  async function handleAutorizar(contextoAprovacao = {}) {
     try {
       setAuthorizing(true)
       setActionMessage('')
+      const body = {}
+      if (contextoAprovacao.justificativa) body.justificativa = contextoAprovacao.justificativa
+      if (contextoAprovacao.incluirJustificativasProcessos) {
+        body.incluir_justificativas_processos = true
+        body.justificativas_processos = contextoAprovacao.justificativasProcessos || []
+      }
       const response = await fetch(`${API_URL}/api/executivo/9282/autorizar?anomes=${resumo.anomes || '202606'}`, {
         method: 'POST',
         headers: {
+          ...(Object.keys(body).length ? { 'Content-Type': 'application/json' } : {}),
           Authorization: `Bearer ${token}`,
         },
+        ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
       })
       const result = await response.json()
       if (!response.ok) {
@@ -4864,7 +5032,13 @@ export default function App() {
       return
     }
     setActionMessage(`Aceitando a tratativa em massa do algoritmo ${module?.nome || module?.codigo || '—'} pela rotina governada disponível.`)
-    await handleAutorizar()
+    await handleAutorizar({
+      justificativa: `Aceite governado em Tratativas em Massa: ${module?.nome || module?.codigo || 'Correção especializada 92/82'}.`,
+      incluirJustificativasProcessos: true,
+      justificativasProcessos: [
+        'Critério 92/82: serviço ADMS com evidência robusta, par componente/causa válido e baixa necessidade de decisão manual.',
+      ],
+    })
   }
 
   function handleRejeitarAlgoritmo(module) {
@@ -5094,6 +5268,8 @@ export default function App() {
       <AprovacaoPage
         resumo={resumo}
         ajustes={ajustes}
+        modulos={anomaliasModulos}
+        execucoes={execucoes}
         user={user}
         onAutorizar={handleAutorizar}
         actionMessage={actionMessage}

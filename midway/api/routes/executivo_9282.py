@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Annotated
 
 import duckdb
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from midway.api.security import AuthUser, require_profiles
@@ -13,6 +14,12 @@ from midway.auditoria.correcao_9282 import registrar_ajustes_automaticos_9282_po
 from midway.db.postgres import create_postgres_engine, get_config
 
 router = APIRouter(prefix="/api/executivo/9282", tags=["executivo-9282"])
+
+
+class Autorizar9282Request(BaseModel):
+    justificativa: str | None = None
+    incluir_justificativas_processos: bool = False
+    justificativas_processos: list[str] = []
 
 
 def _schema() -> str:
@@ -502,10 +509,29 @@ def auditoria_9282(
 @router.post("/autorizar")
 def autorizar_9282(
     anomes: str = "202606",
+    payload: Autorizar9282Request | None = Body(default=None),
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR")),
 ) -> dict[str, object]:
     try:
-        result = registrar_ajustes_automaticos_9282_postgres(anomes=anomes, responsavel=user.login)
+        justificativa = ""
+        if payload:
+            partes = []
+            if payload.justificativa:
+                partes.append(payload.justificativa.strip())
+            if payload.incluir_justificativas_processos:
+                justificativas_unicas = []
+                for item in payload.justificativas_processos or []:
+                    item_limpo = item.strip()
+                    if item_limpo and item_limpo not in justificativas_unicas:
+                        justificativas_unicas.append(item_limpo)
+                if justificativas_unicas:
+                    partes.append("Justificativas dos processos aceitos: " + " | ".join(justificativas_unicas))
+            justificativa = "\n\n".join(partes).strip()
+        result = registrar_ajustes_automaticos_9282_postgres(
+            anomes=anomes,
+            responsavel=user.login,
+            justificativa_autorizacao=justificativa or None,
+        )
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
     return api_row(result)

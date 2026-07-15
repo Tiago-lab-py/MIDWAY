@@ -923,6 +923,7 @@ def registrar_ajustes_automaticos_9282_postgres(
     db_path: str | Path | None = None,
     raw_path: str | Path | None = None,
     responsavel: str = "EXECUTIVO_9282",
+    justificativa_autorizacao: str | None = None,
 ) -> dict[str, object]:
     from midway.db.postgres import create_postgres_engine, get_config
 
@@ -1094,7 +1095,7 @@ def registrar_ajustes_automaticos_9282_postgres(
                 "qtd_candidatos": len(automaticos),
                 "qtd_autorizados": len(ajuste_rows),
                 "qtd_rejeitados": ignorados,
-                "justificativa": (
+                "justificativa": justificativa_autorizacao or (
                     "Autorização executiva da tratativa automática RA 92/82. "
                     "Critério: serviço ADMS com evidência robusta e par componente/causa válido."
                 ),

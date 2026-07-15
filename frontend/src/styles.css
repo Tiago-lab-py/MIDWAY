@@ -538,6 +538,123 @@ p {
   margin: 1rem 0 0;
 }
 
+.approval-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 0.75rem;
+}
+
+.approval-summary-grid span,
+.accepted-process-list span {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.34);
+  padding: 0.8rem;
+}
+
+.approval-summary-grid strong {
+  color: #60a5fa;
+  font-size: 1.35rem;
+}
+
+.approval-summary-grid small,
+.accepted-process-list small,
+.accepted-process-list em {
+  color: #9fb6d9;
+  font-size: 0.82rem;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.approval-check {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #dbeafe;
+  font-weight: 700;
+}
+
+.approval-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: #3b82f6;
+}
+
+.approval-treatment-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.approval-treatment-row {
+  display: grid;
+  grid-template-columns: 24px minmax(260px, 1fr) minmax(150px, 0.35fr) minmax(92px, 0.18fr);
+  gap: 0.8rem;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.34);
+  padding: 0.85rem;
+}
+
+.approval-treatment-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #3b82f6;
+}
+
+.approval-treatment-row-disabled {
+  opacity: 0.62;
+}
+
+.approval-treatment-main,
+.approval-treatment-status,
+.approval-treatment-metrics {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.approval-treatment-main strong,
+.approval-treatment-metrics strong {
+  color: #f8fafc;
+}
+
+.approval-treatment-main small,
+.approval-treatment-status small,
+.approval-treatment-metrics small {
+  color: #9fb6d9;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.approval-justification {
+  display: grid;
+  gap: 0.45rem;
+  color: #cbd5e1;
+  font-weight: 800;
+}
+
+.approval-justification textarea {
+  min-height: 96px;
+  resize: vertical;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.42);
+  color: #e8eefc;
+  font: inherit;
+  padding: 0.85rem;
+}
+
+.accepted-process-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.accepted-process-list strong {
+  color: #f8fafc;
+}
+
 .panel {
   padding: 1.2rem;
 }
