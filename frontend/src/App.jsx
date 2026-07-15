@@ -22,6 +22,7 @@ const EXECUCAO_MODULO_MAP = {
   INTERRUPCAO_SEM_UC: 'interrupcao_sem_uc',
   DUPLICIDADE_TIPO: 'auditoria_duplicidade_tipo',
   DIA_CRITICO_ISE: 'simulacao_ise',
+  RECLAMACOES_SERVICOS: 'reclamacoes_servicos',
 }
 
 function numberFormat(value) {

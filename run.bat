@@ -161,6 +161,13 @@ if /I "%~1"=="dbguo_reclamacoes" (
     goto fim
 )
 
+if /I "%~1"=="reclamacoes_servicos" (
+    echo Materializando reclamacoes DBGUO e evidencias para cruzamento com servicos...
+    "%PYTHON_EXE%" -m midway.transform.dbguo_reclamacoes_silver
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="extrair_adms_servicos" (
     echo Extraindo servicos ADMS para RAW...
     "%PYTHON_EXE%" -m midway.extract.adms_servicos
@@ -488,6 +495,7 @@ echo   run.bat admin_bootstrap              Cria usuario ADM inicial sem senha p
 echo   run.bat apuracao_parcial             Gera camada gold e BDO de apuracao previa
 echo   run.bat extrair_dbguo_reclamacoes    Extrai reclamacoes DBGUO para data\raw
 echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclamacoes DBGUO
+echo   run.bat reclamacoes_servicos         Materializa reclamacoes e evidencias para servicos
 echo   run.bat extrair_adms_servicos        Extrai servicos ADMS de backup para data\raw
 echo   run.bat correcao_9282                Gera tratativa RA 92/82 e CSV IQS em data\export\correcao_9282
 echo   run.bat agente_comp_causa [ANOMES]   Identifica outros componentes/causas candidatos a ajuste

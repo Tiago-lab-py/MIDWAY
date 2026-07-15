@@ -241,6 +241,14 @@ EXECUCOES_PERMITIDAS = {
         "descricao": "Materializa SILVER/GOLD de reclamações DBGUO.",
         "etapas": [{"module": "midway.transform.dbguo_reclamacoes_silver", "env": {}}],
     },
+    "reclamacoes_servicos": {
+        "titulo": "run.bat reclamacoes_servicos — Reclamações e serviços",
+        "descricao": (
+            "Materializa reclamações DBGUO e vínculos com ocorrências; serviços ADMS entram como evidência "
+            "quando data/raw/adms_servicos_raw_<ANOMES>.duckdb já estiver disponível."
+        ),
+        "etapas": [{"module": "midway.transform.dbguo_reclamacoes_silver", "env": {}}],
+    },
     "correcao_9282": {
         "titulo": "run.bat correcao_9282 — Tratativa em massa",
         "descricao": "Gera tratativa em massa de correção operacional.",
