@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import duckdb
@@ -69,6 +70,52 @@ def _table_exists(con: duckdb.DuckDBPyConnection, table_name: str) -> bool:
         ).fetchone()[0]
         > 0
     )
+
+
+def _parse_iso_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _detectar_sobreposicoes_uc(interrupcoes: list[dict[str, object]]) -> list[dict[str, object]]:
+    eventos: list[dict[str, object]] = []
+    for item in interrupcoes:
+        inicio = _parse_iso_datetime(item.get("INICIO"))
+        fim = _parse_iso_datetime(item.get("FIM")) or inicio
+        if inicio is None or fim is None:
+            continue
+        eventos.append({**item, "_inicio": inicio, "_fim": max(fim, inicio)})
+
+    eventos.sort(key=lambda row: (row["_inicio"], row["_fim"]))
+    sobreposicoes: list[dict[str, object]] = []
+    for idx, atual in enumerate(eventos):
+        for anterior in eventos[:idx]:
+            inicio_sobreposto = max(anterior["_inicio"], atual["_inicio"])
+            fim_sobreposto = min(anterior["_fim"], atual["_fim"])
+            if inicio_sobreposto < fim_sobreposto:
+                horas = (fim_sobreposto - inicio_sobreposto).total_seconds() / 3600.0
+                sobreposicoes.append(
+                    {
+                        "NUM_OCORRENCIA_ADMS_A": anterior.get("NUM_OCORRENCIA_ADMS"),
+                        "NUM_SEQ_INTRP_A": anterior.get("NUM_SEQ_INTRP"),
+                        "NUM_OCORRENCIA_ADMS_B": atual.get("NUM_OCORRENCIA_ADMS"),
+                        "NUM_SEQ_INTRP_B": atual.get("NUM_SEQ_INTRP"),
+                        "INICIO_SOBREPOSICAO": inicio_sobreposto.isoformat(),
+                        "FIM_SOBREPOSICAO": fim_sobreposto.isoformat(),
+                        "HORAS_SOBREPOSTAS": round(horas, 4),
+                        "SEVERIDADE": "crítica" if horas >= 0.05 else "leve",
+                    }
+                )
+    return sobreposicoes[:100]
 
 
 @router.get("/busca")
@@ -254,6 +301,139 @@ def busca_qualidade(
             row["INTERRUPCOES_DETALHE"] = detalhes_por_ocorrencia.get(ocorrencia, [])
 
         return rows
+
+
+@router.get("/uc-visao")
+def uc_visao(
+    uc: str = Query(..., min_length=1),
+    anomes: str = "202606",
+    limit: int = Query(300, ge=1, le=1000),
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA")),
+) -> dict[str, object]:
+    db_path = _processed_path(anomes)
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail=f"DuckDB processado não encontrado: {db_path}")
+
+    uc_busca = uc.strip()
+    if not uc_busca:
+        raise HTTPException(status_code=400, detail="Informe uma UC para análise.")
+
+    with _connect_processed_readonly(db_path) as con:
+        resumo_apuracao = _fetch_rows(
+            con,
+            """
+            SELECT
+                TRIM(CAST(NUM_UC_UCI AS VARCHAR)) AS UC,
+                COUNT(DISTINCT NUM_OCORRENCIA_ADMS) AS OCORRENCIAS,
+                COUNT(DISTINCT NUM_SEQ_INTRP) AS INTERRUPCOES,
+                MIN(DATA_HORA_INIC_INTRP) AS PRIMEIRO_INICIO,
+                MAX(DATA_HORA_FIM_INTRP) AS ULTIMO_FIM,
+                COALESCE(SUM(CHI_LIQUIDO), 0) AS DIC_APURACAO,
+                COALESCE(SUM(CI_LIQUIDO), 0) AS FIC_APURACAO,
+                COALESCE(MAX(DURACAO_HORA), 0) AS DMIC_APURACAO,
+                COALESCE(SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '1' THEN CHI_LIQUIDO ELSE 0 END), 0) AS DURACAO_DIA_CRITICO,
+                COALESCE(SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) IN ('5', '6') THEN CHI_LIQUIDO ELSE 0 END), 0) AS DURACAO_ISE,
+                SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '1' THEN 1 ELSE 0 END) AS EVENTOS_DIA_CRITICO,
+                SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) IN ('5', '6') THEN 1 ELSE 0 END) AS EVENTOS_ISE
+            FROM gold_apuracao_uc
+            WHERE TRIM(CAST(NUM_UC_UCI AS VARCHAR)) = ?
+            GROUP BY 1
+            """,
+            [uc_busca],
+        )
+        resumo_regulatorio = []
+        if _table_exists(con, "gold_ressarcimento_prodist"):
+            resumo_regulatorio = _fetch_rows(
+                con,
+                """
+                SELECT
+                    TRIM(CAST(UC AS VARCHAR)) AS UC,
+                    DIC,
+                    FIC,
+                    DMIC,
+                    DIC_DICRI,
+                    DICRI_BASE_COMPENSACAO,
+                    DIC_ISE,
+                    DISE_BASE_COMPENSACAO,
+                    COMP_DIC_PRODIST,
+                    COMP_FIC_PRODIST,
+                    COMP_DMIC_PRODIST,
+                    COMP_DICRI_PRODIST,
+                    COMP_DISE_PRODIST,
+                    COMP_TOTAL_PRODIST,
+                    META_DIC,
+                    META_FIC,
+                    META_DMIC,
+                    META_DICRI,
+                    META_DISE,
+                    FATURADA,
+                    CLASSE_TENSAO_PRODIST,
+                    GRUPO_TENSAO,
+                    STATUS_CALCULO_PRODIST
+                FROM gold_ressarcimento_prodist
+                WHERE TRIM(CAST(UC AS VARCHAR)) = ?
+                LIMIT 1
+                """,
+                [uc_busca],
+            )
+
+        interrupcoes = _fetch_rows(
+            con,
+            """
+            SELECT
+                TRIM(CAST(NUM_UC_UCI AS VARCHAR)) AS UC,
+                TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)) AS NUM_SEQ_INTRP,
+                MIN(DATA_HORA_INIC_INTRP) AS INICIO,
+                MAX(DATA_HORA_FIM_INTRP) AS FIM,
+                COALESCE(MAX(DURACAO_HORA), 0) AS DURACAO_HORAS,
+                COALESCE(SUM(CHI_LIQUIDO), 0) AS CHI_LIQUIDO,
+                COALESCE(SUM(CI_LIQUIDO), 0) AS CI_LIQUIDO,
+                MAX(COD_CONJTO_ELET_ANEEL_INTRP) AS COD_CONJTO_ELET_ANEEL_INTRP,
+                MAX(COD_COMP_INTRP) AS COD_COMP_INTRP,
+                MAX(COD_CAUSA_INTRP) AS COD_CAUSA_INTRP,
+                MAX(COD_TIPO_INTRP) AS COD_TIPO_INTRP,
+                MAX(TIPO_PROTOC_JUSTIF_UCI) AS TIPO_PROTOC_JUSTIF_UCI,
+                MAX(INDIC_SIT_PROCES_INDIC_UCI) AS INDIC_SIT_PROCES_INDIC_UCI,
+                COUNT(*) AS REGISTROS_BASE
+            FROM gold_apuracao_uc
+            WHERE TRIM(CAST(NUM_UC_UCI AS VARCHAR)) = ?
+            GROUP BY 1, 2, 3
+            ORDER BY INICIO, NUM_OCORRENCIA_ADMS, NUM_SEQ_INTRP
+            LIMIT ?
+            """,
+            [uc_busca, limit],
+        )
+
+        resumo = {**(resumo_apuracao[0] if resumo_apuracao else {"UC": uc_busca})}
+        if resumo_regulatorio:
+            resumo.update(resumo_regulatorio[0])
+        resumo["DIC_FONTE"] = "gold_ressarcimento_prodist" if resumo_regulatorio else "gold_apuracao_uc"
+        resumo["DICRI_OBSERVACAO"] = (
+            "DICRI regulatório/materializado em gold_ressarcimento_prodist."
+            if resumo_regulatorio
+            else "DICRI regulatório não materializado; duração em dia crítico exibida apenas como apoio exploratório."
+        )
+        resumo["DISE_OBSERVACAO"] = (
+            "DISE regulatório/materializado em gold_ressarcimento_prodist."
+            if resumo_regulatorio
+            else "DISE regulatório não materializado; duração ISE exibida apenas como apoio exploratório."
+        )
+        sobreposicoes = _detectar_sobreposicoes_uc(interrupcoes)
+        resumo["QTD_SOBREPOSICOES"] = len(sobreposicoes)
+        resumo["STATUS_SOBREPOSICAO"] = "com sobreposição" if sobreposicoes else "sem sobreposição detectada"
+
+        return {
+            "uc": uc_busca,
+            "anomes": anomes,
+            "resumo": resumo,
+            "interrupcoes": interrupcoes,
+            "sobreposicoes": sobreposicoes,
+            "fontes": [
+                {"fonte": "gold_apuracao_uc", "status": "ok"},
+                {"fonte": "gold_ressarcimento_prodist", "status": "ok" if resumo_regulatorio else "sem registro para UC"},
+            ],
+        }
 
 
 @router.get("/analise-tecnica/opcoes")

@@ -1639,7 +1639,7 @@ function OccurrenceGanttTimeline({ interrupcoes = [] }) {
               <summary>
                 <span className="gantt-task-label">
                   <strong>{task.NUM_SEQ_INTRP}</strong>
-                  <small>{decimalFormat(task.DURACAO_HORAS, 2)} h · {numberFormat(task.QTD_UCS)} UC(s)</small>
+                  <small>{decimalFormat(task.DURACAO_HORAS, 2)} h · {numberFormat(task.QTD_UCS ?? task.CI_LIQUIDO ?? 1)} UC(s)</small>
                 </span>
                 <span className="gantt-track" aria-label={title}>
                   <span
@@ -1655,7 +1655,7 @@ function OccurrenceGanttTimeline({ interrupcoes = [] }) {
                 <span><small>Início</small><strong>{dateTime(task.inicio)}</strong></span>
                 <span><small>Fim</small><strong>{dateTime(task.fim)}</strong></span>
                 <span><small>Duração</small><strong>{decimalFormat(task.DURACAO_HORAS, 2)} h</strong></span>
-                <span><small>UCs</small><strong>{numberFormat(task.QTD_UCS)}</strong></span>
+                <span><small>UCs</small><strong>{numberFormat(task.QTD_UCS ?? task.CI_LIQUIDO ?? 1)}</strong></span>
                 <span><small>Comp/Causa</small><strong>{textValue(task.PARES_COMPONENTE_CAUSA)}</strong></span>
               </div>
             </details>
@@ -1669,13 +1669,147 @@ function OccurrenceGanttTimeline({ interrupcoes = [] }) {
   )
 }
 
+function UcVisionPanel({ data, loading, error, onOpenOccurrence }) {
+  if (loading) {
+    return <section className="panel"><div className="alert">Carregando visão da UC...</div></section>
+  }
+  if (error) {
+    return <section className="panel"><div className="alert">Erro na visão da UC: {error}</div></section>
+  }
+  if (!data) return null
+
+  const resumo = data.resumo || {}
+  const interrupcoes = data.interrupcoes || []
+  const sobreposicoes = data.sobreposicoes || []
+  const ganttItems = interrupcoes.map((item) => ({
+    ...item,
+    QTD_UCS: 1,
+    PARES_COMPONENTE_CAUSA: `${item.COD_COMP_INTRP || '—'}/${item.COD_CAUSA_INTRP || '—'}`,
+  }))
+
+  return (
+    <section className="panel uc-vision-panel">
+      <div className="panel-title">
+        <div>
+          <h2>Visão da UC {data.uc}</h2>
+          <p>DIC/FIC/DMIC regulatórios quando materializados; dia crítico e ISE também aparecem como apoio exploratório.</p>
+        </div>
+        <span className="pill">{textValue(resumo.STATUS_SOBREPOSICAO)}</span>
+      </div>
+      <section className="metrics-grid compact">
+        <Card label="DIC" value={decimalFormat(resumo.DIC ?? resumo.DIC_APURACAO, 2)} hint={resumo.DIC_FONTE || 'base UC'} tone="blue" />
+        <Card label="FIC" value={numberFormat(resumo.FIC ?? resumo.FIC_APURACAO)} hint="frequência UC" tone="purple" />
+        <Card label="DMIC" value={decimalFormat(resumo.DMIC ?? resumo.DMIC_APURACAO, 2)} hint="maior duração individual" tone="orange" />
+        <Card label="Ressarcimento" value={currencyFormat(resumo.COMP_TOTAL_PRODIST)} hint={resumo.STATUS_CALCULO_PRODIST || 'PRODIST'} tone="green" />
+      </section>
+      <section className="metrics-grid compact">
+        <Card label="DICRI" value={decimalFormat(resumo.DIC_DICRI ?? resumo.DICRI_BASE_COMPENSACAO, 2)} hint={resumo.DICRI_OBSERVACAO || 'materializado quando disponível'} tone="blue" />
+        <Card label="DISE" value={decimalFormat(resumo.DIC_ISE ?? resumo.DISE_BASE_COMPENSACAO, 2)} hint={resumo.DISE_OBSERVACAO || 'materializado quando disponível'} tone="purple" />
+        <Card label="Dia crítico exploratório" value={decimalFormat(resumo.DURACAO_DIA_CRITICO, 2)} hint={`${numberFormat(resumo.EVENTOS_DIA_CRITICO)} evento(s)`} tone="orange" />
+        <Card label="Sobreposições" value={numberFormat(resumo.QTD_SOBREPOSICOES)} hint="janelas da mesma UC" tone={Number(resumo.QTD_SOBREPOSICOES || 0) ? 'orange' : 'green'} />
+      </section>
+
+      <OccurrenceGanttTimeline interrupcoes={ganttItems} />
+
+      <details className="modal-collapsible-section">
+        <summary>
+          <h3>Interrupções desta UC</h3>
+          <span>{numberFormat(interrupcoes.length)} registro(s)</span>
+        </summary>
+        <DataTable
+          sortable
+          initialSort={{ key: 'INICIO', direction: 'asc' }}
+          columns={[
+            {
+              key: 'NUM_OCORRENCIA_ADMS',
+              label: 'Ocorrência',
+              render: (item) => (
+                <button className="link-button" onClick={() => onOpenOccurrence(item.NUM_OCORRENCIA_ADMS)}>
+                  {item.NUM_OCORRENCIA_ADMS}
+                </button>
+              ),
+            },
+            { key: 'NUM_SEQ_INTRP', label: 'Interrupção' },
+            { key: 'INICIO', label: 'Início', render: (item) => dateTime(item.INICIO) },
+            { key: 'FIM', label: 'Fim', render: (item) => dateTime(item.FIM) },
+            { key: 'DURACAO_HORAS', label: 'Duração', render: (item) => `${decimalFormat(item.DURACAO_HORAS, 2)} h` },
+            { key: 'CHI_LIQUIDO', label: 'DIC/CHI', render: (item) => decimalFormat(item.CHI_LIQUIDO, 2) },
+            { key: 'CI_LIQUIDO', label: 'FIC/CI', render: (item) => numberFormat(item.CI_LIQUIDO) },
+            {
+              key: 'comp_causa',
+              label: 'Comp/Causa',
+              sortValue: (item) => `${item.COD_COMP_INTRP || ''}/${item.COD_CAUSA_INTRP || ''}`,
+              render: (item) => `${item.COD_COMP_INTRP || '—'}/${item.COD_CAUSA_INTRP || '—'}`,
+            },
+            { key: 'TIPO_PROTOC_JUSTIF_UCI', label: 'Protocolo' },
+            { key: 'INDIC_SIT_PROCES_INDIC_UCI', label: 'Situação' },
+          ]}
+          rows={interrupcoes}
+          empty="Nenhuma interrupção encontrada para a UC."
+        />
+      </details>
+
+      <details className="modal-collapsible-section">
+        <summary>
+          <h3>Sobreposição de registros</h3>
+          <span>{numberFormat(sobreposicoes.length)} ocorrência(s)</span>
+        </summary>
+        <DataTable
+          sortable
+          initialSort={{ key: 'HORAS_SOBREPOSTAS', direction: 'desc' }}
+          columns={[
+            { key: 'NUM_SEQ_INTRP_A', label: 'Interrupção A' },
+            { key: 'NUM_SEQ_INTRP_B', label: 'Interrupção B' },
+            { key: 'INICIO_SOBREPOSICAO', label: 'Início sobrep.', render: (item) => dateTime(item.INICIO_SOBREPOSICAO) },
+            { key: 'FIM_SOBREPOSICAO', label: 'Fim sobrep.', render: (item) => dateTime(item.FIM_SOBREPOSICAO) },
+            { key: 'HORAS_SOBREPOSTAS', label: 'Horas', render: (item) => decimalFormat(item.HORAS_SOBREPOSTAS, 4) },
+            { key: 'SEVERIDADE', label: 'Severidade', render: (item) => <span className="pill">{item.SEVERIDADE}</span> },
+          ]}
+          rows={sobreposicoes}
+          empty="Nenhuma sobreposição detectada para a UC no período pesquisado."
+        />
+      </details>
+    </section>
+  )
+}
+
 function FilaPreview({ anomes, token, onOpenOccurrence }) {
   const [tipo, setTipo] = useState('ocorrencia')
   const [valor, setValor] = useState('')
   const [resultados, setResultados] = useState([])
+  const [ucVisao, setUcVisao] = useState(null)
+  const [ucVisaoLoading, setUcVisaoLoading] = useState(false)
+  const [ucVisaoErro, setUcVisaoErro] = useState('')
   const [buscando, setBuscando] = useState(false)
   const [buscaErro, setBuscaErro] = useState('')
   const [buscaRealizada, setBuscaRealizada] = useState(false)
+
+  async function carregarUcVisao(uc) {
+    try {
+      setUcVisaoLoading(true)
+      setUcVisaoErro('')
+      setUcVisao(null)
+      const params = new URLSearchParams({
+        uc,
+        anomes: anomes || '202606',
+      })
+      const response = await fetch(`${API_URL}/api/qualidade/uc-visao?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao carregar visão da UC.')
+      }
+      setUcVisao(result)
+    } catch (requestError) {
+      setUcVisaoErro(requestError.message)
+      setUcVisao(null)
+    } finally {
+      setUcVisaoLoading(false)
+    }
+  }
 
   async function handleBuscar(event) {
     event.preventDefault()
@@ -1687,6 +1821,8 @@ function FilaPreview({ anomes, token, onOpenOccurrence }) {
     try {
       setBuscando(true)
       setBuscaErro('')
+      setUcVisao(null)
+      setUcVisaoErro('')
       setBuscaRealizada(true)
       const params = new URLSearchParams({
         tipo,
@@ -1704,9 +1840,13 @@ function FilaPreview({ anomes, token, onOpenOccurrence }) {
         throw new Error(result?.detail || 'Falha ao executar a busca técnica.')
       }
       setResultados(result)
+      if (tipo === 'uc') {
+        await carregarUcVisao(valor.trim())
+      }
     } catch (requestError) {
       setBuscaErro(requestError.message)
       setResultados([])
+      setUcVisao(null)
     } finally {
       setBuscando(false)
     }
@@ -1744,6 +1884,14 @@ function FilaPreview({ anomes, token, onOpenOccurrence }) {
       {buscaErro && <div className="alert">{buscaErro}</div>}
       {!buscando && buscaRealizada && !resultados.length && !buscaErro && (
         <div className="alert">Nenhum registro encontrado para a busca informada.</div>
+      )}
+      {tipo === 'uc' && buscaRealizada && (
+        <UcVisionPanel
+          data={ucVisao}
+          loading={ucVisaoLoading}
+          error={ucVisaoErro}
+          onOpenOccurrence={onOpenOccurrence}
+        />
       )}
       <div className="accordion-list">
         {resultados.map((item, index) => (

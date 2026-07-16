@@ -828,6 +828,11 @@ p {
   color: #94a3b8;
 }
 
+.uc-vision-panel {
+  display: grid;
+  gap: 1rem;
+}
+
 .gantt-list {
   display: grid;
   gap: 0;
