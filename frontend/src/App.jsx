@@ -328,7 +328,395 @@ function KeyValueGrid({ data }) {
   )
 }
 
-function OccurrenceModal({ detail, loading, onClose }) {
+function OccurrenceModal({ detail, loading, onClose, onCreateAlteracao, savingDecision, token, anomes = '202606' }) {
+  const interruptionOptions = detail?.interrupcoes || []
+  const ucOptions = detail?.apuracao_uc || []
+  const firstInterruption = interruptionOptions[0] || {}
+  const firstUc = ucOptions[0] || {}
+  const numOcorrencia = detail?.num_ocorrencia_adms || detail?.ocorrencia?.NUM_OCORRENCIA_ADMS || ''
+  const [opcoesReferencia, setOpcoesReferencia] = useState({ grupos: [], componentes: [], causas: [] })
+  const [opcoesReferenciaStatus, setOpcoesReferenciaStatus] = useState('')
+  const [proposalForm, setProposalForm] = useState({
+    tipo_correcao: 'componente_causa',
+    alvo: 'interrupcao',
+    num_seq_intrp: '',
+    num_uc: '',
+    grupo_codigo: '',
+    novo_cod_comp: '',
+    novo_cod_causa: '',
+    campo_alterado: 'COMPONENTE_CAUSA',
+    valor_sugerido: '',
+    valor_proposto: '',
+    justificativa: '',
+  })
+  const [proposalMessage, setProposalMessage] = useState('')
+
+  useEffect(() => {
+    setProposalForm((current) => ({
+      ...current,
+      num_seq_intrp: firstInterruption?.NUM_SEQ_INTRP || '',
+      num_uc: firstUc?.NUM_UC_UCI || '',
+      valor_sugerido: '',
+      valor_proposto: '',
+      justificativa: '',
+    }))
+    setProposalMessage('')
+  }, [detail?.num_ocorrencia_adms, firstInterruption?.NUM_SEQ_INTRP, firstUc?.NUM_UC_UCI])
+
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+
+    async function carregarOpcoesReferencia() {
+      try {
+        setOpcoesReferenciaStatus('Carregando catálogo IQS de grupo/componente/causa...')
+        const params = new URLSearchParams({ anomes: anomes || '202606' })
+        const response = await fetch(`${API_URL}/api/qualidade/analise-tecnica/opcoes?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const result = await response.json()
+        if (!response.ok) {
+          throw new Error(result?.detail || 'Catálogo IQS indisponível.')
+        }
+        if (!cancelled) {
+          setOpcoesReferencia({
+            grupos: result.grupos || [],
+            componentes: result.componentes || [],
+            causas: result.causas || [],
+          })
+          setOpcoesReferenciaStatus('')
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setOpcoesReferencia({ grupos: [], componentes: [], causas: [] })
+          setOpcoesReferenciaStatus(requestError.message || 'Catálogo IQS indisponível.')
+        }
+      }
+    }
+
+    carregarOpcoesReferencia()
+    return () => {
+      cancelled = true
+    }
+  }, [anomes, token])
+
+  const selectedInterruption = interruptionOptions.find((item) => String(item.NUM_SEQ_INTRP || '') === String(proposalForm.num_seq_intrp || '')) || firstInterruption || {}
+  const selectedUc = ucOptions.find((item) => String(item.NUM_UC_UCI || '') === String(proposalForm.num_uc || '')) || firstUc || {}
+  const uniqueText = (items, field) => {
+    const values = [...new Set((items || []).map((item) => textValue(item?.[field])).filter((value) => value !== '—'))]
+    return values.length ? values.join(', ') : '—'
+  }
+  const fieldLabels = {
+    ESTADO_INTRP: 'Estado interrupção',
+    NUM_MOTIVO_TRAT_DIF_UCI: 'Motivo trat. dif. UC',
+    INDIC_SIT_PROCES_INDIC_UCI: 'Situação UC',
+    VALID_POS_OPERACAO: 'Validado pela Pós',
+    COMPONENTE_CAUSA: 'Componente/causa',
+    COD_COMP_INTRP: 'Componente',
+    COD_CAUSA_INTRP: 'Causa',
+    COD_TIPO_INTRP: 'Tipo interrupção',
+    DATA_HORA_INIC_INTRP: 'Horário início',
+    DATA_HORA_FIM_INTRP: 'Horário fim',
+    TIPO_PROTOC_JUSTIF_UCI: 'Protocolo justificativa UC',
+    OUTRO: 'Outro campo',
+  }
+  const normalizeCatalogCode = (value) => {
+    const code = textValue(value)
+    return code === '—' ? '' : code.trim()
+  }
+  const normalizeCauseCode = (value) => {
+    const code = normalizeCatalogCode(value)
+    return code.length === 1 ? code.padStart(2, '0') : code
+  }
+  const singleCatalogCode = (value) => {
+    const code = normalizeCatalogCode(value)
+    return code.includes(',') ? '' : code
+  }
+  const findComponent = (code) => opcoesReferencia.componentes.find((item) => String(item.codigo) === String(normalizeCatalogCode(code)))
+  const findCause = (code, componentCode = proposalForm.novo_cod_comp) => {
+    const normalizedCause = normalizeCauseCode(code)
+    return opcoesReferencia.causas.find((item) => (
+      String(item.codigo) === String(normalizedCause)
+      && (!componentCode || String(item.componente_codigo) === String(normalizeCatalogCode(componentCode)))
+    ))
+  }
+  const displayCodeDescription = (code, descricao) => {
+    const normalizedCode = textValue(code)
+    return descricao ? `${normalizedCode} - ${descricao}` : normalizedCode
+  }
+  const displayValueForField = (field, data, value) => {
+    const rawValue = value ?? data?.[field]
+    const rawText = textValue(rawValue)
+    const originalText = textValue(data?.[field])
+    if (field === 'COD_COMP_INTRP') {
+      const originalDescription = rawText === originalText ? data?.DESC_COMP_INTRP || data?.DESC_COMP_SRVE : ''
+      const descricao = originalDescription || findComponent(rawValue)?.descricao
+      return descricao ? `${rawText} - ${descricao}` : rawText
+    }
+    if (field === 'COD_CAUSA_INTRP') {
+      const componentCode = rawText === originalText ? singleCatalogCode(data?.COD_COMP_INTRP) : proposalForm.novo_cod_comp
+      const originalDescription = rawText === originalText ? data?.DESC_CAUSA_INTRP || data?.DESC_CAUSA_SRVE : ''
+      const descricao = originalDescription || findCause(rawValue, componentCode)?.descricao
+      return descricao ? `${rawText} - ${descricao}` : rawText
+    }
+    return rawText
+  }
+  const targetData = proposalForm.alvo === 'ocorrencia'
+    ? {
+        NUM_OCORRENCIA_ADMS: numOcorrencia,
+        QTD_INTERRUPCOES: interruptionOptions.length,
+        ESTADO_INTRP: uniqueText(interruptionOptions, 'ESTADO_INTRP'),
+        VALID_POS_OPERACAO: uniqueText(interruptionOptions, 'VALID_POS_OPERACAO'),
+        COD_COMP_INTRP: uniqueText(interruptionOptions, 'COD_COMP_INTRP'),
+        COD_CAUSA_INTRP: uniqueText(interruptionOptions, 'COD_CAUSA_INTRP'),
+      }
+    : proposalForm.alvo === 'uc'
+      ? selectedUc
+      : selectedInterruption
+  const cancelRule = proposalForm.alvo === 'uc'
+    ? {
+        ESTADO_INTRP: '4',
+        NUM_MOTIVO_TRAT_DIF_UCI: '90',
+        INDIC_SIT_PROCES_INDIC_UCI: 'D',
+      }
+    : {
+        ESTADO_INTRP: '7',
+        VALID_POS_OPERACAO: 'S',
+      }
+  const isCancelCorrection = proposalForm.tipo_correcao === 'cancelar_alvo'
+  const isValidateOnlyCorrection = proposalForm.tipo_correcao === 'sem_alteracao'
+  const isComponentCauseCorrection = proposalForm.campo_alterado === 'COMPONENTE_CAUSA' && !isCancelCorrection && !isValidateOnlyCorrection
+  const isDateTimeField = ['DATA_HORA_INIC_INTRP', 'DATA_HORA_FIM_INTRP'].includes(proposalForm.campo_alterado)
+  const isHorarioCorrection = isDateTimeField
+  const componentesFiltrados = opcoesReferencia.componentes.filter((item) => (
+    !proposalForm.grupo_codigo || String(item.grupo_codigo) === String(proposalForm.grupo_codigo)
+  ))
+  const causasFiltradas = opcoesReferencia.causas.filter((item) => (
+    (!proposalForm.grupo_codigo || String(item.grupo_codigo) === String(proposalForm.grupo_codigo))
+    && (!proposalForm.novo_cod_comp || String(item.componente_codigo) === String(proposalForm.novo_cod_comp))
+  ))
+  const selectedComponentDescription = findComponent(proposalForm.novo_cod_comp)?.descricao
+  const selectedCauseDescription = findCause(proposalForm.novo_cod_causa, proposalForm.novo_cod_comp)?.descricao
+  const correctionFields = isCancelCorrection
+    ? Object.keys(cancelRule)
+    : isValidateOnlyCorrection
+      ? ['VALID_POS_OPERACAO']
+      : isComponentCauseCorrection
+        ? ['COD_COMP_INTRP', 'COD_CAUSA_INTRP', 'VALID_POS_OPERACAO']
+        : [proposalForm.campo_alterado, 'VALID_POS_OPERACAO'].filter((value, index, values) => value && values.indexOf(value) === index)
+  const comparisonRows = correctionFields.map((field) => {
+    const originalCode = textValue(field === 'OUTRO' ? '' : targetData?.[field])
+    const suggested = isCancelCorrection
+      ? cancelRule[field]
+      : field === 'VALID_POS_OPERACAO'
+        ? 'S'
+        : !isComponentCauseCorrection && field === proposalForm.campo_alterado
+          ? proposalForm.valor_sugerido
+          : ''
+    const proposed = isCancelCorrection
+      ? cancelRule[field]
+      : field === 'VALID_POS_OPERACAO'
+        ? 'S'
+        : isComponentCauseCorrection && field === 'COD_COMP_INTRP'
+          ? proposalForm.novo_cod_comp
+          : isComponentCauseCorrection && field === 'COD_CAUSA_INTRP'
+            ? proposalForm.novo_cod_causa
+            : field === proposalForm.campo_alterado
+              ? proposalForm.valor_proposto
+              : ''
+    const suggestedCode = textValue(suggested)
+    const proposedCode = textValue(proposed)
+    return {
+      field,
+      label: fieldLabels[field] || field,
+      original: displayValueForField(field, targetData, originalCode),
+      originalCode,
+      suggested: suggestedCode,
+      proposed: proposedCode,
+      suggestedDisplay: displayValueForField(field, targetData, suggestedCode),
+      proposedDisplay: displayValueForField(field, targetData, proposedCode),
+      manual: isComponentCauseCorrection
+        ? ['COD_COMP_INTRP', 'COD_CAUSA_INTRP'].includes(field) && Boolean(proposedCode && proposedCode !== '—')
+        : !isCancelCorrection && field === proposalForm.campo_alterado && Boolean(proposalForm.valor_proposto),
+    }
+  })
+  const originalValue = textValue(targetData?.[proposalForm.campo_alterado])
+  const originalDisplayValue = displayValueForField(proposalForm.campo_alterado, targetData, originalValue)
+  const targetValue = proposalForm.alvo === 'uc'
+    ? proposalForm.num_uc
+    : proposalForm.alvo === 'interrupcao'
+      ? proposalForm.num_seq_intrp
+      : numOcorrencia
+  const toDateTimeLocalInput = (value) => {
+    const text = textValue(value)
+    if (text === '—') return ''
+    const isoMatch = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/)
+    if (isoMatch) return `${isoMatch[1]}T${isoMatch[2]}:${isoMatch[3]}`
+    const brMatch = text.match(/^(\d{2})\/(\d{2})\/(\d{4}),?\s+(\d{2}):(\d{2})/)
+    if (brMatch) return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}T${brMatch[4]}:${brMatch[5]}`
+    return ''
+  }
+
+  useEffect(() => {
+    if (!isComponentCauseCorrection || !opcoesReferencia.causas.length) return
+    const componentCode = singleCatalogCode(targetData?.COD_COMP_INTRP)
+    const causeCode = normalizeCauseCode(singleCatalogCode(targetData?.COD_CAUSA_INTRP))
+    if (!componentCode || !causeCode) return
+
+    setProposalForm((current) => {
+      if (current.grupo_codigo || current.novo_cod_comp || current.novo_cod_causa) return current
+      const cause = opcoesReferencia.causas.find((item) => (
+        String(item.componente_codigo) === String(componentCode)
+        && String(item.codigo) === String(causeCode)
+      ))
+      const component = opcoesReferencia.componentes.find((item) => String(item.codigo) === String(componentCode))
+      return {
+        ...current,
+        grupo_codigo: cause?.grupo_codigo || component?.grupo_codigo || '',
+        novo_cod_comp: componentCode,
+        novo_cod_causa: cause?.codigo || causeCode,
+      }
+    })
+  }, [
+    isComponentCauseCorrection,
+    opcoesReferencia.causas,
+    opcoesReferencia.componentes,
+    targetData?.COD_COMP_INTRP,
+    targetData?.COD_CAUSA_INTRP,
+  ])
+
+  function updateProposal(field, value) {
+    const derivedTipo = field === 'campo_alterado'
+      ? value === 'COMPONENTE_CAUSA'
+        ? 'componente_causa'
+        : ['DATA_HORA_INIC_INTRP', 'DATA_HORA_FIM_INTRP'].includes(value)
+          ? 'horario_interrupcao'
+          : value === 'TIPO_PROTOC_JUSTIF_UCI'
+            ? 'expurgo_justificativa'
+            : 'uc_interrupcao'
+      : null
+    setProposalForm((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === 'campo_alterado' ? { tipo_correcao: derivedTipo, valor_sugerido: '', valor_proposto: '' } : {}),
+      ...(field === 'tipo_correcao' && value === 'componente_causa' ? { campo_alterado: 'COMPONENTE_CAUSA', valor_sugerido: '', valor_proposto: '' } : {}),
+      ...(field === 'tipo_correcao' && ['expurgo_justificativa', 'uc_interrupcao'].includes(value)
+        ? { campo_alterado: value === 'expurgo_justificativa' ? 'TIPO_PROTOC_JUSTIF_UCI' : 'COD_TIPO_INTRP', valor_sugerido: '', valor_proposto: '' }
+        : {}),
+      ...(field === 'tipo_correcao' && value === 'horario_interrupcao'
+        ? {
+            campo_alterado: 'DATA_HORA_INIC_INTRP',
+            valor_sugerido: '',
+            valor_proposto: toDateTimeLocalInput(targetData?.DATA_HORA_INIC_INTRP),
+            grupo_codigo: '',
+            novo_cod_comp: '',
+            novo_cod_causa: '',
+          }
+        : {}),
+      ...(field === 'campo_alterado' && ['DATA_HORA_INIC_INTRP', 'DATA_HORA_FIM_INTRP'].includes(value)
+        ? { valor_sugerido: '', valor_proposto: toDateTimeLocalInput(targetData?.[value]) }
+        : {}),
+      ...(field === 'alvo'
+        ? {
+            num_seq_intrp: value === 'interrupcao' ? firstInterruption?.NUM_SEQ_INTRP || '' : '',
+            num_uc: value === 'uc' ? firstUc?.NUM_UC_UCI || '' : '',
+            grupo_codigo: '',
+            novo_cod_comp: '',
+            novo_cod_causa: '',
+            valor_sugerido: '',
+            valor_proposto: '',
+          }
+        : {}),
+      ...(['num_seq_intrp', 'num_uc'].includes(field) ? { grupo_codigo: '', novo_cod_comp: '', novo_cod_causa: '', valor_sugerido: '', valor_proposto: '' } : {}),
+      ...(field === 'grupo_codigo' ? { novo_cod_comp: '', novo_cod_causa: '', valor_proposto: '' } : {}),
+      ...(field === 'novo_cod_comp' ? { novo_cod_causa: '', valor_proposto: value } : {}),
+      ...(field === 'novo_cod_causa' ? { valor_proposto: value } : {}),
+    }))
+    setProposalMessage('')
+  }
+
+  function updateTargetValue(value) {
+    if (proposalForm.alvo === 'interrupcao') {
+      updateProposal('num_seq_intrp', value)
+      return
+    }
+    if (proposalForm.alvo === 'uc') {
+      updateProposal('num_uc', value)
+    }
+  }
+
+  async function submitProposal(event) {
+    event.preventDefault()
+    if (!proposalForm.justificativa.trim()) {
+      setProposalMessage('Informe a justificativa técnica da proposta.')
+      return
+    }
+    if (isComponentCauseCorrection && (!proposalForm.novo_cod_comp || !proposalForm.novo_cod_causa)) {
+      setProposalMessage('Selecione grupo, componente e causa no catálogo IQS.')
+      return
+    }
+    if (!isComponentCauseCorrection && !isCancelCorrection && !isValidateOnlyCorrection && !proposalForm.valor_proposto.trim()) {
+      setProposalMessage('Informe o valor proposto.')
+      return
+    }
+
+    const alvoId = proposalForm.alvo === 'uc'
+      ? proposalForm.num_uc
+      : proposalForm.alvo === 'interrupcao'
+        ? proposalForm.num_seq_intrp
+        : numOcorrencia
+    const originalMap = Object.fromEntries(comparisonRows.map((row) => [row.field, row.originalCode]))
+    const originalDisplayMap = Object.fromEntries(comparisonRows.map((row) => [row.field, row.original]))
+    const suggestedMap = Object.fromEntries(comparisonRows.map((row) => [row.field, row.suggested]))
+    const proposedMap = Object.fromEntries(comparisonRows.map((row) => [row.field, row.proposed]))
+    const proposedDisplayMap = Object.fromEntries(comparisonRows.map((row) => [row.field, row.proposedDisplay]))
+    await onCreateAlteracao?.({
+      anomes: anomes || '202606',
+      modulo: 'CORRECAO_OCORRENCIA',
+      entidade: proposalForm.alvo,
+      id_entidade: alvoId || numOcorrencia,
+      tipo_alteracao: 'UPDATE',
+      status_alteracao: 'PENDENTE',
+      justificativa: proposalForm.justificativa,
+      antes: {
+        num_ocorrencia_adms: numOcorrencia,
+        num_seq_intrp: proposalForm.num_seq_intrp || null,
+        num_uc: proposalForm.num_uc || null,
+        tipo_correcao: proposalForm.tipo_correcao,
+        grupo_funcional: proposalForm.grupo_codigo || null,
+        campos_alterados: correctionFields,
+        valores_originais: originalMap,
+        valores_originais_exibicao: originalDisplayMap,
+        valores_sugeridos: suggestedMap,
+        contexto: targetData,
+      },
+      depois: {
+        num_ocorrencia_adms: numOcorrencia,
+        num_seq_intrp: proposalForm.num_seq_intrp || null,
+        num_uc: proposalForm.num_uc || null,
+        tipo_correcao: proposalForm.tipo_correcao,
+        grupo_funcional: proposalForm.grupo_codigo || null,
+        escopo: proposalForm.alvo === 'ocorrencia'
+          ? 'todas_interrupcoes_da_ocorrencia'
+          : proposalForm.alvo === 'uc'
+            ? 'uc_selecionada_todas_linhas'
+            : 'interrupcao_selecionada',
+        campos_alterados: correctionFields,
+        valores_sugeridos: suggestedMap,
+        valores_propostos: proposedMap,
+        valores_propostos_exibicao: proposedDisplayMap,
+        origem: 'modal_ocorrencia',
+      },
+    })
+    setProposalMessage('Proposta enviada para Ajustes Manuais / Aprovação.')
+    setProposalForm((current) => ({
+      ...current,
+      valor_sugerido: '',
+      valor_proposto: '',
+      justificativa: '',
+    }))
+  }
+
   return (
     <Modal title={`Ocorrência ${detail?.num_ocorrencia_adms || ''}`} onClose={onClose}>
       {loading && <div className="alert">Carregando ocorrência...</div>}
@@ -422,6 +810,199 @@ function OccurrenceModal({ detail, loading, onClose }) {
               sortable
               initialSort={{ key: 'SCORE_VINCULO_RECLAMACAO', direction: 'desc' }}
             />
+          </details>
+          <details className="modal-collapsible-section">
+            <summary>
+              <h3>Proposta de Correção</h3>
+              <span>governada</span>
+            </summary>
+            <form className="governed-form occurrence-proposal-form" onSubmit={submitProposal}>
+              <label>
+                Alvo
+                <select value={proposalForm.alvo} onChange={(event) => updateProposal('alvo', event.target.value)}>
+                  <option value="interrupcao">Interrupção</option>
+                  <option value="ocorrencia">Ocorrência</option>
+                  <option value="uc">UC</option>
+                </select>
+              </label>
+              <label>
+                Valor
+                <select value={targetValue || ''} onChange={(event) => updateTargetValue(event.target.value)} disabled={proposalForm.alvo === 'ocorrencia'}>
+                  {proposalForm.alvo === 'ocorrencia' && (
+                    <option value={numOcorrencia}>{numOcorrencia || 'Ocorrência atual'}</option>
+                  )}
+                  {proposalForm.alvo === 'interrupcao' && interruptionOptions.map((item) => (
+                    <option key={item.NUM_SEQ_INTRP} value={item.NUM_SEQ_INTRP}>
+                      {item.NUM_SEQ_INTRP} · {item.COD_COMP_INTRP || '—'}/{item.COD_CAUSA_INTRP || '—'}
+                    </option>
+                  ))}
+                  {proposalForm.alvo === 'uc' && [...new Set(ucOptions.map((item) => item.NUM_UC_UCI).filter(Boolean))].slice(0, 300).map((uc) => (
+                    <option key={uc} value={uc}>{uc}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="target-data-card form-wide">
+                <strong>Dados do alvo selecionado</strong>
+                <div>
+                  {Object.entries(targetData || {}).slice(0, 10).map(([key, value]) => (
+                    <span key={key}>
+                      <small>{key}</small>
+                      <em>{textValue(value)}</em>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {!isCancelCorrection && !isValidateOnlyCorrection && (
+                <>
+                  <label>
+                    Campo alterado
+                    <select value={proposalForm.campo_alterado} onChange={(event) => updateProposal('campo_alterado', event.target.value)}>
+                      <option value="COMPONENTE_CAUSA">Componente/causa</option>
+                      <option value="DATA_HORA_INIC_INTRP">Horário início</option>
+                      <option value="DATA_HORA_FIM_INTRP">Horário fim</option>
+                      <option value="COD_TIPO_INTRP">Tipo interrupção</option>
+                      <option value="TIPO_PROTOC_JUSTIF_UCI">Protocolo justificativa UC</option>
+                      <option value="OUTRO">Outro campo</option>
+                    </select>
+                  </label>
+                  {isComponentCauseCorrection ? (
+                    <>
+                      <label>
+                        Grupo
+                        <select value={proposalForm.grupo_codigo} onChange={(event) => updateProposal('grupo_codigo', event.target.value)} required>
+                          <option value="">Selecione grupo</option>
+                          {opcoesReferencia.grupos.map((item) => (
+                            <option key={item.codigo} value={item.codigo}>
+                              {displayCodeDescription(item.codigo, item.descricao)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Componente
+                        <select
+                          value={proposalForm.novo_cod_comp}
+                          onChange={(event) => updateProposal('novo_cod_comp', event.target.value)}
+                          disabled={!proposalForm.grupo_codigo}
+                          required
+                        >
+                          <option value="">Selecione componente</option>
+                          {componentesFiltrados.map((item) => (
+                            <option key={`${item.grupo_codigo}-${item.codigo}`} value={item.codigo}>
+                              {displayCodeDescription(item.codigo, item.descricao)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Causa
+                        <select
+                          value={proposalForm.novo_cod_causa}
+                          onChange={(event) => updateProposal('novo_cod_causa', event.target.value)}
+                          disabled={!proposalForm.novo_cod_comp}
+                          required
+                        >
+                          <option value="">Selecione causa</option>
+                          {causasFiltradas.map((item) => (
+                            <option key={`${item.componente_codigo}-${item.codigo}`} value={item.codigo}>
+                              {displayCodeDescription(item.codigo, item.descricao)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="catalog-selection-summary">
+                        <small>Seleção governada IQS</small>
+                        <strong>
+                          {proposalForm.novo_cod_comp
+                            ? `${displayCodeDescription(proposalForm.novo_cod_comp, selectedComponentDescription)} / ${displayCodeDescription(proposalForm.novo_cod_causa, selectedCauseDescription)}`
+                            : opcoesReferenciaStatus || 'Grupo filtra componente; componente filtra causa.'}
+                        </strong>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <label>
+                        Valor atual
+                        <input value={originalDisplayValue} readOnly />
+                      </label>
+                      <label>
+                        Valor sugerido pelo algoritmo
+                        <input
+                          type={isDateTimeField ? 'datetime-local' : 'text'}
+                          value={proposalForm.valor_sugerido}
+                          onChange={(event) => updateProposal('valor_sugerido', event.target.value)}
+                          placeholder="Opcional"
+                        />
+                      </label>
+                      <label>
+                        Valor proposto pelo analista
+                        <input
+                          type={isDateTimeField ? 'datetime-local' : 'text'}
+                          value={proposalForm.valor_proposto}
+                          onChange={(event) => updateProposal('valor_proposto', event.target.value)}
+                          required={!isCancelCorrection}
+                        />
+                      </label>
+                    </>
+                  )}
+                </>
+              )}
+              {isCancelCorrection && (
+                <div className="alert form-wide">
+                  Cancelamento prepara regra governada: ocorrência/interrupção com <strong>ESTADO_INTRP = 7</strong>; UC com <strong>ESTADO_INTRP = 4</strong>, <strong>NUM_MOTIVO_TRAT_DIF_UCI = 90</strong> e <strong>INDIC_SIT_PROCES_INDIC_UCI = D</strong>.
+                </div>
+              )}
+              <div className="correction-comparison form-wide">
+                <div className="correction-comparison-head">
+                  <span>Campo</span>
+                  <span>Original</span>
+                  <span>Sugerido</span>
+                  <span>Proposto</span>
+                </div>
+                {comparisonRows.map((row) => (
+                  <div className="correction-comparison-row" key={row.field}>
+                    <strong>{row.label}</strong>
+                    <span className="comparison-value comparison-original">{row.original}</span>
+                    <span className="comparison-value comparison-suggested">{row.suggestedDisplay}</span>
+                    <span className={`comparison-value ${row.manual ? 'comparison-manual' : 'comparison-proposed'}`}>{row.proposedDisplay}</span>
+                  </div>
+                ))}
+              </div>
+              <label className="form-wide">
+                Justificativa obrigatória
+                <textarea
+                  value={proposalForm.justificativa}
+                  onChange={(event) => updateProposal('justificativa', event.target.value)}
+                  placeholder="Explique evidências, impacto e motivo da proposta. Se divergir do algoritmo, registre o motivo."
+                  required
+                />
+              </label>
+              <div className="proposal-impact-box form-wide">
+                <span><small>Impacto CHI/DIC da ocorrência</small><strong>{decimalFormat(detail?.ocorrencia?.CHI_LIQUIDO || detail?.ocorrencia?.DIC_OCORRENCIA, 2)}</strong></span>
+                <span><small>Impacto CI/FIC da ocorrência</small><strong>{numberFormat(detail?.ocorrencia?.CI_LIQUIDO)}</strong></span>
+                <span><small>Regra de segurança</small><strong>Não aplica no IQS sem aprovação</strong></span>
+              </div>
+              {proposalMessage && <div className="alert alert-success form-wide">{proposalMessage}</div>}
+              <div className="form-actions proposal-form-actions">
+                <button
+                  className={`secondary-button quick-action-cancel ${isCancelCorrection ? 'quick-action-active' : ''}`}
+                  type="button"
+                  onClick={() => updateProposal('tipo_correcao', 'cancelar_alvo')}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className={`secondary-button quick-action-validate ${isValidateOnlyCorrection ? 'quick-action-active' : ''}`}
+                  type="button"
+                  onClick={() => updateProposal('tipo_correcao', 'sem_alteracao')}
+                >
+                  Validar sem alteração
+                </button>
+                <button className="primary-button" type="submit" disabled={savingDecision}>
+                  {savingDecision ? 'Salvando...' : 'Salvar proposta'}
+                </button>
+              </div>
+            </form>
           </details>
         </div>
       )}
@@ -3252,6 +3833,7 @@ function AlteracoesPage({ alteracoes, user, onCreate, onApprove, onReject, savin
             { key: 'criado_em', label: 'Data', render: (item) => dateTime(item.criado_em) },
             { key: 'modulo', label: 'Módulo' },
             { key: 'entidade', label: 'Entidade' },
+            { key: 'id_entidade', label: 'ID' },
             { key: 'tipo_alteracao', label: 'Tipo' },
             { key: 'status_alteracao', label: 'Status', render: (item) => <span className="pill">{item.status_alteracao}</span> },
             { key: 'solicitado_por', label: 'Solicitado por' },
@@ -5757,6 +6339,10 @@ export default function App() {
             detail={occurrenceDetail}
             loading={occurrenceLoading}
             onClose={() => setOccurrenceDetail(null)}
+            onCreateAlteracao={handleCreateAlteracao}
+            savingDecision={savingDecision}
+            token={token}
+            anomes={resumo.anomes || '202606'}
           />
         )}
         {anomalyDetail && (

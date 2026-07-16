@@ -702,7 +702,9 @@ def detalhe_ocorrencia(
                 e.DATA_HORA_INIC_INTRP,
                 e.DATA_HORA_FIM_INTRP,
                 e.COD_COMP_INTRP,
+                ref.DESC_COMP AS DESC_COMP_INTRP,
                 e.COD_CAUSA_INTRP,
+                ref.DESC_CAUSA AS DESC_CAUSA_INTRP,
                 e.COD_TIPO_INTRP,
                 e.COD_GRUPO_COMP_INTRP,
                 e.COD_COND_CLIMA_INTRP,
@@ -712,6 +714,9 @@ def detalhe_ocorrencia(
             FROM escolhida e
             LEFT JOIN contagem c
               ON e.NUM_SEQ_INTRP = c.NUM_SEQ_INTRP
+            LEFT JOIN gold_iqs_referencia_componente_causa ref
+              ON TRIM(CAST(e.COD_COMP_INTRP AS VARCHAR)) = TRIM(CAST(ref.COD_COMP AS VARCHAR))
+             AND LPAD(TRIM(CAST(e.COD_CAUSA_INTRP AS VARCHAR)), 2, '0') = LPAD(TRIM(CAST(ref.COD_CAUSA AS VARCHAR)), 2, '0')
             WHERE e.rn = 1
             ORDER BY DATA_HORA_INIC_INTRP, NUM_SEQ_INTRP
             LIMIT 200
@@ -765,6 +770,16 @@ def detalhe_ocorrencia(
             """
             SELECT
                 a.NUM_UC_UCI,
+                a.NUM_OCORRENCIA_ADMS,
+                a.NUM_SEQ_INTRP,
+                a.ESTADO_INTRP,
+                a.NUM_MOTIVO_TRAT_DIF_UCI,
+                a.INDIC_SIT_PROCES_INDIC_UCI,
+                a.TIPO_PROTOC_JUSTIF_UCI,
+                a.COD_COMP_INTRP,
+                a.COD_CAUSA_INTRP,
+                a.DATA_HORA_INIC_INTRP,
+                a.DATA_HORA_FIM_INTRP,
                 a.DURACAO_HORA,
                 a.CHI_LIQUIDO,
                 a.CI_LIQUIDO,
