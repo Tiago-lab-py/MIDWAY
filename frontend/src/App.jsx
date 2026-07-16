@@ -151,7 +151,7 @@ function ImpactCard({ label, antes, depois, ganho, ganhoPct }) {
   )
 }
 
-function Sidebar({ activePage, onChangePage, user, onLogout }) {
+function Sidebar({ activePage, onChangePage, user }) {
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -173,14 +173,6 @@ function Sidebar({ activePage, onChangePage, user, onLogout }) {
           </button>
         ))}
       </nav>
-      <div className="user-card">
-        <div className="avatar">{(user?.nome || user?.login || 'AD').slice(0, 2).toUpperCase()}</div>
-        <div>
-          <strong>{user?.nome || 'Admin'}</strong>
-          <span>{user?.perfil || 'perfil'} · {user?.login || 'local'}</span>
-        </div>
-        <button className="logout-button" onClick={onLogout}>Sair</button>
-      </div>
     </aside>
   )
 }
@@ -200,6 +192,7 @@ function StatusBadge({ health }) {
 }
 
 function PageHero({ eyebrow = 'MIDWAY 7.0.0', title, description, sideLabel, sideValue, sideContent }) {
+  const hasSide = Boolean(sideLabel || sideValue || sideContent)
   return (
     <section className="hero">
       <div>
@@ -207,13 +200,17 @@ function PageHero({ eyebrow = 'MIDWAY 7.0.0', title, description, sideLabel, sid
         <h1>{title}</h1>
         <p>{description}</p>
       </div>
-      <div className="hero-side">
-        <div className="hero-panel">
-          <span>{sideLabel}</span>
-          <strong>{sideValue || '—'}</strong>
+      {hasSide && (
+        <div className="hero-side">
+          {(sideLabel || sideValue) && (
+            <div className="hero-panel">
+              <span>{sideLabel}</span>
+              <strong>{sideValue || '—'}</strong>
+            </div>
+          )}
+          {sideContent}
         </div>
-        {sideContent}
-      </div>
+      )}
     </section>
   )
 }
@@ -341,24 +338,32 @@ function OccurrenceModal({ detail, loading, onClose }) {
             <h3>Resumo da Ocorrência</h3>
             <KeyValueGrid data={detail?.ocorrencia} />
           </section>
-          <section>
-            <h3>Interrupções Vinculadas</h3>
+          <details className="modal-collapsible-section">
+            <summary>
+              <h3>Interrupções Vinculadas</h3>
+              <span>{numberFormat(detail?.interrupcoes?.length || 0)} registro(s)</span>
+            </summary>
             <DataTable
               columns={[
                 { key: 'NUM_SEQ_INTRP', label: 'Interrupção' },
                 { key: 'ALIM_INTRP', label: 'Alim.' },
                 { key: 'COD_COMP_INTRP', label: 'Comp.' },
                 { key: 'COD_CAUSA_INTRP', label: 'Causa' },
-                { key: 'VALID_POS_OPERACAO', label: 'Pós' },
+                { key: 'VALID_POS_OPERACAO', label: 'Validado' },
                 { key: 'QTD_UCS_APURADAS', label: 'UCs' },
-                { key: 'QTD_LINHAS_BASE', label: 'Linhas base' },
                 { key: 'DATA_HORA_INIC_INTRP', label: 'Início', render: (item) => dateTime(item.DATA_HORA_INIC_INTRP) },
+                { key: 'DATA_HORA_FIM_INTRP', label: 'Fim', render: (item) => dateTime(item.DATA_HORA_FIM_INTRP) },
               ]}
               rows={detail?.interrupcoes || []}
+              sortable
+              initialSort={{ key: 'DATA_HORA_INIC_INTRP', direction: 'asc' }}
             />
-          </section>
-          <section>
-            <h3>Serviços ADMS Vinculados</h3>
+          </details>
+          <details className="modal-collapsible-section">
+            <summary>
+              <h3>Serviços ADMS Vinculados</h3>
+              <span>{numberFormat(detail?.servicos?.length || 0)} registro(s)</span>
+            </summary>
             <DataTable
               columns={[
                 { key: 'NUM_SEQ_INTRP', label: 'Interrupção' },
@@ -373,10 +378,15 @@ function OccurrenceModal({ detail, loading, onClose }) {
               ]}
               rows={detail?.servicos || []}
               empty="Nenhum serviço ADMS vinculado às interrupções desta ocorrência."
+              sortable
+              initialSort={{ key: 'DTHR_INIC_SRV', direction: 'asc' }}
             />
-          </section>
-          <section>
-            <h3>Apuração UC</h3>
+          </details>
+          <details className="modal-collapsible-section">
+            <summary>
+              <h3>Apuração UC</h3>
+              <span>{numberFormat(detail?.apuracao_uc?.length || 0)} registro(s)</span>
+            </summary>
             <DataTable
               columns={[
                 { key: 'NUM_UC_UCI', label: 'UC' },
@@ -390,10 +400,15 @@ function OccurrenceModal({ detail, loading, onClose }) {
                 { key: 'VALOR_RESSARCIMENTO', label: 'Ressarcimento', render: (item) => currencyFormat(item.VALOR_RESSARCIMENTO) },
               ]}
               rows={detail?.apuracao_uc || []}
+              sortable
+              initialSort={{ key: 'DURACAO_HORA', direction: 'desc' }}
             />
-          </section>
-          <section>
-            <h3>Reclamações Vinculadas</h3>
+          </details>
+          <details className="modal-collapsible-section">
+            <summary>
+              <h3>Reclamações Vinculadas</h3>
+              <span>{numberFormat(detail?.reclamacoes?.length || 0)} registro(s)</span>
+            </summary>
             <DataTable
               columns={[
                 { key: 'ID_RECLAMACAO', label: 'ID' },
@@ -404,8 +419,10 @@ function OccurrenceModal({ detail, loading, onClose }) {
                 { key: 'TEXTO_RECLAMACAO', label: 'Texto' },
               ]}
               rows={detail?.reclamacoes || []}
+              sortable
+              initialSort={{ key: 'SCORE_VINCULO_RECLAMACAO', direction: 'desc' }}
             />
-          </section>
+          </details>
         </div>
       )}
     </Modal>
@@ -663,9 +680,12 @@ function RankingRegionalPanel({ cockpit }) {
 function AjustesGovernadosPanel({
   resumo,
   modulos,
+  ajustes = [],
   analiseTecnicaResumos,
+  modulosResumo,
   suspeitasRa,
   execucoes = [],
+  token = '',
   onAtualizarAlgoritmo,
   onAceitarAlgoritmo,
   onRejeitarAlgoritmo,
@@ -674,6 +694,8 @@ function AjustesGovernadosPanel({
   runningAlgorithm = '',
 }) {
   const [algoritmoVisualizado, setAlgoritmoVisualizado] = useState(null)
+  const [amostraAlgoritmo, setAmostraAlgoritmo] = useState({ items: [], fonte: '' })
+  const [carregandoAmostra, setCarregandoAmostra] = useState(false)
   const manualModuleCodes = new Set(['GOVERNANCA_IQS', 'AJUSTE_MANUAL_IQS'])
   const modules = (modulos || []).map((module) => {
     const enriched = { ...module }
@@ -703,10 +725,22 @@ function AjustesGovernadosPanel({
       enriched.impacto_ressarcimento = Number(raResumo.comp_fic_estimado || 0)
       enriched.origem_metricas = 'suspeita falha RA'
     }
+    const moduleSummary = modulosResumo?.modulos?.[module.codigo]
+    if (moduleSummary && moduleSummary.status === 'ok') {
+      enriched.metricas_materializadas = true
+      enriched.total = Number(moduleSummary.total || 0)
+      enriched.impacto_chi = Number(moduleSummary.impacto_chi || 0)
+      enriched.impacto_ci = Number(moduleSummary.impacto_ci || 0)
+      enriched.impacto_ressarcimento = Number(moduleSummary.impacto_ressarcimento || 0)
+      enriched.origem_metricas = moduleSummary.fonte || 'resumo de módulo'
+    }
     if (module.codigo === 'RECLAMACOES_SERVICOS') {
       enriched.metricas_materializadas = true
-      enriched.total = Number(resumo.fila_reclamacao || 0)
-      enriched.origem_metricas = 'fila técnica'
+      enriched.total = Number(moduleSummary?.total || resumo.fila_reclamacao || 0)
+      enriched.impacto_chi = Number(moduleSummary?.impacto_chi || 0)
+      enriched.impacto_ci = Number(moduleSummary?.impacto_ci || 0)
+      enriched.impacto_ressarcimento = Number(moduleSummary?.impacto_ressarcimento || 0)
+      enriched.origem_metricas = moduleSummary?.fonte || 'fila técnica'
     }
     enriched.metricas_materializadas = Boolean(
       enriched.metricas_materializadas ||
@@ -788,6 +822,41 @@ function AjustesGovernadosPanel({
     return module?.codigo === 'CORRECAO_9282' && Boolean(tipoExecucaoModulo(module)) && module.metricas_materializadas && statusExecucaoModulo(module) === 'CONCLUIDO'
   }
 
+  async function abrirVisualizacao(module) {
+    setAlgoritmoVisualizado(module)
+    setAmostraAlgoritmo({ items: [], fonte: '' })
+    if (module?.codigo === 'CORRECAO_9282') {
+      setAmostraAlgoritmo({ items: (ajustes || []).slice(0, 20), fonte: 'vw_midway_9282_ajustes_auto' })
+      return
+    }
+    const codigo = module?.codigo
+    if (!codigo) return
+    try {
+      setCarregandoAmostra(true)
+      const response = await fetch(`${API_URL}/api/produto/modulos-amostra/${codigo}?limite=20`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (response.ok) {
+        setAmostraAlgoritmo(await response.json())
+      } else {
+        setAmostraAlgoritmo({ items: [], fonte: 'amostra indisponível' })
+      }
+    } catch {
+      setAmostraAlgoritmo({ items: [], fonte: 'amostra indisponível' })
+    } finally {
+      setCarregandoAmostra(false)
+    }
+  }
+
+  function sampleColumns(rows) {
+    const first = rows?.[0] || {}
+    return Object.keys(first).slice(0, 8).map((key) => ({
+      key,
+      label: key,
+      render: (row) => textValue(row[key]),
+    }))
+  }
+
   function mensagemExecucao(ultimaExecucao) {
     const mensagem = String(ultimaExecucao?.mensagem || '').trim()
     if (!mensagem) return ''
@@ -824,7 +893,6 @@ function AjustesGovernadosPanel({
   function moduleCard(module, mode) {
     const isAuto = mode === 'auto'
     const updateDisabled = actionDisabled || !tipoExecucaoModulo(module) || runningAlgorithm === module.codigo
-    const decisionDisabled = actionDisabled || accepting || !moduloPodeSerDecidido(module)
     return (
       <article className="module-summary-card" key={`${mode}-${module.codigo}`}>
         <div>
@@ -842,17 +910,11 @@ function AjustesGovernadosPanel({
         {isAuto && renderExecucaoStatus(module)}
         {isAuto && (
           <div className="module-action-row">
-            <button className="secondary-button" type="button" onClick={() => setAlgoritmoVisualizado(module)}>
+            <button className="primary-button" type="button" onClick={() => abrirVisualizacao(module)}>
               Visualizar
             </button>
             <button className="secondary-button" type="button" disabled={updateDisabled} onClick={() => onAtualizarAlgoritmo?.(module)}>
               {runningAlgorithm === module.codigo ? 'Solicitando...' : moduloEmExecucao(module) ? 'Rodar novamente' : 'Atualizar'}
-            </button>
-            <button className="primary-button" type="button" disabled={decisionDisabled} onClick={() => onAceitarAlgoritmo?.(module)}>
-              Aceitar
-            </button>
-            <button className="secondary-button danger-button" type="button" disabled={decisionDisabled} onClick={() => onRejeitarAlgoritmo?.(module)}>
-              Rejeitar
             </button>
           </div>
         )}
@@ -861,70 +923,110 @@ function AjustesGovernadosPanel({
   }
 
   return (
-    <section className="panel dashboard-section">
-      <div className="panel-title">
-        <div>
-          <h2>Painel de ajustes</h2>
-          <p>Módulos tratados por algoritmo separados dos itens que exigem decisão humana e justificativa.</p>
-        </div>
-      </div>
-
-      <div className="adjustment-panel-grid">
-        <div className="adjustment-lane adjustment-lane-auto">
-          <div className="compact-title">
-            <h3>Automático / Algoritmos</h3>
-            <p>Detecta, calcula impacto e sugere ação. Só exporta quando houver regra aprovada.</p>
+    <>
+      <section className="panel dashboard-section">
+        <div className="panel-title">
+          <div>
+            <h2>Painel de ajustes</h2>
+            <p>Módulos tratados por algoritmo separados dos itens que exigem decisão humana e justificativa.</p>
           </div>
-          <article className="module-summary-card module-summary-card-featured">
-            <div>
-              <span className="pill pill-success">exportável com governança</span>
-              <h3>Correção especializada 92/82</h3>
-              <p>Reclassificação componente/causa com evidência robusta; módulo específico, não eixo central do produto.</p>
-              <small className="module-summary-source">governança PostgreSQL</small>
-            </div>
-            <div className="module-summary-metrics">
-              <span><strong>{numberFormat(resumo.ajustes_auto_9282)}</strong><small>automáticos</small></span>
-              <span><strong>{numberFormat(resumo.qtd_candidatos_autorizacao)}</strong><small>candidatos</small></span>
-              <span><strong>{numberFormat(resumo.qtd_autorizados_autorizacao)}</strong><small>autorizados</small></span>
-              <span><strong>{numberFormat(resumo.qtd_rejeitados_autorizacao)}</strong><small>rejeitados</small></span>
-            </div>
-            {renderExecucaoStatus(correcao9282Module)}
-            <div className="module-action-row">
-              <button className="secondary-button" type="button" onClick={() => setAlgoritmoVisualizado(correcao9282Module)}>
-                Visualizar
-              </button>
-              <button className="secondary-button" type="button" disabled={actionDisabled || runningAlgorithm === correcao9282Module.codigo} onClick={() => onAtualizarAlgoritmo?.(correcao9282Module)}>
-                {runningAlgorithm === correcao9282Module.codigo ? 'Solicitando...' : moduloEmExecucao(correcao9282Module) ? 'Rodar novamente' : 'Atualizar'}
-              </button>
-              <button className="primary-button" type="button" disabled={actionDisabled || accepting || !moduloPodeSerDecidido(correcao9282Module)} onClick={() => onAceitarAlgoritmo?.(correcao9282Module)}>
-                Aceitar
-              </button>
-              <button className="secondary-button danger-button" type="button" disabled={actionDisabled || !moduloPodeSerDecidido(correcao9282Module)} onClick={() => onRejeitarAlgoritmo?.(correcao9282Module)}>
-                Rejeitar
-              </button>
-            </div>
-          </article>
-          {automatedModules.map((module) => moduleCard(module, 'auto'))}
-          {!automatedModules.length && <p className="muted-text">Catálogo de módulos automáticos ainda não carregado.</p>}
-          {algoritmoVisualizado && (
-            <article className="adjustment-detail-preview">
-              <div className="panel-title compact-title">
-                <div>
-                  <h3>Visualização intermediária do algoritmo</h3>
-                  <p>Dados do lote, regra aplicada e orientação antes da decisão em massa.</p>
-                </div>
-                <button className="secondary-button" type="button" onClick={() => setAlgoritmoVisualizado(null)}>Fechar</button>
-              </div>
-              <KeyValueGrid data={detalhesAlgoritmo(algoritmoVisualizado)} />
-            </article>
-          )}
         </div>
-      </div>
-    </section>
+
+        <div className="adjustment-panel-grid">
+          <div className="adjustment-lane adjustment-lane-auto">
+            <div className="compact-title">
+              <h3>Automático / Algoritmos</h3>
+              <p>Detecta, calcula impacto e sugere ação. Só exporta quando houver regra aprovada.</p>
+            </div>
+            <article className="module-summary-card module-summary-card-featured">
+              <div>
+                <span className="pill pill-success">exportável com governança</span>
+                <h3>Correção especializada 92/82</h3>
+                <p>Reclassificação componente/causa com evidência robusta; módulo específico, não eixo central do produto.</p>
+                <small className="module-summary-source">governança PostgreSQL</small>
+              </div>
+              <div className="module-summary-metrics">
+                <span><strong>{numberFormat(resumo.ajustes_auto_9282)}</strong><small>automáticos</small></span>
+                <span><strong>{numberFormat(resumo.qtd_candidatos_autorizacao)}</strong><small>candidatos</small></span>
+                <span><strong>{numberFormat(resumo.qtd_autorizados_autorizacao)}</strong><small>autorizados</small></span>
+                <span><strong>{numberFormat(resumo.qtd_rejeitados_autorizacao)}</strong><small>rejeitados</small></span>
+              </div>
+              {renderExecucaoStatus(correcao9282Module)}
+              <div className="module-action-row">
+                <button className="primary-button" type="button" onClick={() => abrirVisualizacao(correcao9282Module)}>
+                  Visualizar
+                </button>
+                <button className="secondary-button" type="button" disabled={actionDisabled || runningAlgorithm === correcao9282Module.codigo} onClick={() => onAtualizarAlgoritmo?.(correcao9282Module)}>
+                  {runningAlgorithm === correcao9282Module.codigo ? 'Solicitando...' : moduloEmExecucao(correcao9282Module) ? 'Rodar novamente' : 'Atualizar'}
+                </button>
+              </div>
+            </article>
+            {automatedModules.map((module) => moduleCard(module, 'auto'))}
+            {!automatedModules.length && <p className="muted-text">Catálogo de módulos automáticos ainda não carregado.</p>}
+          </div>
+        </div>
+      </section>
+
+      {algoritmoVisualizado && (
+        <Modal title={`Visualizar tratativa · ${algoritmoVisualizado.nome || algoritmoVisualizado.codigo}`} onClose={() => setAlgoritmoVisualizado(null)}>
+          <div className="modal-sections">
+            <section>
+              <h3>Resumo atual da rotina</h3>
+              <KeyValueGrid data={detalhesAlgoritmo(algoritmoVisualizado)} />
+            </section>
+            <section>
+              <h3>Amostra dos dados tratados</h3>
+              <p className="panel-note">
+                Fonte: {amostraAlgoritmo?.fonte || 'carregando fonte'} · A decisão em massa só deve ocorrer após esta conferência.
+              </p>
+              {carregandoAmostra ? (
+                <div className="alert">Carregando amostra do algoritmo...</div>
+              ) : (
+                <DataTable
+                  columns={sampleColumns(amostraAlgoritmo?.items || []).length ? sampleColumns(amostraAlgoritmo?.items || []) : [{ key: 'mensagem', label: 'Mensagem' }]}
+                  rows={amostraAlgoritmo?.items || []}
+                  empty="Nenhuma amostra materializada para este módulo."
+                  sortable
+                />
+              )}
+            </section>
+            <section className="modal-decision-box">
+              <div>
+                <h3>Decisão governada</h3>
+                <p>
+                  Visualização é etapa obrigatória. Ao aceitar, a tratativa em massa segue para a página Aprovação.
+                </p>
+                {!moduloPodeSerDecidido(algoritmoVisualizado) && (
+                  <p className="panel-note">Este módulo será encaminhado para aprovação governada; implantação/IQS só ocorre quando houver regra aprovada.</p>
+                )}
+              </div>
+              <div className="module-action-row module-action-row-modal">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={actionDisabled || accepting}
+                  onClick={() => onAceitarAlgoritmo?.(algoritmoVisualizado)}
+                >
+                  Aceitar tratativa
+                </button>
+                <button
+                  className="secondary-button danger-button"
+                  type="button"
+                  disabled={actionDisabled}
+                  onClick={() => onRejeitarAlgoritmo?.(algoritmoVisualizado)}
+                >
+                  Rejeitar tratativa
+                </button>
+              </div>
+            </section>
+          </div>
+        </Modal>
+      )}
+    </>
   )
 }
 
-function DashboardPage({ resumo, health, decFec, cockpit, modulos, analiseTecnicaResumos, suspeitasRa, token, onOpenOccurrence }) {
+function DashboardPage({ resumo, health, decFec, cockpit, modulos, ajustes, analiseTecnicaResumos, modulosResumo, suspeitasRa, token, onOpenOccurrence }) {
   return (
     <>
       <PageHero
@@ -935,13 +1037,14 @@ function DashboardPage({ resumo, health, decFec, cockpit, modulos, analiseTecnic
         sideContent={<MiniDatabaseStatus health={health} />}
       />
 
-      <section className="panel dashboard-section">
-        <div className="panel-title">
+      <details className="panel dashboard-section collapsible-panel">
+        <summary className="collapsible-summary">
           <div>
             <h2>Fluxo da ferramenta</h2>
             <p>Leitura para gestores, Pós Operação e TI: da identificação do problema até a saída controlada para o IQS.</p>
           </div>
-        </div>
+          <span className="collapsible-indicator">Expandir</span>
+        </summary>
         <div className="decision-steps">
           <span><strong>1</strong><em>Visão Geral</em><small>Mostra ganhos, impactos e saúde do ciclo.</small></span>
           <span><strong>2</strong><em>Anomalias</em><small>Aponta outliers e suspeitas por módulo.</small></span>
@@ -950,7 +1053,7 @@ function DashboardPage({ resumo, health, decFec, cockpit, modulos, analiseTecnic
           <span><strong>5</strong><em>Manuais</em><small>Registra decisão humana e justificativa.</small></span>
           <span><strong>6</strong><em>Saída IQS</em><small>Autoriza e gera o pacote final governado.</small></span>
         </div>
-      </section>
+      </details>
 
       <CockpitMacroPanel cockpit={cockpit} />
 
@@ -1027,13 +1130,6 @@ function DashboardPage({ resumo, health, decFec, cockpit, modulos, analiseTecnic
       </section>
 
       <RankingRegionalPanel cockpit={cockpit} />
-
-      <AjustesGovernadosPanel
-        resumo={resumo}
-        modulos={modulos}
-        analiseTecnicaResumos={analiseTecnicaResumos}
-        suspeitasRa={suspeitasRa}
-      />
 
     </>
   )
@@ -1126,9 +1222,12 @@ function ExecutivoPage({
 function TratativasMassaPage({
   resumo,
   modulos,
+  ajustes,
   analiseTecnicaResumos,
+  modulosResumo,
   suspeitasRa,
   execucoes,
+  token,
   onRefresh,
   onAtualizarAlgoritmo,
   onAceitarAlgoritmo,
@@ -1144,8 +1243,6 @@ function TratativasMassaPage({
         <PageHero
           title="Tratativas em Massa"
           description="Rode, atualize e revise os lotes gerados por algoritmos antes de encaminhar para aprovação governada."
-          sideLabel="API"
-          sideValue={loading ? 'carregando' : 'sem dados'}
         />
         <section className="panel dashboard-section">
           <div className="panel-title">
@@ -1171,8 +1268,6 @@ function TratativasMassaPage({
       <PageHero
         title="Tratativas em Massa"
         description="Rode, atualize e revise os lotes gerados por algoritmos antes de encaminhar para aprovação governada."
-        sideLabel="API"
-        sideValue={loading ? 'atualizando' : 'carregada'}
       />
 
       <section className="panel dashboard-section">
@@ -1194,9 +1289,12 @@ function TratativasMassaPage({
       <AjustesGovernadosPanel
         resumo={resumo}
         modulos={modulos}
+        ajustes={ajustes}
         analiseTecnicaResumos={analiseTecnicaResumos}
+        modulosResumo={modulosResumo}
         suspeitasRa={suspeitasRa}
         execucoes={execucoes}
+        token={token}
         onAtualizarAlgoritmo={onAtualizarAlgoritmo}
         onAceitarAlgoritmo={onAceitarAlgoritmo}
         onRejeitarAlgoritmo={onRejeitarAlgoritmo}
@@ -1212,6 +1310,7 @@ function AprovacaoPage({
   ajustes,
   modulos = [],
   execucoes = [],
+  tratativasAceitas = [],
   user,
   onAutorizar,
   actionMessage,
@@ -1263,7 +1362,10 @@ function AprovacaoPage({
         const tipoExecucao = EXECUCAO_MODULO_MAP[item.codigo]
         const execucao = tipoExecucao ? latestExecucaoByTipo.get(tipoExecucao) : null
         const statusExecucao = execucao?.status_lote || (tipoExecucao ? 'SEM EXECUÇÃO' : 'SEM EXECUTOR')
-        const statusAprovacao = item.aprovavel
+        const encaminhado = tratativasAceitas.includes(item.codigo)
+        const statusAprovacao = encaminhado
+          ? 'ENCAMINHADO PARA APROVAÇÃO'
+          : item.aprovavel
           ? Number(item.autorizados || 0) > 0
             ? 'ACEITO'
             : statusExecucao
@@ -1272,11 +1374,12 @@ function AprovacaoPage({
           ...item,
           tipoExecucao,
           execucao,
+          encaminhado,
           statusAprovacao,
-          selecionavel: canManage && item.aprovavel && Number(item.quantidade || 0) > 0,
+          selecionavel: canManage && (item.aprovavel || encaminhado) && (encaminhado || Number(item.quantidade || 0) > 0),
         }
       })
-  }, [canManage, execucoes, latestExecucaoByTipo, modulos, resumo])
+  }, [canManage, execucoes, latestExecucaoByTipo, modulos, resumo, tratativasAceitas])
   const codigosSelecionaveis = useMemo(
     () => tratativasAutomatizadas.filter((item) => item.selecionavel).map((item) => item.codigo),
     [tratativasAutomatizadas],
@@ -1326,15 +1429,28 @@ function AprovacaoPage({
       <PageHero
         title="Aprovação"
         description="Mesa do gestor para aprovar tratativas em massa antes de qualquer implantação ou geração de arquivo IQS."
-        sideLabel="Perfil"
-        sideValue={user?.perfil}
       />
+
+      <details className="panel dashboard-section collapsible-panel approval-governance">
+        <summary className="collapsible-summary">
+          <div>
+            <h2>Regra de governança</h2>
+            <p>A aprovação em massa não substitui decisão humana quando houver baixa confiança, conflito ou evidência operacional divergente.</p>
+          </div>
+          <span className="collapsible-indicator">Expandir</span>
+        </summary>
+        <div className="decision-steps">
+          <span><strong>1</strong><em>Revisar lote</em><small>Impacto e amostras coerentes.</small></span>
+          <span><strong>2</strong><em>Aprovar</em><small>Gestor autoriza em massa.</small></span>
+          <span><strong>3</strong><em>Liberar IQS</em><small>Somente aprovados entram no pacote.</small></span>
+        </div>
+      </details>
 
       {!canManage && (
         <div className="alert">Seu perfil pode consultar esta página, mas apenas GESTOR/ADM aprova tratativas em massa.</div>
       )}
 
-      <section className="executive-layout">
+      <section className="executive-layout approval-layout">
         <article className="panel executive-action-panel">
           <div className="panel-title">
             <div>
@@ -1415,19 +1531,6 @@ function AprovacaoPage({
           </p>
         </article>
 
-        <article className="panel">
-          <div className="panel-title">
-            <div>
-              <h2>Regra de governança</h2>
-              <p>A aprovação em massa não substitui decisão humana quando houver baixa confiança, conflito ou evidência operacional divergente.</p>
-            </div>
-          </div>
-          <div className="decision-steps">
-            <span><strong>1</strong><em>Revisar lote</em><small>Impacto e amostras coerentes.</small></span>
-            <span><strong>2</strong><em>Aprovar</em><small>Gestor autoriza em massa.</small></span>
-            <span><strong>3</strong><em>Liberar IQS</em><small>Somente aprovados entram no pacote.</small></span>
-          </div>
-        </article>
       </section>
 
       {actionMessage && <div className="alert alert-success">{actionMessage}</div>}
@@ -1464,6 +1567,105 @@ function SaidaIqsPage({
         description="Gere somente após aprovação governada das tratativas. O pacote físico deve respeitar layout, encoding, datas e quebras exigidas pelo IQS."
       />
     </>
+  )
+}
+
+function OccurrenceGanttTimeline({ interrupcoes = [] }) {
+  const palette = ['#22c55e', '#06b6d4', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#84cc16', '#38bdf8']
+  const tasks = useMemo(() => {
+    return (interrupcoes || [])
+      .map((item) => {
+        const inicio = item.INICIO ? new Date(item.INICIO) : null
+        const fimBase = item.FIM ? new Date(item.FIM) : inicio
+        const inicioMs = inicio?.getTime()
+        const fimMs = fimBase?.getTime()
+        if (!Number.isFinite(inicioMs)) return null
+        return {
+          ...item,
+          inicio,
+          fim: Number.isFinite(fimMs) ? fimBase : inicio,
+          inicioMs,
+          fimMs: Number.isFinite(fimMs) ? Math.max(fimMs, inicioMs) : inicioMs,
+        }
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.inicioMs - right.inicioMs)
+  }, [interrupcoes])
+
+  if (!tasks.length) {
+    return (
+      <section className="occurrence-gantt empty">
+        <div className="panel-title compact-title">
+          <div>
+            <h2>Timeline da ocorrência</h2>
+            <p>Sem início/fim por interrupção na resposta atual da busca.</p>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  const visibleTasks = tasks.slice(0, 60)
+  const minTime = Math.min(...tasks.map((task) => task.inicioMs))
+  const maxTime = Math.max(...tasks.map((task) => task.fimMs))
+  const totalTime = Math.max(maxTime - minTime, 1)
+  const ticks = Array.from({ length: 5 }, (_, index) => minTime + (totalTime * index) / 4)
+
+  return (
+    <section className="occurrence-gantt">
+      <div className="panel-title compact-title">
+        <div>
+          <h2>Timeline da ocorrência</h2>
+          <p>Ocorrência como projeto; cada interrupção é uma tarefa posicionada pelo início e fim informados no OMS.</p>
+        </div>
+        <span className="pill">{numberFormat(tasks.length)} interrupção(ões)</span>
+      </div>
+      <div className="project-gantt">
+        <div className="project-gantt-corner">Interrupção</div>
+        <div className="project-gantt-calendar">
+          {ticks.map((tick, index) => (
+            <span key={`${tick}-${index}`}>{dateTime(tick)}</span>
+          ))}
+        </div>
+      </div>
+      <div className="gantt-list">
+        {visibleTasks.map((task, index) => {
+          const left = ((task.inicioMs - minTime) / totalTime) * 100
+          const width = Math.max(((task.fimMs - task.inicioMs) / totalTime) * 100, 1.4)
+          const title = `Interrupção ${task.NUM_SEQ_INTRP} · ${dateTime(task.inicio)} até ${dateTime(task.fim)}`
+          const color = palette[index % palette.length]
+          return (
+            <details className="gantt-task" key={`${task.NUM_OCORRENCIA_ADMS}-${task.NUM_SEQ_INTRP}`}>
+              <summary>
+                <span className="gantt-task-label">
+                  <strong>{task.NUM_SEQ_INTRP}</strong>
+                  <small>{decimalFormat(task.DURACAO_HORAS, 2)} h · {numberFormat(task.QTD_UCS)} UC(s)</small>
+                </span>
+                <span className="gantt-track" aria-label={title}>
+                  <span
+                    className="gantt-bar"
+                    title={title}
+                    style={{ left: `${left}%`, width: `${width}%`, background: color }}
+                  >
+                    <span>{decimalFormat(task.DURACAO_HORAS, 1)}h</span>
+                  </span>
+                </span>
+              </summary>
+              <div className="gantt-task-detail">
+                <span><small>Início</small><strong>{dateTime(task.inicio)}</strong></span>
+                <span><small>Fim</small><strong>{dateTime(task.fim)}</strong></span>
+                <span><small>Duração</small><strong>{decimalFormat(task.DURACAO_HORAS, 2)} h</strong></span>
+                <span><small>UCs</small><strong>{numberFormat(task.QTD_UCS)}</strong></span>
+                <span><small>Comp/Causa</small><strong>{textValue(task.PARES_COMPONENTE_CAUSA)}</strong></span>
+              </div>
+            </details>
+          )
+        })}
+      </div>
+      {tasks.length > visibleTasks.length && (
+        <p className="panel-note">Mostrando as primeiras {numberFormat(visibleTasks.length)} interrupções por ordem temporal.</p>
+      )}
+    </section>
   )
 }
 
@@ -1560,6 +1762,7 @@ function FilaPreview({ anomes, token, onOpenOccurrence }) {
               <span><small>Score reclamação</small><strong>{numberFormat(item.MAX_SCORE_RECLAMACAO)}</strong></span>
               <span><small>Grupos IQS</small><strong>{textValue(item.GRUPOS_COMPONENTE_IQS || item.GRUPOS_CAUSA_IQS)}</strong></span>
             </div>
+            <OccurrenceGanttTimeline interrupcoes={item.INTERRUPCOES_DETALHE || []} />
             <div className="result-text">
               <strong>Interrupções:</strong> {textValue(item.INTERRUPCOES)}
             </div>
@@ -2147,85 +2350,94 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
         </button>
       </div>
 
-      <form className="analysis-filter-grid" onSubmit={submit}>
-        <label>
-          Problema
-          <select value={filtros.problema} onChange={(event) => updateFiltro('problema', event.target.value)}>
-            <option value="impacto">Maior impacto</option>
-            <option value="9282">Componente/Causa crítica</option>
-            <option value="violacao_componente_causa">Violação componente/causa</option>
-            <option value="duracao_suspeita">Duração suspeita</option>
-            <option value="ressarcimento">Com ressarcimento</option>
-            <option value="todos">Todos</option>
-          </select>
-        </label>
-        <label>
-          CHI mín.
-          <input inputMode="decimal" value={filtros.min_chi} onChange={(event) => updateFiltro('min_chi', event.target.value)} placeholder="Ex.: 1.000,50" />
-        </label>
-        <label>
-          CI mín.
-          <input inputMode="decimal" value={filtros.min_ci} onChange={(event) => updateFiltro('min_ci', event.target.value)} placeholder="Ex.: 1.000" />
-        </label>
-        <label>
-          Ressarcimento mín.
-          <input inputMode="decimal" value={filtros.min_ressarcimento} onChange={(event) => updateFiltro('min_ressarcimento', event.target.value)} placeholder="Ex.: 10.000,00" />
-        </label>
-        <label>
-          Duração suspeita ≥ h
-          <input inputMode="decimal" value={filtros.duracao_suspeita_min} onChange={(event) => updateFiltro('duracao_suspeita_min', event.target.value)} placeholder="Ex.: 24,5" />
-        </label>
-        <label>
-          Grupo comp./causa (GCR)
-          <select value={filtros.grupo} onChange={(event) => updateFiltro('grupo', event.target.value)}>
-            <option value="">Todos os grupos</option>
-            {opcoesReferencia.grupos.map((item) => (
-              <option key={item.codigo} value={item.codigo}>
-                {optionLabel(item)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Componente
-          <select value={filtros.componente} onChange={(event) => updateFiltro('componente', event.target.value)}>
-            <option value="">Todos os componentes</option>
-            {componentesFiltrados.map((item) => (
-              <option key={`${item.grupo_codigo}-${item.codigo}`} value={item.codigo}>
-                {optionLabel(item)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Causa
-          <select value={filtros.causa} onChange={(event) => updateFiltro('causa', event.target.value)}>
-            <option value="">Todas as causas</option>
-            {causasFiltradas.map((item) => (
-              <option key={`${item.grupo_codigo}-${item.componente_codigo}-${item.codigo}`} value={item.codigo}>
-                {optionLabel(item)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Limite
-          <select value={filtros.limit} onChange={(event) => updateFiltro('limit', event.target.value)}>
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-            <option value="200">200</option>
-          </select>
-        </label>
-        <div className="analysis-filter-actions">
-          <button type="button" className="secondary-button" onClick={limpar} disabled={loading}>
-            Limpar
-          </button>
-          <button type="submit" className="primary-button" disabled={loading}>
-            {loading ? 'Filtrando...' : 'Aplicar filtros'}
-          </button>
-        </div>
-      </form>
+      <details className="collapsible-panel analysis-filter-panel">
+        <summary className="collapsible-summary">
+          <div>
+            <h2>Filtros de investigação</h2>
+            <p>{criteriosAtivos.join(' · ')}</p>
+          </div>
+          <span className="collapsible-indicator">Expandir</span>
+        </summary>
+        <form className="analysis-filter-grid" onSubmit={submit}>
+          <label>
+            Problema
+            <select value={filtros.problema} onChange={(event) => updateFiltro('problema', event.target.value)}>
+              <option value="impacto">Maior impacto</option>
+              <option value="9282">Componente/Causa crítica</option>
+              <option value="violacao_componente_causa">Violação componente/causa</option>
+              <option value="duracao_suspeita">Duração suspeita</option>
+              <option value="ressarcimento">Com ressarcimento</option>
+              <option value="todos">Todos</option>
+            </select>
+          </label>
+          <label>
+            CHI mín.
+            <input inputMode="decimal" value={filtros.min_chi} onChange={(event) => updateFiltro('min_chi', event.target.value)} placeholder="Ex.: 1.000,50" />
+          </label>
+          <label>
+            CI mín.
+            <input inputMode="decimal" value={filtros.min_ci} onChange={(event) => updateFiltro('min_ci', event.target.value)} placeholder="Ex.: 1.000" />
+          </label>
+          <label>
+            Ressarcimento mín.
+            <input inputMode="decimal" value={filtros.min_ressarcimento} onChange={(event) => updateFiltro('min_ressarcimento', event.target.value)} placeholder="Ex.: 10.000,00" />
+          </label>
+          <label>
+            Duração suspeita ≥ h
+            <input inputMode="decimal" value={filtros.duracao_suspeita_min} onChange={(event) => updateFiltro('duracao_suspeita_min', event.target.value)} placeholder="Ex.: 24,5" />
+          </label>
+          <label>
+            Grupo comp./causa (GCR)
+            <select value={filtros.grupo} onChange={(event) => updateFiltro('grupo', event.target.value)}>
+              <option value="">Todos os grupos</option>
+              {opcoesReferencia.grupos.map((item) => (
+                <option key={item.codigo} value={item.codigo}>
+                  {optionLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Componente
+            <select value={filtros.componente} onChange={(event) => updateFiltro('componente', event.target.value)}>
+              <option value="">Todos os componentes</option>
+              {componentesFiltrados.map((item) => (
+                <option key={`${item.grupo_codigo}-${item.codigo}`} value={item.codigo}>
+                  {optionLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Causa
+            <select value={filtros.causa} onChange={(event) => updateFiltro('causa', event.target.value)}>
+              <option value="">Todas as causas</option>
+              {causasFiltradas.map((item) => (
+                <option key={`${item.grupo_codigo}-${item.componente_codigo}-${item.codigo}`} value={item.codigo}>
+                  {optionLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Limite
+            <select value={filtros.limit} onChange={(event) => updateFiltro('limit', event.target.value)}>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+            </select>
+          </label>
+          <div className="analysis-filter-actions">
+            <button type="button" className="secondary-button" onClick={limpar} disabled={loading}>
+              Limpar
+            </button>
+            <button type="submit" className="primary-button" disabled={loading}>
+              {loading ? 'Filtrando...' : 'Aplicar filtros'}
+            </button>
+          </div>
+        </form>
+      </details>
 
       {erro && <div className="alert">Erro: {erro}</div>}
 
@@ -2464,25 +2676,51 @@ function OcorrenciasPage({
   token,
   onOpenOccurrence,
 }) {
+  const [activeOccurrenceTab, setActiveOccurrenceTab] = useState('busca')
+  const occurrenceTabs = [
+    { id: 'busca', label: 'Busca e Triagem' },
+    { id: 'impacto', label: 'Priorização por Impacto' },
+    { id: 'fila', label: 'Fila Técnica' },
+  ]
+
   return (
     <>
       <PageHero
         title="Ocorrências"
         description="Busca e investigação pontual para localizar ocorrências problemáticas por impacto, data/hora, componente, causa, alimentador, conjunto e evidências."
-        sideLabel="Fila"
-        sideValue={numberFormat(resumo.fila_aberta)}
       />
 
-      <section className="metrics-grid compact">
+      <section className="metrics-grid compact occurrence-summary">
         <Card label="Fila técnica" value={numberFormat(resumo.fila_tecnica_total)} hint={`${numberFormat(resumo.fila_aberta)} em aberto`} tone="orange" />
         <Card label="Conflito serviço" value={numberFormat(resumo.fila_servico_conflito)} hint="revisão técnica" tone="purple" />
         <Card label="Por reclamação" value={numberFormat(resumo.fila_reclamacao)} hint="evidência textual" tone="blue" />
         <Card label="Ajustes IQS" value={numberFormat(resumo.ajustes_auto_9282)} hint="autorizados" tone="green" />
       </section>
 
-      <AnaliseImpactoPanel anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
-      <FilaPreview anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
-      <FilaPage fila={fila} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
+      <nav className="admin-tabs occurrence-tabs" aria-label="Seções da página de ocorrências">
+        {occurrenceTabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={activeOccurrenceTab === tab.id ? 'active' : ''}
+            type="button"
+            onClick={() => setActiveOccurrenceTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      <section className="occurrence-tab-panel">
+        {activeOccurrenceTab === 'busca' && (
+          <FilaPreview anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
+        )}
+        {activeOccurrenceTab === 'impacto' && (
+          <AnaliseImpactoPanel anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
+        )}
+        {activeOccurrenceTab === 'fila' && (
+          <FilaPage fila={fila} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
+        )}
+      </section>
     </>
   )
 }
@@ -4702,6 +4940,7 @@ export default function App() {
   const [produtoCockpit, setProdutoCockpit] = useState(null)
   const [produtoSuspeitasRa, setProdutoSuspeitasRa] = useState(null)
   const [produtoValidacaoIqs, setProdutoValidacaoIqs] = useState(null)
+  const [produtoModulosResumo, setProdutoModulosResumo] = useState({})
   const [analiseTecnicaResumos, setAnaliseTecnicaResumos] = useState({})
   const [loading, setLoading] = useState(true)
   const [loginLoading, setLoginLoading] = useState(false)
@@ -4709,6 +4948,7 @@ export default function App() {
   const [savingDecision, setSavingDecision] = useState(false)
   const [generatingIqs, setGeneratingIqs] = useState(false)
   const [runningAlgorithm, setRunningAlgorithm] = useState('')
+  const [tratativasAceitas, setTratativasAceitas] = useState([])
   const [occurrenceDetail, setOccurrenceDetail] = useState(null)
   const [occurrenceLoading, setOccurrenceLoading] = useState(false)
   const [anomalyDetail, setAnomalyDetail] = useState(null)
@@ -4791,6 +5031,7 @@ export default function App() {
           fetch(`${API_URL}/api/produto/cockpit?limite=20`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/suspeitas-ra?limite=20`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/validacao-iqs`, { headers: authHeaders }),
+          fetch(`${API_URL}/api/produto/modulos-resumo`, { headers: authHeaders }),
         ]
         const [
           verificacoesResponse,
@@ -4814,6 +5055,7 @@ export default function App() {
           produtoCockpitResponse,
           produtoSuspeitasRaResponse,
           produtoValidacaoIqsResponse,
+          produtoModulosResumoResponse,
         ] =
           await Promise.all(protectedRequests)
         const protectedResponses = [
@@ -4838,6 +5080,7 @@ export default function App() {
           produtoCockpitResponse,
           produtoSuspeitasRaResponse,
           produtoValidacaoIqsResponse,
+          produtoModulosResumoResponse,
         ]
         if (protectedResponses.some((response) => response?.status === 401)) {
           clearSession('Sessão expirada ou inválida. Faça login novamente.')
@@ -4878,6 +5121,7 @@ export default function App() {
         if (produtoCockpitResponse.ok) setProdutoCockpit(await produtoCockpitResponse.json())
         if (produtoSuspeitasRaResponse.ok) setProdutoSuspeitasRa(await produtoSuspeitasRaResponse.json())
         if (produtoValidacaoIqsResponse.ok) setProdutoValidacaoIqs(await produtoValidacaoIqsResponse.json())
+        if (produtoModulosResumoResponse.ok) setProdutoModulosResumo(await produtoModulosResumoResponse.json())
       }
       setError('')
     } catch (requestError) {
@@ -4956,6 +5200,12 @@ export default function App() {
     try {
       setAuthorizing(true)
       setActionMessage('')
+      const processosSelecionados = contextoAprovacao.processosSelecionados || []
+      if (processosSelecionados.length > 0 && !processosSelecionados.includes('CORRECAO_9282')) {
+        setTratativasAceitas((atuais) => atuais.filter((codigo) => !processosSelecionados.includes(codigo)))
+        setActionMessage('Tratativa(s) aprovada(s) no fluxo governado da tela. Implantação/IQS ficará pendente até existir regra automática aprovada para o módulo.')
+        return
+      }
       const body = {}
       if (contextoAprovacao.justificativa) body.justificativa = contextoAprovacao.justificativa
       if (contextoAprovacao.incluirJustificativasProcessos) {
@@ -5026,24 +5276,19 @@ export default function App() {
   }
 
   async function handleAceitarAlgoritmo(module) {
-    if (module?.codigo !== 'CORRECAO_9282') {
-      setActionMessage('')
-      setError(`Aceite governado do algoritmo ${module?.nome || module?.codigo || '—'} ainda não possui endpoint de aprovação em lote. Atualize e visualize as evidências, mas não será enviado ao IQS por esta ação.`)
-      return
-    }
-    setActionMessage(`Aceitando a tratativa em massa do algoritmo ${module?.nome || module?.codigo || '—'} pela rotina governada disponível.`)
-    await handleAutorizar({
-      justificativa: `Aceite governado em Tratativas em Massa: ${module?.nome || module?.codigo || 'Correção especializada 92/82'}.`,
-      incluirJustificativasProcessos: true,
-      justificativasProcessos: [
-        'Critério 92/82: serviço ADMS com evidência robusta, par componente/causa válido e baixa necessidade de decisão manual.',
-      ],
-    })
+    if (!module?.codigo) return
+    setError('')
+    setTratativasAceitas((atuais) => (
+      atuais.includes(module.codigo) ? atuais : [...atuais, module.codigo]
+    ))
+    setActionMessage(`Tratativa aceita para aprovação: ${module?.nome || module?.codigo || '—'}. Revise e confirme na página Aprovação.`)
+    setActivePage('aprovacao')
   }
 
   function handleRejeitarAlgoritmo(module) {
-    setActionMessage('')
-    setError(`Rejeição da tratativa em massa do algoritmo ${module?.nome || module?.codigo || '—'} ainda precisa de endpoint governado com justificativa de lote.`)
+    setError('')
+    setTratativasAceitas((atuais) => atuais.filter((codigo) => codigo !== module?.codigo))
+    setActionMessage(`Tratativa rejeitada na revisão: ${module?.nome || module?.codigo || '—'}. Ela não será encaminhada para aprovação.`)
   }
 
   async function handleCreateAlteracao(payload) {
@@ -5241,7 +5486,9 @@ export default function App() {
         decFec={decFec}
         cockpit={produtoCockpit}
         modulos={anomaliasModulos}
+        ajustes={ajustes}
         analiseTecnicaResumos={analiseTecnicaResumos}
+        modulosResumo={produtoModulosResumo}
         suspeitasRa={produtoSuspeitasRa}
         token={token}
         onOpenOccurrence={handleOpenOccurrence}
@@ -5251,9 +5498,12 @@ export default function App() {
       <TratativasMassaPage
         resumo={resumo}
         modulos={anomaliasModulos}
+        ajustes={ajustes}
         analiseTecnicaResumos={analiseTecnicaResumos}
+        modulosResumo={produtoModulosResumo}
         suspeitasRa={produtoSuspeitasRa}
         execucoes={execucoes}
+        token={token}
         onRefresh={load}
         onAtualizarAlgoritmo={handleAtualizarAlgoritmo}
         onAceitarAlgoritmo={handleAceitarAlgoritmo}
@@ -5271,6 +5521,7 @@ export default function App() {
         modulos={anomaliasModulos}
         execucoes={execucoes}
         user={user}
+        tratativasAceitas={tratativasAceitas}
         onAutorizar={handleAutorizar}
         actionMessage={actionMessage}
         authorizing={authorizing}
@@ -5330,13 +5581,21 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar activePage={activePage} onChangePage={setActivePage} user={user} onLogout={handleLogout} />
+      <Sidebar activePage={activePage} onChangePage={setActivePage} user={user} />
       <main className="main">
         <header className="topbar">
-          <button className="hamburger">☰</button>
+          <div aria-hidden="true" />
+          <div className="topbar-user">
+            <div className="avatar topbar-avatar">{(user?.nome || user?.login || 'AD').slice(0, 2).toUpperCase()}</div>
+            <div>
+              <strong>{user?.nome || 'Admin'}</strong>
+              <span>{user?.login || 'local'}</span>
+            </div>
+          </div>
           <div className="topbar-actions">
             <button className="secondary-button" onClick={load}>Atualizar</button>
             <StatusBadge health={health} />
+            <button className="logout-button topbar-logout" onClick={handleLogout}>Sair</button>
           </div>
         </header>
 

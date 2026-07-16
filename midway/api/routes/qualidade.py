@@ -124,7 +124,7 @@ def busca_qualidade(
         params = [valor_busca, valor_busca, valor_busca, limit]
 
     with _connect_processed_readonly(db_path) as con:
-        return _fetch_rows(
+        rows = _fetch_rows(
             con,
             f"""
             WITH ocorrencias AS (
@@ -208,6 +208,52 @@ def busca_qualidade(
             """,
             params,
         )
+        ocorrencias = [str(row.get("NUM_OCORRENCIA_ADMS") or "").strip() for row in rows]
+        ocorrencias = [item for item in ocorrencias if item]
+        detalhes_por_ocorrencia: dict[str, list[dict[str, object]]] = {item: [] for item in ocorrencias}
+
+        if ocorrencias:
+            placeholders = ", ".join(["?"] * len(ocorrencias))
+            detalhes = _fetch_rows(
+                con,
+                f"""
+                SELECT
+                    TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                    TRIM(CAST(NUM_SEQ_INTRP AS VARCHAR)) AS NUM_SEQ_INTRP,
+                    MIN(DATA_HORA_INIC_INTRP) AS INICIO,
+                    MAX(DATA_HORA_FIM_INTRP) AS FIM,
+                    COUNT(DISTINCT NUM_UC_UCI) AS QTD_UCS,
+                    STRING_AGG(
+                        DISTINCT TRIM(CAST(COD_COMP_INTRP AS VARCHAR)) || '/' || TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)),
+                        ', '
+                    ) AS PARES_COMPONENTE_CAUSA,
+                    ROUND(
+                        GREATEST(
+                            DATE_DIFF(
+                                'second',
+                                MIN(DATA_HORA_INIC_INTRP),
+                                COALESCE(MAX(DATA_HORA_FIM_INTRP), MIN(DATA_HORA_INIC_INTRP))
+                            ) / 3600.0,
+                            0
+                        ),
+                        4
+                    ) AS DURACAO_HORAS
+                FROM gold_interrupcao_tratada
+                WHERE TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) IN ({placeholders})
+                GROUP BY 1, 2
+                ORDER BY 1, INICIO, NUM_SEQ_INTRP
+                """,
+                ocorrencias,
+            )
+            for detalhe in detalhes:
+                ocorrencia = str(detalhe.get("NUM_OCORRENCIA_ADMS") or "").strip()
+                detalhes_por_ocorrencia.setdefault(ocorrencia, []).append(detalhe)
+
+        for row in rows:
+            ocorrencia = str(row.get("NUM_OCORRENCIA_ADMS") or "").strip()
+            row["INTERRUPCOES_DETALHE"] = detalhes_por_ocorrencia.get(ocorrencia, [])
+
+        return rows
 
 
 @router.get("/analise-tecnica/opcoes")

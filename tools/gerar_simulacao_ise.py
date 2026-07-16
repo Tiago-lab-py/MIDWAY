@@ -14,6 +14,7 @@ BASE_DIR = Path("data")
 PROCESSED_DUCKDB_PATH = BASE_DIR / "processed" / f"iqs_adms_processed_{ANOMES}.duckdb"
 MARTS_DIR = BASE_DIR / "marts"
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M%S")
+DURACAO_MINIMA_HORA = 3.0 / 60.0
 
 CAUSAS_ISE = (
     "2",
@@ -129,6 +130,8 @@ def criar_gold_simulacao_ise(con) -> None:
     sigla_reid_fic = coluna_texto(colunas, "SIGLA_REID_FIC", "NULL")
 
     causa_ise = f"{causa} IN ({sql_lista_texto(CAUSAS_ISE)})"
+    duracao_longa = f"{duracao} >= {DURACAO_MINIMA_HORA}"
+    causa_ise_longa = f"{causa_ise} AND {duracao_longa}"
     dic_bruto = (
         f"SUBSTR({sigla_tiqs_dic}, 1, 4) = 'DIC_' "
         f"AND COALESCE({sigla_reid_dic}, 'X') NOT IN ({sql_lista_texto(REGRAS_EXPURGO_DIC_BRUTO)})"
@@ -150,11 +153,11 @@ def criar_gold_simulacao_ise(con) -> None:
                 {num_interrupcao} AS NUM_SEQ_INTRP,
                 {causa} AS COD_CAUSA_INTRP,
                 {duracao} AS DURACAO_HORA,
-                CASE WHEN {causa_ise} THEN 'S' ELSE 'N' END AS ISE_CAUSA_ELEGIVEL,
-                CASE WHEN {causa_ise} AND {dic_bruto} THEN {duracao} ELSE 0 END AS ISE_CHI_BRUTO_REFERENCIA,
-                CASE WHEN {causa_ise} AND {dic_liquido} THEN {duracao} ELSE 0 END AS ISE_CHI_LIQUIDO_RECLASSIFICAVEL,
-                CASE WHEN {causa_ise} AND {fic_bruto} THEN 1 ELSE 0 END AS ISE_CI_BRUTO_REFERENCIA,
-                CASE WHEN {causa_ise} AND {fic_liquido} THEN 1 ELSE 0 END AS ISE_CI_LIQUIDO_RECLASSIFICAVEL
+                CASE WHEN {causa_ise_longa} THEN 'S' ELSE 'N' END AS ISE_CAUSA_ELEGIVEL,
+                CASE WHEN {causa_ise_longa} AND {dic_bruto} THEN {duracao} ELSE 0 END AS ISE_CHI_BRUTO_REFERENCIA,
+                CASE WHEN {causa_ise_longa} AND {dic_liquido} THEN {duracao} ELSE 0 END AS ISE_CHI_LIQUIDO_RECLASSIFICAVEL,
+                CASE WHEN {causa_ise_longa} AND {fic_bruto} THEN 1 ELSE 0 END AS ISE_CI_BRUTO_REFERENCIA,
+                CASE WHEN {causa_ise_longa} AND {fic_liquido} THEN 1 ELSE 0 END AS ISE_CI_LIQUIDO_RECLASSIFICAVEL
             FROM gold_apuracao_uc
             WHERE {uc} IS NOT NULL
         )
@@ -255,6 +258,7 @@ def exportar_resultados(con) -> tuple[Path, Path]:
         arquivo.write("Tabela: gold_simulacao_ise_uc\n")
         arquivo.write(f"CSV: {csv_path}\n")
         arquivo.write("Regra: bruto verifica potencial ISE; liquido mede reclassificacao.\n")
+        arquivo.write("Filtro de duração: somente eventos com DURACAO_HORA >= 3 minutos entram em CHI/CI ISE.\n")
         arquivo.write(f"Causas ISE: {', '.join(CAUSAS_ISE)}\n\n")
         for campo, valor in zip(campos, resumo):
             arquivo.write(f"{campo}: {valor}\n")

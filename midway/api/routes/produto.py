@@ -27,6 +27,13 @@ ALIMENTADOR_CSV_PATH = Path(
 CONJUNTO_CSV_PATH = Path(
     os.getenv("MIDWAY_CONJUNTO_CSV", str(INPUT_DIR / "Referencia_DEC FEC CONJUNTO Ano_Copel.csv"))
 )
+DURACAO_MINIMA_ISE_HORA = 3.0 / 60.0
+CAUSAS_ISE = (
+    "2", "4", "5", "6", "7", "8", "9", "13", "15", "23",
+    "24", "28", "39", "40", "41", "52", "54", "69", "82",
+)
+REGRAS_EXPURGO_DIC_BRUTO = ("DFC", "USU", "USI", "ACI", "FM", "ERR", "DUP", "CHP", "DFI", "PTP")
+REGRAS_EXPURGO_FIC_BRUTO = REGRAS_EXPURGO_DIC_BRUTO + ("MAN",)
 
 
 def _table_exists(con: duckdb.DuckDBPyConnection, table_name: str) -> bool:
@@ -42,6 +49,21 @@ def _table_exists(con: duckdb.DuckDBPyConnection, table_name: str) -> bool:
         ).fetchone()[0]
         > 0
     )
+
+
+def _table_columns(con: duckdb.DuckDBPyConnection, table_name: str) -> set[str]:
+    return {
+        row[0].upper()
+        for row in con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'main'
+              AND table_name = ?
+            """,
+            [table_name],
+        ).fetchall()
+    }
 
 
 def _connect_processed_readonly() -> tuple[duckdb.DuckDBPyConnection | None, dict[str, object]]:
@@ -80,6 +102,311 @@ def _number(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _sql_lista_texto(valores: tuple[str, ...]) -> str:
+    return ", ".join(f"'{valor}'" for valor in valores)
+
+
+def _coluna_texto_expr(colunas: set[str], nome_coluna: str, padrao: str) -> str:
+    if nome_coluna.upper() in colunas:
+        return f"NULLIF(TRIM(CAST({nome_coluna} AS VARCHAR)), '')"
+    return padrao
+
+
+def _coluna_numero_expr(colunas: set[str], nome_coluna: str, padrao: str = "0") -> str:
+    if nome_coluna.upper() in colunas:
+        return f"COALESCE(TRY_CAST({nome_coluna} AS DOUBLE), 0)"
+    return padrao
+
+
+def _csv_count_latest(pattern: str) -> tuple[int, str]:
+    files = sorted((Path("data") / "marts").glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not files:
+        return 0, ""
+    latest = files[0]
+    with latest.open("r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.reader(file, delimiter="|")
+        rows = list(reader)
+    return max(len(rows) - 1, 0), str(latest).replace("\\", "/")
+
+
+def _module_metric(
+    codigo: str,
+    total: float = 0,
+    chi: float = 0,
+    ci: float = 0,
+    ressarcimento: float = 0,
+    fonte: str = "",
+    status: str = "ok",
+) -> dict[str, object]:
+    return {
+        "codigo": codigo,
+        "total": total,
+        "impacto_chi": chi,
+        "impacto_ci": ci,
+        "impacto_ressarcimento": ressarcimento,
+        "fonte": fonte,
+        "status": status,
+    }
+
+
+def _compensacao_dicri_dise(con: duckdb.DuckDBPyConnection) -> tuple[float, str]:
+    if not _table_exists(con, "gold_ressarcimento_prodist"):
+        return 0.0, ""
+    colunas = _table_columns(con, "gold_ressarcimento_prodist")
+    if not {"COMP_DICRI_PRODIST", "COMP_DISE_PRODIST"}.issubset(colunas):
+        return 0.0, ""
+    valor = con.execute(
+        """
+        SELECT
+            COALESCE(SUM(COMP_DICRI_PRODIST), 0)
+          + COALESCE(SUM(COMP_DISE_PRODIST), 0) AS COMP_DICRI_DISE
+        FROM gold_ressarcimento_prodist
+        """
+    ).fetchone()[0]
+    return _number(valor), "gold_ressarcimento_prodist · DICRI/DISE parcial por UC"
+
+
+def _resumo_modulos_automatizados() -> dict[str, object]:
+    con, fonte_processado = _connect_processed_readonly()
+    modulos = {
+        "INTERRUPCAO_SEM_UC": _module_metric("INTERRUPCAO_SEM_UC", status="ausente"),
+        "DUPLICIDADE_TIPO": _module_metric("DUPLICIDADE_TIPO", status="ausente"),
+        "DIA_CRITICO_ISE": _module_metric("DIA_CRITICO_ISE", status="ausente"),
+        "RECLAMACOES_SERVICOS": _module_metric("RECLAMACOES_SERVICOS", status="ausente"),
+    }
+
+    if con is not None:
+        try:
+            comp_dicri_dise, fonte_comp_dicri_dise = _compensacao_dicri_dise(con)
+            if _table_exists(con, "adms_iqs_interrupcao_sem_uc_export"):
+                row = con.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0) AS chi,
+                        SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0' THEN 1 ELSE 0 END) AS ci
+                    FROM adms_iqs_interrupcao_sem_uc_export
+                    WHERE TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP) IS NOT NULL
+                      AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) IS NOT NULL
+                      AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) >= TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP)
+                    """
+                ).fetchone()
+                modulos["INTERRUPCAO_SEM_UC"] = _module_metric(
+                    "INTERRUPCAO_SEM_UC",
+                    total=_number(row[0]),
+                    chi=_number(row[1]),
+                    ci=_number(row[2]),
+                    fonte="adms_iqs_interrupcao_sem_uc_export",
+                )
+
+            if _table_exists(con, "gold_apuracao_uc"):
+                colunas = _table_columns(con, "gold_apuracao_uc")
+                obrigatorias = {"NUM_UC_UCI", "COD_CAUSA_INTRP", "DURACAO_HORA"}
+                if obrigatorias.issubset(colunas):
+                    causa = "NULLIF(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '')"
+                    uc = "NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '')"
+                    duracao = _coluna_numero_expr(colunas, "DURACAO_HORA")
+                    sigla_tiqs_dic = (
+                        "COALESCE(NULLIF(TRIM(CAST(SIGLA_TIQS_DIC AS VARCHAR)), ''), 'DIC_')"
+                        if "SIGLA_TIQS_DIC" in colunas
+                        else "'DIC_'"
+                    )
+                    sigla_tiqs_fic = (
+                        "COALESCE(NULLIF(TRIM(CAST(SIGLA_TIQS_FIC AS VARCHAR)), ''), 'FIC_')"
+                        if "SIGLA_TIQS_FIC" in colunas
+                        else "'FIC_'"
+                    )
+                    sigla_reid_dic = _coluna_texto_expr(colunas, "SIGLA_REID_DIC", "NULL")
+                    sigla_reid_fic = _coluna_texto_expr(colunas, "SIGLA_REID_FIC", "NULL")
+                    causa_ise_longa = (
+                        f"{causa} IN ({_sql_lista_texto(CAUSAS_ISE)}) "
+                        f"AND {duracao} >= {DURACAO_MINIMA_ISE_HORA}"
+                    )
+                    dic_liquido = f"SUBSTR({sigla_tiqs_dic}, 1, 4) = 'DIC_' AND {sigla_reid_dic} IS NULL"
+                    fic_liquido = f"SUBSTR({sigla_tiqs_fic}, 1, 4) = 'FIC_' AND {sigla_reid_fic} IS NULL"
+                    row = con.execute(
+                        f"""
+                        WITH uc_ise AS (
+                            SELECT
+                                {uc} AS uc,
+                                SUM(CASE WHEN {causa_ise_longa} AND {dic_liquido} THEN {duracao} ELSE 0 END) AS chi,
+                                SUM(CASE WHEN {causa_ise_longa} AND {fic_liquido} THEN 1 ELSE 0 END) AS ci
+                            FROM gold_apuracao_uc
+                            WHERE {uc} IS NOT NULL
+                            GROUP BY {uc}
+                        )
+                        SELECT
+                            SUM(CASE WHEN chi > 0 OR ci > 0 THEN 1 ELSE 0 END) AS total,
+                            SUM(chi) AS chi,
+                            SUM(ci) AS ci
+                        FROM uc_ise
+                        """
+                    ).fetchone()
+                    modulos["DIA_CRITICO_ISE"] = _module_metric(
+                        "DIA_CRITICO_ISE",
+                        total=_number(row[0]),
+                        chi=_number(row[1]),
+                        ci=_number(row[2]),
+                        ressarcimento=comp_dicri_dise,
+                        fonte=(
+                            "gold_apuracao_uc · duração >= 3 min"
+                            + (f"; {fonte_comp_dicri_dise}" if fonte_comp_dicri_dise else "")
+                        ),
+                    )
+            elif _table_exists(con, "gold_simulacao_ise_uc"):
+                row = con.execute(
+                    """
+                    SELECT
+                        SUM(CASE WHEN ISE_POTENCIAL = 'S' OR ISE_RECLASSIFICAVEL = 'S' THEN 1 ELSE 0 END) AS total,
+                        SUM(ISE_CHI_LIQUIDO_RECLASSIFICAVEL) AS chi,
+                        SUM(ISE_CI_LIQUIDO_RECLASSIFICAVEL) AS ci
+                    FROM gold_simulacao_ise_uc
+                    """
+                ).fetchone()
+                modulos["DIA_CRITICO_ISE"] = _module_metric(
+                    "DIA_CRITICO_ISE",
+                    total=_number(row[0]),
+                    chi=_number(row[1]),
+                    ci=_number(row[2]),
+                    ressarcimento=comp_dicri_dise,
+                    fonte="gold_simulacao_ise_uc" + (f"; {fonte_comp_dicri_dise}" if fonte_comp_dicri_dise else ""),
+                )
+
+            if _table_exists(con, "gold_reclamacao_ocorrencia_resumo"):
+                row = con.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS ocorrencias,
+                        SUM(QTD_RECLAMACOES) AS reclamacoes,
+                        SUM(FIC_OCORRENCIA) AS fic,
+                        SUM(DIC_OCORRENCIA) AS dic
+                    FROM gold_reclamacao_ocorrencia_resumo
+                    """
+                ).fetchone()
+                modulos["RECLAMACOES_SERVICOS"] = _module_metric(
+                    "RECLAMACOES_SERVICOS",
+                    total=_number(row[0]),
+                    chi=_number(row[3]),
+                    ci=_number(row[2]) or _number(row[1]),
+                    fonte="gold_reclamacao_ocorrencia_resumo",
+                )
+        finally:
+            con.close()
+
+    duplicidade_total, duplicidade_fonte = _csv_count_latest(f"Auditoria_Duplicidade_Tipo_INTRP_{ANOMES}_*_DUP_EXATA.CSV")
+    if duplicidade_total:
+        modulos["DUPLICIDADE_TIPO"] = _module_metric(
+            "DUPLICIDADE_TIPO",
+            total=duplicidade_total,
+            fonte=duplicidade_fonte,
+        )
+
+    return {"modulos": modulos, "fonte_processado": fonte_processado}
+
+
+def _read_latest_csv_sample(pattern: str, limite: int) -> tuple[list[dict[str, object]], str]:
+    files = sorted((Path("data") / "marts").glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not files:
+        return [], ""
+    latest = files[0]
+    rows: list[dict[str, object]] = []
+    with latest.open("r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file, delimiter="|")
+        for index, row in enumerate(reader):
+            if index >= limite:
+                break
+            rows.append(dict(row))
+    return rows, str(latest).replace("\\", "/")
+
+
+def _amostra_modulo_automatizado(codigo: str, limite: int) -> dict[str, object]:
+    codigo = codigo.upper().strip()
+    if codigo == "DUPLICIDADE_TIPO":
+        rows, fonte = _read_latest_csv_sample(f"Auditoria_Duplicidade_Tipo_INTRP_{ANOMES}_*_DUP_EXATA.CSV", limite)
+        return {"codigo": codigo, "fonte": fonte or "data/marts", "items": rows}
+
+    con, fonte_processado = _connect_processed_readonly()
+    if con is None:
+        return {"codigo": codigo, "fonte": fonte_processado, "items": []}
+
+    try:
+        if codigo == "INTERRUPCAO_SEM_UC" and _table_exists(con, "adms_iqs_interrupcao_sem_uc_export"):
+            rows = con.execute(
+                """
+                SELECT
+                    NUM_OCORRENCIA_ADMS,
+                    NUM_SEQ_INTRP,
+                    NUM_UC_UCI,
+                    REGIONAL_EXPORT,
+                    DATA_HORA_INIC_INTRP,
+                    DATA_HORA_FIM_INTRP,
+                    TIPO_PROTOC_JUSTIF_UCI
+                FROM adms_iqs_interrupcao_sem_uc_export
+                ORDER BY DATA_HORA_INIC_INTRP DESC, NUM_OCORRENCIA_ADMS
+                LIMIT ?
+                """,
+                [limite],
+            ).fetchdf().to_dict(orient="records")
+            return {"codigo": codigo, "fonte": "adms_iqs_interrupcao_sem_uc_export", "items": rows}
+
+        if codigo == "DIA_CRITICO_ISE" and _table_exists(con, "gold_simulacao_ise_uc"):
+            rows = con.execute(
+                """
+                SELECT
+                    UC,
+                    ISE_POTENCIAL,
+                    ISE_RECLASSIFICAVEL,
+                    EVENTOS_CAUSA_ISE,
+                    OCORRENCIAS_CAUSA_ISE,
+                    ISE_CI_LIQUIDO_RECLASSIFICAVEL,
+                    ISE_CHI_LIQUIDO_RECLASSIFICAVEL,
+                    COD_CAUSAS_ISE
+                FROM gold_simulacao_ise_uc
+                WHERE ISE_POTENCIAL = 'S'
+                   OR ISE_RECLASSIFICAVEL = 'S'
+                ORDER BY ISE_CHI_LIQUIDO_RECLASSIFICAVEL DESC, ISE_CI_LIQUIDO_RECLASSIFICAVEL DESC
+                LIMIT ?
+                """,
+                [limite],
+            ).fetchdf().to_dict(orient="records")
+            return {"codigo": codigo, "fonte": "gold_simulacao_ise_uc", "items": rows}
+
+        if codigo == "RECLAMACOES_SERVICOS" and _table_exists(con, "gold_reclamacao_ocorrencia_resumo"):
+            rows = con.execute(
+                """
+                SELECT
+                    NUM_OCORRENCIA_ADMS,
+                    QTD_RECLAMACOES,
+                    QTD_UCS_RECLAMANTES,
+                    FIC_OCORRENCIA,
+                    DIC_OCORRENCIA,
+                    MAX_SCORE_VINCULO_RECLAMACAO,
+                    TIPOS_RECLAMACAO_PROVAVEIS,
+                    CAUSAS_PROVAVEIS_RECLAMACAO
+                FROM gold_reclamacao_ocorrencia_resumo
+                ORDER BY QTD_RECLAMACOES DESC, MAX_SCORE_VINCULO_RECLAMACAO DESC
+                LIMIT ?
+                """,
+                [limite],
+            ).fetchdf().to_dict(orient="records")
+            return {"codigo": codigo, "fonte": "gold_reclamacao_ocorrencia_resumo", "items": rows}
+
+        if codigo == "SOBREPOSICAO_UC" and _table_exists(con, "export_sobreposicao_total_uc"):
+            rows = con.execute(
+                """
+                SELECT *
+                FROM export_sobreposicao_total_uc
+                LIMIT ?
+                """,
+                [limite],
+            ).fetchdf().to_dict(orient="records")
+            return {"codigo": codigo, "fonte": "export_sobreposicao_total_uc", "items": rows}
+
+        return {"codigo": codigo, "fonte": fonte_processado, "items": []}
+    finally:
+        con.close()
 
 
 def _read_reference_rows(path: Path) -> tuple[list[dict[str, str]], dict[str, object]]:
@@ -2008,6 +2335,22 @@ def cockpit_produto(
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
 ) -> dict[str, object]:
     return _build_cockpit(user, limite)
+
+
+@router.get("/modulos-resumo")
+def modulos_resumo_produto(
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
+) -> dict[str, object]:
+    return _resumo_modulos_automatizados()
+
+
+@router.get("/modulos-amostra/{codigo}")
+def modulos_amostra_produto(
+    codigo: str,
+    limite: int = Query(20, ge=1, le=100, description="Quantidade máxima de linhas de amostra."),
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
+) -> dict[str, object]:
+    return _amostra_modulo_automatizado(codigo, limite)
 
 
 @router.get("/detalhe-conjunto/{conjunto}")
