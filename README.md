@@ -201,6 +201,16 @@ Para ver todos os comandos:
 run.bat
 ```
 
+## Migração COPEL / DBGUO-DDCQ
+
+O desenvolvimento local usa PostgreSQL local para governança, mas o destino corporativo planejado é DBGUO/PostgreSQL no schema `ddcq`.
+
+Documentos ativos:
+
+- `docs/migracao_copel_dbguo_ddcq.md`: guia de provisão, `.env`, DBeaver, scripts e validação.
+- `docs/pedencia_para_rodar_copel.md`: checklist do que falta para rodar dentro da rede COPEL.
+- `SQL/postgres/ddcq/`: scripts versionados do schema operacional.
+
 ## Dados Locais
 
 Estrutura esperada:

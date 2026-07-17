@@ -13,6 +13,7 @@ O desenvolvimento atual está fora da rede corporativa. Portanto, várias integr
 - Exportações IQS locais são artefatos de validação técnica e não substituem homologação dentro da COPEL.
 - Nomes de conjunto e alimentador estão sendo enriquecidos por arquivos locais em `data/input`.
 - A extração oficial de nomes de conjunto/alimentador diretamente do IQS/cadastro empresarial ainda está pendente.
+- O destino operacional planejado é DBGUO/PostgreSQL corporativo com schema `ddcq`, conforme `docs/migracao_copel_dbguo_ddcq.md`.
 
 ## Pendências críticas
 
@@ -21,7 +22,7 @@ O desenvolvimento atual está fora da rede corporativa. Portanto, várias integr
 | Rede | Executar dentro da rede/VPN COPEL | Necessário para acessar Oracle IQS, bases internas, compartilhamentos e serviços corporativos |
 | Oracle IQS | Configurar `IQS_UID`, `IQS_PWD`, `IQS_DB`, `IQS_CONFIG_DIR` | Extrair dados oficiais do IQS |
 | Oracle Client | Validar modo thin/thick e `IQS_ORACLE_CLIENT_LIB_DIR` | Evitar falhas de conexão e incompatibilidade de client |
-| PostgreSQL | Criar banco/schema corporativo para `MIDWAY_DATABASE_URL` e `MIDWAY_DB_SCHEMA` | Persistir usuários, perfis, decisões, auditoria e geração IQS |
+| DBGUO/DDCQ | Criar/liberar DBGUO/PostgreSQL corporativo com schema `ddcq` para `MIDWAY_DATABASE_URL` e `MIDWAY_DB_SCHEMA` | Persistir usuários, perfis, decisões, auditoria e geração IQS |
 | Segurança | Definir perfis, responsáveis e trilha de auditoria empresarial | Fluxo Analista → Gestor → IQS precisa ser auditável |
 | Arquivos oficiais | Definir diretórios corporativos de entrada/saída | Evitar uso de caminhos locais de desenvolvimento |
 | Homologação IQS | Testar arquivo final no IQS com lote controlado | Garantir layout, encoding, datas, LF/UNIX e carga correta |
@@ -39,8 +40,8 @@ Base em `.env.example`:
 | `IQS_ORACLE_THICK_MODE` | Definir se o ambiente exige modo thick |
 | `IQS_ORACLE_CLIENT_LIB_DIR` | Caminho do Instant Client homologado |
 | `ANOMES` | Competência oficial de processamento |
-| `MIDWAY_DATABASE_URL` | PostgreSQL corporativo |
-| `MIDWAY_DB_SCHEMA` | Schema oficial, hoje previsto como `ddcq` |
+| `MIDWAY_DATABASE_URL` | DBGUO/PostgreSQL corporativo, exemplo controlado em `docs/migracao_copel_dbguo_ddcq.md` |
+| `MIDWAY_DB_SCHEMA` | Schema oficial previsto: `ddcq` |
 | `IQS_RAW_DUCKDB_PATH` | Caminho corporativo do DuckDB raw IQS, se usado |
 | `IQS_OLD_PROCESSED_PATH` | Base anterior para comparações, quando aplicável |
 | `DUCKDB_THREADS` | Ajustar conforme servidor |
@@ -86,9 +87,11 @@ Pendência empresarial:
 - substituir ou validar os arquivos locais contra a fonte oficial;
 - garantir exibição `código - nome` em todas as telas e exportações de evidência.
 
-## Banco PostgreSQL corporativo
+## Banco DBGUO/PostgreSQL corporativo
 
-Executar scripts em ambiente controlado:
+Direcionamento completo: `docs/migracao_copel_dbguo_ddcq.md`.
+
+Executar scripts em ambiente controlado no schema `ddcq`:
 
 1. `SQL/postgres/ddcq/001_schema.sql`;
 2. `SQL/postgres/ddcq/002_tabelas_operacionais.sql`;
@@ -159,7 +162,7 @@ Pendências:
 ## Rotina operacional sugerida na COPEL
 
 1. Configurar ambiente e credenciais fora do repositório.
-2. Executar scripts PostgreSQL.
+2. Executar scripts DBGUO/PostgreSQL no schema `ddcq`.
 3. Extrair bases IQS/ADMS/DBGUO/serviços.
 4. Materializar DuckDB raw, silver e gold.
 5. Executar módulos regulatórios: DIC/FIC, DEC/FEC e ressarcimento.
@@ -183,7 +186,7 @@ Pendências:
 ## Checklist de aceite para rodar na empresa
 
 - [ ] Acesso Oracle/IQS validado.
-- [ ] PostgreSQL corporativo criado.
+- [ ] DBGUO/PostgreSQL corporativo criado ou liberado.
 - [ ] Scripts `ddcq` aplicados.
 - [ ] Variáveis de ambiente corporativas configuradas.
 - [ ] Extrações IQS executadas.

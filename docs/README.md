@@ -17,6 +17,7 @@ Este índice define a documentação oficial do MIDWAY. Arquivos fora desta list
 | `docs/36_regras_prodist_copel.md` | Regras PRODIST Módulo 8 e filtros particulares COPEL |
 | `docs/37_visao_produto_governanca_midway.md` | Visão de produto, níveis de navegação, React/Streamlit e governança |
 | `docs/pedencia_para_rodar_copel.md` | Pendências para rodar o MIDWAY dentro da rede COPEL |
+| `docs/migracao_copel_dbguo_ddcq.md` | Guia de migração para DBGUO/PostgreSQL corporativo no schema `ddcq` |
 | `docs/sprints/README.md` | Planejamento ativo de sprints e regra de transição segura |
 
 ## Catálogo de módulos
