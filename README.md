@@ -542,7 +542,7 @@ Nao versionar:
 Essas regras estao em `.gitignore`.
 
 ## Processo de restração para inicio de mes
-cd /d D:\MIDWAY_novo
+cd /d D:\MIDWAY
 
 set ANOMES=202606
 set REEXTRAIR=1
@@ -561,7 +561,7 @@ run.bat exportacoes_auxiliares
 run.bat validar_dados
 
 ## Processo de restração para ao longo do mes
-cd /d D:\MIDWAY_novo
+cd /d D:\MIDWAY
 
 set ANOMES=202606
 set REEXTRAIR=1
@@ -572,3 +572,6 @@ run.bat tratamento
 run.bat apuracao_parcial
 run.bat exportacoes_auxiliares
 run.bat validar_dados
+
+## Rodar dados do react
+

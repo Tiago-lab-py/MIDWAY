@@ -3,7 +3,7 @@
 
 SET search_path TO ddcq, public;
 
-CREATE TABLE IF NOT EXISTS midway_v7_anomalia (
+CREATE TABLE IF NOT EXISTS midway_anomalia (
     id_anomalia uuid PRIMARY KEY,
     anomes varchar(6) NOT NULL,
     registro_id varchar(120) NOT NULL,
@@ -34,20 +34,20 @@ CREATE TABLE IF NOT EXISTS midway_v7_anomalia (
     criado_em timestamp NOT NULL DEFAULT now(),
     atualizado_por varchar(120),
     atualizado_em timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT ck_midway_v7_anomalia_severidade
+    CONSTRAINT ck_midway_anomalia_severidade
         CHECK (severidade IN ('baixa', 'média', 'alta', 'crítica')),
-    CONSTRAINT ck_midway_v7_anomalia_status
+    CONSTRAINT ck_midway_anomalia_status
         CHECK (status_anomalia IN ('PENDENTE', 'EM_ANALISE', 'APROVADA', 'REJEITADA', 'APLICADA', 'CANCELADA')),
-    CONSTRAINT ck_midway_v7_anomalia_confianca
+    CONSTRAINT ck_midway_anomalia_confianca
         CHECK (confianca >= 0 AND confianca <= 1)
 );
 
-COMMENT ON TABLE midway_v7_anomalia IS
+COMMENT ON TABLE midway_anomalia IS
     'Anomalias detectadas pelo motor MIDWAY V7, preservando explicacao, impacto e dados antes/depois sugeridos.';
 
-CREATE TABLE IF NOT EXISTS midway_v7_evidencia (
+CREATE TABLE IF NOT EXISTS midway_evidencia (
     id_evidencia uuid PRIMARY KEY,
-    id_anomalia uuid NOT NULL REFERENCES midway_v7_anomalia(id_anomalia) ON DELETE CASCADE,
+    id_anomalia uuid NOT NULL REFERENCES midway_anomalia(id_anomalia) ON DELETE CASCADE,
     campo varchar(120) NOT NULL,
     valor text,
     origem varchar(80),
@@ -55,12 +55,12 @@ CREATE TABLE IF NOT EXISTS midway_v7_evidencia (
     criado_em timestamp NOT NULL DEFAULT now()
 );
 
-COMMENT ON TABLE midway_v7_evidencia IS
+COMMENT ON TABLE midway_evidencia IS
     'Evidencias objetivas associadas a cada anomalia V7.';
 
-CREATE TABLE IF NOT EXISTS midway_v7_sugestao (
+CREATE TABLE IF NOT EXISTS midway_sugestao (
     id_sugestao uuid PRIMARY KEY,
-    id_anomalia uuid NOT NULL REFERENCES midway_v7_anomalia(id_anomalia) ON DELETE CASCADE,
+    id_anomalia uuid NOT NULL REFERENCES midway_anomalia(id_anomalia) ON DELETE CASCADE,
     acao varchar(120) NOT NULL,
     valor_original text,
     valor_sugerido text,
@@ -72,43 +72,43 @@ CREATE TABLE IF NOT EXISTS midway_v7_sugestao (
     requer_aprovacao boolean NOT NULL DEFAULT true,
     criado_por varchar(120) NOT NULL DEFAULT 'setup',
     criado_em timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT ck_midway_v7_sugestao_confianca
+    CONSTRAINT ck_midway_sugestao_confianca
         CHECK (nivel_confianca IN ('muito alta', 'alta', 'média', 'baixa', 'inconclusiva'))
 );
 
-COMMENT ON TABLE midway_v7_sugestao IS
+COMMENT ON TABLE midway_sugestao IS
     'Sugestoes de tratamento separadas da deteccao e dependentes de aprovacao humana quando aplicavel.';
 
-CREATE TABLE IF NOT EXISTS midway_v7_decisao (
+CREATE TABLE IF NOT EXISTS midway_decisao (
     id_decisao uuid PRIMARY KEY,
-    id_anomalia uuid NOT NULL REFERENCES midway_v7_anomalia(id_anomalia),
-    id_sugestao uuid REFERENCES midway_v7_sugestao(id_sugestao),
+    id_anomalia uuid NOT NULL REFERENCES midway_anomalia(id_anomalia),
+    id_sugestao uuid REFERENCES midway_sugestao(id_sugestao),
     decisao varchar(30) NOT NULL,
     justificativa text NOT NULL,
     valor_final jsonb,
     decidido_por varchar(120) NOT NULL,
     decidido_em timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT ck_midway_v7_decisao
+    CONSTRAINT ck_midway_decisao
         CHECK (decisao IN ('APROVAR', 'REJEITAR', 'EDITAR', 'SOLICITAR_ANALISE'))
 );
 
-COMMENT ON TABLE midway_v7_decisao IS
+COMMENT ON TABLE midway_decisao IS
     'Decisoes humanas sobre sugestoes V7. Nenhuma decisao deve apagar o dado original.';
 
-CREATE INDEX IF NOT EXISTS idx_midway_v7_anomalia_status
-    ON midway_v7_anomalia(anomes, status_anomalia, severidade);
+CREATE INDEX IF NOT EXISTS idx_midway_anomalia_status
+    ON midway_anomalia(anomes, status_anomalia, severidade);
 
-CREATE INDEX IF NOT EXISTS idx_midway_v7_anomalia_busca
-    ON midway_v7_anomalia(anomes, ocorrencia, interrupcao, uc);
+CREATE INDEX IF NOT EXISTS idx_midway_anomalia_busca
+    ON midway_anomalia(anomes, ocorrencia, interrupcao, uc);
 
-CREATE INDEX IF NOT EXISTS idx_midway_v7_evidencia_anomalia
-    ON midway_v7_evidencia(id_anomalia);
+CREATE INDEX IF NOT EXISTS idx_midway_evidencia_anomalia
+    ON midway_evidencia(id_anomalia);
 
-CREATE INDEX IF NOT EXISTS idx_midway_v7_sugestao_anomalia
-    ON midway_v7_sugestao(id_anomalia);
+CREATE INDEX IF NOT EXISTS idx_midway_sugestao_anomalia
+    ON midway_sugestao(id_anomalia);
 
-CREATE INDEX IF NOT EXISTS idx_midway_v7_decisao_anomalia
-    ON midway_v7_decisao(id_anomalia, decidido_em);
+CREATE INDEX IF NOT EXISTS idx_midway_decisao_anomalia
+    ON midway_decisao(id_anomalia, decidido_em);
 
 INSERT INTO midway_parametro (chave, valor, descricao, atualizado_por)
 VALUES

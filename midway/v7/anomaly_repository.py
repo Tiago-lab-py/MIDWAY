@@ -7,10 +7,10 @@ from sqlalchemy import text
 from midway.db.postgres import create_postgres_engine, get_config
 
 V7_TABLES = {
-    "midway_v7_anomalia",
-    "midway_v7_evidencia",
-    "midway_v7_sugestao",
-    "midway_v7_decisao",
+    "midway_anomalia",
+    "midway_evidencia",
+    "midway_sugestao",
+    "midway_decisao",
 }
 
 ANOMALY_MODULES: list[dict[str, object]] = [
@@ -226,10 +226,10 @@ def _list_postgres_anomalies() -> list[dict[str, object]]:
                     COALESCE((a.impacto ->> 'dic')::numeric, 0) AS impacto_dic,
                     COALESCE((a.impacto ->> 'fic')::numeric, 0) AS impacto_fic,
                     COALESCE((a.impacto ->> 'ressarcimento')::numeric, 0) AS impacto_ressarcimento
-                FROM {schema}.midway_v7_anomalia a
+                FROM {schema}.midway_anomalia a
                 LEFT JOIN LATERAL (
                     SELECT *
-                    FROM {schema}.midway_v7_sugestao s
+                    FROM {schema}.midway_sugestao s
                     WHERE s.id_anomalia = a.id_anomalia
                     ORDER BY s.criado_em DESC
                     LIMIT 1
@@ -287,7 +287,7 @@ def _postgres_anomaly_detail(id_anomalia: str) -> dict[str, object] | None:
                     dados_sugeridos,
                     impacto,
                     linha_tempo
-                FROM {schema}.midway_v7_anomalia
+                FROM {schema}.midway_anomalia
                 WHERE id_anomalia::text = :id_anomalia
                 """
             ),
@@ -300,7 +300,7 @@ def _postgres_anomaly_detail(id_anomalia: str) -> dict[str, object] | None:
             text(
                 f"""
                 SELECT campo, valor, origem, detalhe
-                FROM {schema}.midway_v7_evidencia
+                FROM {schema}.midway_evidencia
                 WHERE id_anomalia::text = :id_anomalia
                 ORDER BY criado_em, campo
                 """
@@ -322,7 +322,7 @@ def _postgres_anomaly_detail(id_anomalia: str) -> dict[str, object] | None:
                     risco_operacional,
                     risco_juridico,
                     requer_aprovacao
-                FROM {schema}.midway_v7_sugestao
+                FROM {schema}.midway_sugestao
                 WHERE id_anomalia::text = :id_anomalia
                 ORDER BY criado_em DESC
                 LIMIT 1

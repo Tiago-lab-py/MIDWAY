@@ -218,7 +218,7 @@ def criar_tabela_saida(con, nome_tabela, condicao):
         )
         SELECT DISTINCT
             COALESCE(CAST(e.REGIONAL_EXPORT AS VARCHAR), CAST(e.SIGLA_REGIONAL AS VARCHAR), 'COPEL') AS REGIONAL_EXPORT,
-            {", ".join(f"e.{column}" for column in IQS_COLUMNS)}
+            {", ".join(f"REPLACE(CAST(e.{column} AS VARCHAR), '.', ',') AS {column}" if column == "KVA_INTRP" else f"e.{column}" for column in IQS_COLUMNS)}
         FROM adms_iqs_export e
         JOIN chaves c
           ON c.NUM_OCORRENCIA_ADMS = CAST(e.NUM_OCORRENCIA_ADMS AS VARCHAR)

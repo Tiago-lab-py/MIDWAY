@@ -511,11 +511,11 @@ def _clear_generated_anomalies(pg, schema: str) -> None:
     pg.execute(
         text(
             f"""
-            DELETE FROM {schema}.midway_v7_anomalia a
+            DELETE FROM {schema}.midway_anomalia a
             WHERE a.criado_por IN ('seed_v7_sintetico', :created_by)
               AND NOT EXISTS (
                   SELECT 1
-                  FROM {schema}.midway_v7_decisao d
+                  FROM {schema}.midway_decisao d
                   WHERE d.id_anomalia = a.id_anomalia
               )
             """
@@ -528,7 +528,7 @@ def _upsert_anomaly(pg, schema: str, anomaly: dict[str, object], anomes: str) ->
     pg.execute(
         text(
             f"""
-            INSERT INTO {schema}.midway_v7_anomalia (
+            INSERT INTO {schema}.midway_anomalia (
                 id_anomalia, anomes, registro_id, anomalia_codigo, nome, categoria,
                 severidade, confianca, status_anomalia, origem, regional, conjunto,
                 equipamento, uc, ocorrencia, interrupcao, descricao, explicacao_simples,
@@ -578,7 +578,7 @@ def _upsert_anomaly(pg, schema: str, anomaly: dict[str, object], anomes: str) ->
         pg.execute(
             text(
                 f"""
-                INSERT INTO {schema}.midway_v7_evidencia (
+                INSERT INTO {schema}.midway_evidencia (
                     id_evidencia, id_anomalia, campo, valor, origem, detalhe
                 )
                 VALUES (
@@ -604,7 +604,7 @@ def _upsert_anomaly(pg, schema: str, anomaly: dict[str, object], anomes: str) ->
     pg.execute(
         text(
             f"""
-            INSERT INTO {schema}.midway_v7_sugestao (
+            INSERT INTO {schema}.midway_sugestao (
                 id_sugestao, id_anomalia, acao, valor_original, valor_sugerido,
                 justificativa, nivel_confianca, risco_regulatorio, risco_operacional,
                 risco_juridico, requer_aprovacao, criado_por

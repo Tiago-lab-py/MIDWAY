@@ -39,7 +39,8 @@ if /I "%~1"=="api" (
 if /I "%~1"=="frontend" (
     echo Abrindo frontend React...
     pushd "%SCRIPT_DIR%frontend"
-    npm run dev
+    set "PATH=D:\ADMSToIQS\tools\nodejs;%PATH%"
+    call "D:\ADMSToIQS\tools\nodejs\npm.cmd" run dev
     if errorlevel 1 (
         popd
         goto erro
@@ -337,7 +338,7 @@ if /I "%~1"=="postgres_governanca" (
 
 if /I "%~1"=="anomalias_setup" (
     echo Preparando nucleo funcional de anomalias MIDWAY...
-    "%PYTHON_EXE%" -m midway.db.apply_sql 008_nucleo_anomalias_v7.sql
+    "%PYTHON_EXE%" -m midway.db.apply_sql 008_nucleo_anomalias.sql
     if errorlevel 1 goto erro
 
     echo Carregando anomalias a partir de RAW, SILVER e GOLD...

@@ -175,6 +175,8 @@ def exportar_interrupcao_sem_uc():
             select_columns.append("'91' AS NUM_MOTIVO_TRAT_DIF_UCI")
         elif column == "INDIC_SIT_PROCES_INDIC_UCI":
             select_columns.append("'R' AS INDIC_SIT_PROCES_INDIC_UCI")
+        elif column == "KVA_INTRP":
+            select_columns.append(f"REPLACE(CAST({column_expr(columns, column, 'e')} AS VARCHAR), '.', ',') AS KVA_INTRP")
         else:
             select_columns.append(column_expr(columns, column, "e"))
 

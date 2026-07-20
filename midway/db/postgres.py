@@ -28,10 +28,10 @@ REQUIRED_TABLES = [
     "midway_reset_senha",
     "midway_sessao",
     "midway_usuario",
-    "midway_v7_anomalia",
-    "midway_v7_decisao",
-    "midway_v7_evidencia",
-    "midway_v7_sugestao",
+    "midway_anomalia",
+    "midway_decisao",
+    "midway_evidencia",
+    "midway_sugestao",
 ]
 
 REQUIRED_VIEWS = [
