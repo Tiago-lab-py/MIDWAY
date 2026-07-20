@@ -5893,7 +5893,7 @@ export default function App() {
   }, [execucoes, loadExecucoes, token])
 
   const resumo = painel[0] || {}
-  const painelLoaded = painel.length > 0
+  const painelLoaded = true // Always loaded if loading=false, even if length is 0
   const filaTotal = Number(resumo.fila_tecnica_total || 0)
 
   const cards = useMemo(

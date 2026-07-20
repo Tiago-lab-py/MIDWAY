@@ -575,3 +575,8 @@ run.bat validar_dados
 
 ## Rodar dados do react
 
+run.bat anomalias_setup
+run.bat dbguo_reclamacoes
+run.bat analise_tecnica_cache
+
+run.bat correcao_9282
