@@ -53,7 +53,10 @@ def executar_validacoes():
     logger = configurar_logger("validar_exportacao", ANOMES)
     logger.info("Iniciando validação de arquivos CSV no diretório: %s", EXPORT_DIR)
 
-    arquivos_csv = glob.glob(os.path.join(EXPORT_DIR, "Interrupcoes_IQS_*.CSV"))
+    # Busca arquivos na pasta raiz e em todas as subpastas (ex: interrupcao_sem_uc, etc)
+    arquivos_csv = glob.glob(os.path.join(EXPORT_DIR, "**", "Interrupcoes_IQS_*.CSV"), recursive=True)
+    # Alguns arquivos gerados podem ter extensões minúsculas (.csv)
+    arquivos_csv.extend(glob.glob(os.path.join(EXPORT_DIR, "**", "Interrupcoes_IQS_*.csv"), recursive=True))
     if not arquivos_csv:
         logger.warning("Nenhum arquivo Interrupcoes_IQS_*.CSV encontrado em %s", EXPORT_DIR)
         return
