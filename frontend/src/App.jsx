@@ -1531,6 +1531,7 @@ function AjustesGovernadosPanel({
                 <span><strong>{numberFormat(resumo.qtd_candidatos_autorizacao)}</strong><small>candidatos</small></span>
                 <span><strong>{numberFormat(resumo.qtd_autorizados_autorizacao)}</strong><small>autorizados</small></span>
                 <span><strong>{numberFormat(resumo.qtd_rejeitados_autorizacao)}</strong><small>rejeitados</small></span>
+                <span><strong>{resumo.ultima_autorizacao_em ? dateTime(resumo.ultima_autorizacao_em) : '—'}</strong><small>última aceitação</small></span>
               </div>
               {renderExecucaoStatus(correcao9282Module)}
               <div className="module-action-row">
