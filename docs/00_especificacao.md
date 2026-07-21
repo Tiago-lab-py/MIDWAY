@@ -223,7 +223,7 @@ Quando identificada:
 | Campo | Valor |
 | --- | --- |
 | `ESTADO_INTRP` | `7` |
-| `NUM_MOTIVO_TRAT_DIF_UCI` | `91` |
+| `NUM_MOTIVO_TRAT_DIF_UCI` | `90` |
 | `INDIC_SIT_PROCES_INDIC_UCI` | `R` |
 | `ACAO_SOBREPOSICAO_INTERRUPCAO` | `CLASSIFICAR_INTERRUPCAO_CONTIDA` |
 
@@ -257,7 +257,7 @@ Quando identificada e nao houver excecao de manobra:
 | Campo | Valor |
 | --- | --- |
 | `ESTADO_INTRP` | `7` |
-| `NUM_MOTIVO_TRAT_DIF_UCI` | `91` |
+| `NUM_MOTIVO_TRAT_DIF_UCI` | `90` |
 | `INDIC_SIT_PROCES_INDIC_UCI` | `R` |
 
 Excecao: interrupcoes com `NUM_INTRP_INIC_MANOBRA_UCI` preenchido nao sao classificadas automaticamente como `ESTADO_INTRP = 7`. Nesses casos, a ocorrencia fica na auditoria com resultado `NAO_EXPORTAR_MANOBRA_COM_REFERENCIA`.

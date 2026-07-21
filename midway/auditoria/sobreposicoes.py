@@ -204,6 +204,25 @@ def exportar_csv_iqs(df, path):
 
 
 def criar_tabela_saida(con, nome_tabela, condicao):
+    colunas = []
+    for column in IQS_COLUMNS:
+        if column == "KVA_INTRP":
+            colunas.append("REPLACE(CAST(e.KVA_INTRP AS VARCHAR), '.', ',') AS KVA_INTRP")
+        elif column == "INDIC_PROCES_IND_PIN":
+            colunas.append(
+                f"""
+                CASE 
+                    WHEN '{nome_tabela}' = 'export_sobreposicao_total_uc' 
+                         AND ctp.total_ucs = cep.total_excluidas 
+                         AND ctp.total_ucs IS NOT NULL 
+                    THEN 'D'
+                    ELSE e.INDIC_PROCES_IND_PIN 
+                END AS INDIC_PROCES_IND_PIN
+                """
+            )
+        else:
+            colunas.append(f"e.{column}")
+
     con.execute(
         f"""
         CREATE OR REPLACE TABLE {nome_tabela} AS
@@ -215,16 +234,48 @@ def criar_tabela_saida(con, nome_tabela, condicao):
                 CAST(NUM_UC_UCI AS VARCHAR) AS NUM_UC_UCI
             FROM adms_iqs_alterados
             WHERE {condicao}
+        ),
+        contagem_total_posto AS (
+            SELECT 
+                CAST(NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
+                CAST(NUM_SEQ_INTRP AS VARCHAR) AS NUM_SEQ_INTRP,
+                CAST(NUM_POSTO_UCI AS VARCHAR) AS NUM_POSTO_UCI,
+                COUNT(DISTINCT CAST(NUM_UC_UCI AS VARCHAR)) AS total_ucs
+            FROM adms_iqs_export
+            WHERE CAST(NUM_POSTO_UCI AS VARCHAR) IS NOT NULL
+            GROUP BY 1, 2, 3
+        ),
+        contagem_excluida_posto AS (
+            SELECT 
+                CAST(e.NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
+                CAST(e.NUM_SEQ_INTRP AS VARCHAR) AS NUM_SEQ_INTRP,
+                CAST(e.NUM_POSTO_UCI AS VARCHAR) AS NUM_POSTO_UCI,
+                COUNT(DISTINCT CAST(c.NUM_UC_UCI AS VARCHAR)) AS total_excluidas
+            FROM adms_iqs_export e
+            JOIN chaves c ON c.NUM_OCORRENCIA_ADMS = CAST(e.NUM_OCORRENCIA_ADMS AS VARCHAR)
+                         AND c.NUM_SEQ_INTRP = CAST(e.NUM_SEQ_INTRP AS VARCHAR)
+                         AND c.NUM_INTRP_UCI = CAST(e.NUM_INTRP_UCI AS VARCHAR)
+                         AND c.NUM_UC_UCI = CAST(e.NUM_UC_UCI AS VARCHAR)
+            WHERE CAST(e.NUM_POSTO_UCI AS VARCHAR) IS NOT NULL
+            GROUP BY 1, 2, 3
         )
         SELECT DISTINCT
             COALESCE(CAST(e.REGIONAL_EXPORT AS VARCHAR), CAST(e.SIGLA_REGIONAL AS VARCHAR), 'COPEL') AS REGIONAL_EXPORT,
-            {", ".join(f"REPLACE(CAST(e.{column} AS VARCHAR), '.', ',') AS {column}" if column == "KVA_INTRP" else f"e.{column}" for column in IQS_COLUMNS)}
+            {", ".join(colunas)}
         FROM adms_iqs_export e
         JOIN chaves c
           ON c.NUM_OCORRENCIA_ADMS = CAST(e.NUM_OCORRENCIA_ADMS AS VARCHAR)
          AND c.NUM_SEQ_INTRP = CAST(e.NUM_SEQ_INTRP AS VARCHAR)
          AND c.NUM_INTRP_UCI = CAST(e.NUM_INTRP_UCI AS VARCHAR)
          AND c.NUM_UC_UCI = CAST(e.NUM_UC_UCI AS VARCHAR)
+        LEFT JOIN contagem_total_posto ctp 
+          ON ctp.NUM_OCORRENCIA_ADMS = CAST(e.NUM_OCORRENCIA_ADMS AS VARCHAR)
+         AND ctp.NUM_SEQ_INTRP = CAST(e.NUM_SEQ_INTRP AS VARCHAR)
+         AND ctp.NUM_POSTO_UCI = CAST(e.NUM_POSTO_UCI AS VARCHAR)
+        LEFT JOIN contagem_excluida_posto cep 
+          ON cep.NUM_OCORRENCIA_ADMS = CAST(e.NUM_OCORRENCIA_ADMS AS VARCHAR)
+         AND cep.NUM_SEQ_INTRP = CAST(e.NUM_SEQ_INTRP AS VARCHAR)
+         AND cep.NUM_POSTO_UCI = CAST(e.NUM_POSTO_UCI AS VARCHAR)
         """
     )
 

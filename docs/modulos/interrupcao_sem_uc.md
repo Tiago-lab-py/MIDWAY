@@ -41,7 +41,7 @@ Identificar interrupções ou ocorrências que ficaram sem UC apurável após os
 ## Ação sugerida
 
 - Enviar para fila técnica quando houver referência de manobra.
-- Quando aprovado, exportar ajuste para `ESTADO_INTRP = 7`, `NUM_MOTIVO_TRAT_DIF_UCI = 91` e `INDIC_SIT_PROCES_INDIC_UCI = R`.
+- Quando aprovado, exportar ajuste para `ESTADO_INTRP = 7`, `NUM_MOTIVO_TRAT_DIF_UCI = 90` e `INDIC_SIT_PROCES_INDIC_UCI = R`.
 
 ## Campos IQS afetados
 

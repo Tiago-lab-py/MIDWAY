@@ -172,7 +172,7 @@ def exportar_interrupcao_sem_uc():
         if column == "ESTADO_INTRP":
             select_columns.append("'7' AS ESTADO_INTRP")
         elif column == "NUM_MOTIVO_TRAT_DIF_UCI":
-            select_columns.append("'91' AS NUM_MOTIVO_TRAT_DIF_UCI")
+            select_columns.append("'90' AS NUM_MOTIVO_TRAT_DIF_UCI")
         elif column == "INDIC_SIT_PROCES_INDIC_UCI":
             select_columns.append("'R' AS INDIC_SIT_PROCES_INDIC_UCI")
         elif column == "KVA_INTRP":
@@ -196,11 +196,11 @@ def exportar_interrupcao_sem_uc():
                 COUNT(*) AS QTD_UCS_TOTAL,
                 SUM(
                     CASE
-                        WHEN TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)) = '91'
+                        WHEN TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)) = '90'
                          AND TRIM(CAST(INDIC_SIT_PROCES_INDIC_UCI AS VARCHAR)) = 'D'
                         THEN 1 ELSE 0
                     END
-                ) AS QTD_UCS_91_D,
+                ) AS QTD_UCS_90_D,
                 SUM(
                     CASE
                         WHEN NULLIF(TRIM(CAST(NUM_INTRP_INIC_MANOBRA_UCI AS VARCHAR)), '') IS NOT NULL
@@ -252,16 +252,16 @@ def exportar_interrupcao_sem_uc():
             COALESCE(r.NUM_SEQ_INTRP_FILHAS_REFERENCIANDO, '') AS NUM_SEQ_INTRP_FILHAS_REFERENCIANDO,
             CASE
                 WHEN i.QTD_UCS_TOTAL > 0
-                 AND i.QTD_UCS_91_D = i.QTD_UCS_TOTAL
+                 AND i.QTD_UCS_90_D = i.QTD_UCS_TOTAL
                  AND i.QTD_UCS_COM_MANOBRA = 0
                  AND COALESCE(r.QTD_INTERRUPCOES_FILHAS_REFERENCIANDO, 0) = 0
                 THEN 'EXPORTAR_ESTADO_7_INTERRUPCAO_SEM_UC'
                 WHEN i.QTD_UCS_TOTAL > 0
-                 AND i.QTD_UCS_91_D = i.QTD_UCS_TOTAL
+                 AND i.QTD_UCS_90_D = i.QTD_UCS_TOTAL
                  AND COALESCE(r.QTD_INTERRUPCOES_FILHAS_REFERENCIANDO, 0) > 0
                 THEN 'NAO_EXPORTAR_REFERENCIADA_COMO_MANOBRA'
                 WHEN i.QTD_UCS_TOTAL > 0
-                 AND i.QTD_UCS_91_D = i.QTD_UCS_TOTAL
+                 AND i.QTD_UCS_90_D = i.QTD_UCS_TOTAL
                  AND i.QTD_UCS_COM_MANOBRA > 0
                 THEN 'NAO_EXPORTAR_MANOBRA_COM_REFERENCIA'
                 ELSE 'OK'
@@ -272,7 +272,7 @@ def exportar_interrupcao_sem_uc():
          AND r.NUM_SEQ_INTRP = i.NUM_SEQ_INTRP
          AND r.NUM_INTRP_UCI = i.NUM_INTRP_UCI
         WHERE i.QTD_UCS_TOTAL > 0
-          AND i.QTD_UCS_91_D = i.QTD_UCS_TOTAL
+          AND i.QTD_UCS_90_D = i.QTD_UCS_TOTAL
         """
     )
 
