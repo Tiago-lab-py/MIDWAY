@@ -168,7 +168,7 @@ def formatar_coluna_data_iqs(serie):
     )
 
     parsed = parsed_iso.fillna(parsed_barra_mes_dia).fillna(parsed_barra_dia_mes)
-    formatted = parsed.dt.strftime("%d/%m/%Y")
+    formatted = parsed.dt.strftime("%d/%m/%Y %H:%M:%S")
     return formatted.fillna(original)
 
 

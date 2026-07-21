@@ -82,6 +82,8 @@ def converter_data(valor: str) -> str:
     for formato in FORMATOS_ENTRADA:
         try:
             data = datetime.strptime(valor, formato)
+            if "%H" in formato:
+                return data.strftime("%d/%m/%Y %H:%M:%S")
             return data.strftime("%d/%m/%Y")
         except ValueError:
             continue

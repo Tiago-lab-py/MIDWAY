@@ -1332,7 +1332,6 @@ function AjustesGovernadosPanel({
     )
     return enriched
   })
-  const automatedModules = modules.filter((module) => !manualModuleCodes.has(module.codigo))
   const latestExecucaoByTipo = useMemo(() => {
     const latest = new Map()
     ;(execucoes || []).forEach((execucao) => {
@@ -1342,6 +1341,7 @@ function AjustesGovernadosPanel({
     })
     return latest
   }, [execucoes])
+
   const correcao9282Module = {
     codigo: 'CORRECAO_9282',
     nome: 'Correção especializada 92/82',
@@ -1357,6 +1357,31 @@ function AjustesGovernadosPanel({
     impacto_ci: 0,
     impacto_ressarcimento: 0,
   }
+
+  const moduleOrder = [
+    'SOBREPOSICAO_UC',
+    'INTERRUPCAO_SEM_UC',
+    'DURACAO_IMPACTO',
+    'FALHA_EQUIPAMENTO_RA',
+    'RESSARCIMENTO_ATIPICO',
+    'CORRECAO_9282',
+    'COMPONENTE_CAUSA',
+    'DUPLICIDADE_TIPO',
+    'DIA_CRITICO',
+    'ISE',
+    'RECLAMACOES_SERVICOS'
+  ]
+
+  const automatedModules = [
+    ...modules.filter((module) => !manualModuleCodes.has(module.codigo)),
+    correcao9282Module
+  ].sort((a, b) => {
+    let indexA = moduleOrder.indexOf(a.codigo)
+    let indexB = moduleOrder.indexOf(b.codigo)
+    if (indexA === -1) indexA = 999
+    if (indexB === -1) indexB = 999
+    return indexA - indexB
+  })
 
   function metricDisplay(module, value, formatter = numberFormat) {
     if (!module.metricas_materializadas && Number(value || 0) === 0) return '—'
@@ -1475,19 +1500,31 @@ function AjustesGovernadosPanel({
     const isAuto = mode === 'auto'
     const updateDisabled = actionDisabled || !tipoExecucaoModulo(module) || runningAlgorithm === module.codigo
     return (
-      <article className="module-summary-card" key={`${mode}-${module.codigo}`}>
+      <article className={`module-summary-card ${module.codigo === 'CORRECAO_9282' ? 'module-summary-card-featured' : ''}`} key={`${mode}-${module.codigo}`}>
         <div>
-          <span className={`pill pill-${mode === 'auto' ? 'success' : 'warning'}`}>{mode === 'auto' ? 'algoritmo' : 'manual'}</span>
+          <span className={`pill pill-${mode === 'auto' ? 'success' : 'warning'}`}>
+            {module.codigo === 'CORRECAO_9282' ? 'exportável com governança' : mode === 'auto' ? 'algoritmo' : 'manual'}
+          </span>
           <h3>{module.nome || module.codigo}</h3>
           <p>{module.descricao || module.criterio_curto || 'Módulo catalogado para análise governada.'}</p>
           <small className="module-summary-source">{module.origem_metricas || 'pendente de materialização'}</small>
         </div>
-        <div className="module-summary-metrics">
-          <span><strong>{metricDisplay(module, module.total)}</strong><small>casos</small></span>
-          <span><strong>{metricDisplay(module, module.impacto_chi, (value) => decimalFormat(value, 2))}</strong><small>CHI</small></span>
-          <span><strong>{metricDisplay(module, module.impacto_ci)}</strong><small>CI</small></span>
-          <span><strong>{metricDisplay(module, module.impacto_ressarcimento, currencyFormat)}</strong><small>R$</small></span>
-        </div>
+        {module.codigo === 'CORRECAO_9282' ? (
+          <div className="module-summary-metrics">
+            <span><strong>{numberFormat(resumo.ajustes_auto_9282)}</strong><small>automáticos</small></span>
+            <span><strong>{numberFormat(resumo.qtd_candidatos_autorizacao)}</strong><small>candidatos</small></span>
+            <span><strong>{numberFormat(resumo.qtd_autorizados_autorizacao)}</strong><small>autorizados</small></span>
+            <span><strong>{numberFormat(resumo.qtd_rejeitados_autorizacao)}</strong><small>rejeitados</small></span>
+            <span><strong>{resumo.ultima_autorizacao_em ? dateTime(resumo.ultima_autorizacao_em) : '—'}</strong><small>última aceitação</small></span>
+          </div>
+        ) : (
+          <div className="module-summary-metrics">
+            <span><strong>{metricDisplay(module, module.total)}</strong><small>casos</small></span>
+            <span><strong>{metricDisplay(module, module.impacto_chi, (value) => decimalFormat(value, 2))}</strong><small>CHI</small></span>
+            <span><strong>{metricDisplay(module, module.impacto_ci)}</strong><small>CI</small></span>
+            <span><strong>{metricDisplay(module, module.impacto_ressarcimento, currencyFormat)}</strong><small>R$</small></span>
+          </div>
+        )}
         {isAuto && renderExecucaoStatus(module)}
         {isAuto && (
           <div className="module-action-row">
@@ -1519,30 +1556,7 @@ function AjustesGovernadosPanel({
               <h3>Automático / Algoritmos</h3>
               <p>Detecta, calcula impacto e sugere ação. Só exporta quando houver regra aprovada.</p>
             </div>
-            <article className="module-summary-card module-summary-card-featured">
-              <div>
-                <span className="pill pill-success">exportável com governança</span>
-                <h3>Correção especializada 92/82</h3>
-                <p>Reclassificação componente/causa com evidência robusta; módulo específico, não eixo central do produto.</p>
-                <small className="module-summary-source">governança PostgreSQL</small>
-              </div>
-              <div className="module-summary-metrics">
-                <span><strong>{numberFormat(resumo.ajustes_auto_9282)}</strong><small>automáticos</small></span>
-                <span><strong>{numberFormat(resumo.qtd_candidatos_autorizacao)}</strong><small>candidatos</small></span>
-                <span><strong>{numberFormat(resumo.qtd_autorizados_autorizacao)}</strong><small>autorizados</small></span>
-                <span><strong>{numberFormat(resumo.qtd_rejeitados_autorizacao)}</strong><small>rejeitados</small></span>
-                <span><strong>{resumo.ultima_autorizacao_em ? dateTime(resumo.ultima_autorizacao_em) : '—'}</strong><small>última aceitação</small></span>
-              </div>
-              {renderExecucaoStatus(correcao9282Module)}
-              <div className="module-action-row">
-                <button className="primary-button" type="button" onClick={() => abrirVisualizacao(correcao9282Module)}>
-                  Visualizar
-                </button>
-                <button className="secondary-button" type="button" disabled={actionDisabled || runningAlgorithm === correcao9282Module.codigo} onClick={() => onAtualizarAlgoritmo?.(correcao9282Module)}>
-                  {runningAlgorithm === correcao9282Module.codigo ? 'Solicitando...' : moduloEmExecucao(correcao9282Module) ? 'Rodar novamente' : 'Atualizar'}
-                </button>
-              </div>
-            </article>
+
             {automatedModules.map((module) => moduleCard(module, 'auto'))}
             {!automatedModules.length && <p className="muted-text">Catálogo de módulos automáticos ainda não carregado.</p>}
           </div>
@@ -1587,7 +1601,10 @@ function AjustesGovernadosPanel({
                   className="primary-button"
                   type="button"
                   disabled={actionDisabled || accepting}
-                  onClick={() => onAceitarAlgoritmo?.(algoritmoVisualizado)}
+                  onClick={() => {
+                    onAceitarAlgoritmo?.(algoritmoVisualizado)
+                    setAlgoritmoVisualizado(null)
+                  }}
                 >
                   Aceitar tratativa
                 </button>
@@ -1595,7 +1612,10 @@ function AjustesGovernadosPanel({
                   className="secondary-button danger-button"
                   type="button"
                   disabled={actionDisabled}
-                  onClick={() => onRejeitarAlgoritmo?.(algoritmoVisualizado)}
+                  onClick={() => {
+                    onRejeitarAlgoritmo?.(algoritmoVisualizado)
+                    setAlgoritmoVisualizado(null)
+                  }}
                 >
                   Rejeitar tratativa
                 </button>
@@ -1852,21 +1872,20 @@ function TratativasMassaPage({
         description="Rode, atualize e revise os lotes gerados por algoritmos antes de encaminhar para aprovação governada."
       />
 
-      <section className="panel dashboard-section">
-        <div className="panel-title">
+      <details className="panel dashboard-section">
+        <summary className="panel-title">
           <div>
             <h2>Ciclo da tratativa em massa</h2>
             <p>O algoritmo gera o lote, o analista verifica coerência e somente os itens governados seguem para aprovação.</p>
           </div>
-          <button className="secondary-button" type="button" onClick={onRefresh}>Atualizar lote</button>
-        </div>
+        </summary>
         <div className="decision-steps">
           <span><strong>1</strong><em>Rodar algoritmo</em><small>Atualiza candidatos e impactos.</small></span>
           <span><strong>2</strong><em>Verificar coerência</em><small>Compara original, sugerido e evidências.</small></span>
           <span><strong>3</strong><em>Separar exceções</em><small>Conflitos vão para ocorrência/manual.</small></span>
           <span><strong>4</strong><em>Enviar aprovação</em><small>Lote coerente segue para gestor.</small></span>
         </div>
-      </section>
+      </details>
 
       <AjustesGovernadosPanel
         resumo={resumo}
@@ -6012,8 +6031,7 @@ export default function App() {
     setTratativasAceitas((atuais) => (
       atuais.includes(module.codigo) ? atuais : [...atuais, module.codigo]
     ))
-    setActionMessage(`Tratativa aceita para aprovação: ${module?.nome || module?.codigo || '—'}. Revise e confirme na página Aprovação.`)
-    setActivePage('aprovacao')
+    setActionMessage(`Tratativa aceita para aprovação: ${module?.nome || module?.codigo || '—'}. Ela aparecerá na página Aprovação.`)
   }
 
   function handleRejeitarAlgoritmo(module) {

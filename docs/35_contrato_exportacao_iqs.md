@@ -55,7 +55,9 @@ Campos atualmente normalizados pelo helper oficial:
 | `DATA_HORA_FIM_INTRP` | `dd/mm/aaaa hh:mm:ss` |
 | `DTHR_INICIO_INTRP_UC` | `dd/mm/aaaa hh:mm:ss` |
 
-Data sem hora deve ser preservada apenas em arquivos de auditoria/conferência. Pacote IQS de interrupções deve usar data/hora completa quando o campo existir no layout.
+**REGRA DE OURO CONTRA RETRABALHO:** 
+Qualquer arquivo exportado pelo sistema, seja o pacote IQS oficial ou **arquivos de auditoria/auxiliares**, deve OBRIGATORIAMENTE conter data e hora completas no formato `dd/mm/aaaa hh:mm:ss` para as colunas de data. 
+É terminantemente proibido suprimir a hora (exportar apenas `dd/mm/aaaa`), pois isso gera inconsistência entre relatórios e confusão na leitura dos CSVs, resultando em retrabalho.
 
 ## Inteiros sem decimal
 
