@@ -151,6 +151,34 @@ def list_anomalies() -> dict[str, object]:
     }
 
 
+def list_outliers_raw(limit: int = 500) -> list[dict[str, object]]:
+    schema = _schema()
+    if not _ensure_tables(schema):
+        return []
+
+    engine = create_postgres_engine()
+    with engine.connect() as con:
+        rows = con.execute(
+            text(
+                f"""
+                SELECT 
+                    id_anomalia, anomes, registro_id, anomalia_codigo, nome, 
+                    categoria, severidade, confianca, status_anomalia, origem, 
+                    regional, conjunto, equipamento, uc, ocorrencia, interrupcao, 
+                    descricao, explicacao_simples, explicacao_tecnica, regra_violada, 
+                    impacto_possivel, campos_envolvidos, dados_originais, 
+                    dados_sugeridos, impacto, linha_tempo, criado_por, criado_em, 
+                    atualizado_por, atualizado_em
+                FROM {schema}.midway_anomalia
+                LIMIT :limit
+                """
+            ),
+            {"limit": limit},
+        ).mappings().all()
+
+    return [dict(row) for row in rows]
+
+
 def anomaly_detail(id_anomalia: str) -> dict[str, object] | None:
     detail = _postgres_anomaly_detail(id_anomalia)
     if detail:

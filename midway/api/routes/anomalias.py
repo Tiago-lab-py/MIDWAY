@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from midway.api.security import AuthUser, require_profiles
-from midway.v7.anomaly_repository import anomaly_detail, list_anomalies, module_catalog
+from midway.v7.anomaly_repository import anomaly_detail, list_anomalies, list_outliers_raw, module_catalog
 
 router = APIRouter(prefix="/api/anomalias", tags=["anomalias"])
 
@@ -29,6 +29,13 @@ def listar_modulos_anomalias_v7(
             "codigo_descricao": "códigos técnicos devem aparecer com descrição humana quando disponível",
         },
     }
+
+
+@router.get("/outliers/raw")
+def listar_outliers_raw_v7(
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA")),
+) -> list[dict[str, object]]:
+    return list_outliers_raw(limit=500)
 
 
 @router.get("/{id_anomalia}")

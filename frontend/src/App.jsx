@@ -3419,6 +3419,118 @@ function AjustesPage({ ajustes, resumo, onOpenOccurrence, embedded = false }) {
   )
 }
 
+function OutlierAnomaliaPanel({ token }) {
+  const [data, setData] = useState([])
+  const [filter, setFilter] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        setLoading(true)
+        const response = await fetch(`${API_URL}/api/anomalias/outliers/raw`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (!response.ok) throw new Error('Falha ao carregar outliers brutos')
+        const json = await response.json()
+        
+        const processedData = json.map(row => {
+          let impactoDec = 0, impactoDic = 0, impactoFec = 0, impactoFic = 0, impactoRessarc = 0
+          if (row.impacto) {
+            try {
+              const imp = typeof row.impacto === 'string' ? JSON.parse(row.impacto) : row.impacto
+              if (imp) {
+                impactoDec = imp.dec || 0
+                impactoDic = imp.dic || 0
+                impactoFec = imp.fec || 0
+                impactoFic = imp.fic || 0
+                impactoRessarc = imp.ressarcimento || 0
+              }
+            } catch (e) {}
+          }
+          return {
+            ...row,
+            impacto_dec: impactoDec,
+            impacto_dic: impactoDic,
+            impacto_fec: impactoFec,
+            impacto_fic: impactoFic,
+            impacto_ressarc: impactoRessarc,
+          }
+        })
+        setData(processedData)
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [token])
+
+  if (loading) return <div className="alert">Carregando outliers...</div>
+  if (error) return <div className="alert alert-danger">{error}</div>
+
+  const filteredData = data.filter(row => {
+    if (!filter) return true
+    const term = filter.toLowerCase()
+    return (
+      String(row.regional || '').toLowerCase().includes(term) ||
+      String(row.conjunto || '').toLowerCase().includes(term) ||
+      String(row.uc || '').toLowerCase().includes(term) ||
+      String(row.ocorrencia || '').toLowerCase().includes(term) ||
+      String(row.anomalia_codigo || '').toLowerCase().includes(term) ||
+      String(row.nome || '').toLowerCase().includes(term)
+    )
+  })
+
+  const columns = [
+    { key: 'regional', label: 'Regional' },
+    { key: 'conjunto', label: 'Conjunto' },
+    { key: 'uc', label: 'UC' },
+    { key: 'ocorrencia', label: 'Ocorrência' },
+    { key: 'interrupcao', label: 'Interrupção' },
+    { key: 'anomalia_codigo', label: 'Cód. Anomalia' },
+    { key: 'nome', label: 'Nome Anomalia' },
+    { key: 'categoria', label: 'Categoria' },
+    { key: 'severidade', label: 'Severidade' },
+    { key: 'status_anomalia', label: 'Status' },
+    { key: 'impacto_dec', label: 'DEC' },
+    { key: 'impacto_dic', label: 'DIC' },
+    { key: 'impacto_fec', label: 'FEC' },
+    { key: 'impacto_fic', label: 'FIC' },
+    { key: 'impacto_ressarc', label: 'Ressarc.' },
+    { key: 'criado_em', label: 'Criado Em' },
+  ]
+
+  return (
+    <div className="panel">
+      <div className="panel-title" style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2>Outliers</h2>
+          <p>Visão limpa das anomalias com os impactos extraídos ({filteredData.length} registros exibidos).</p>
+        </div>
+        <div>
+          <input 
+            type="search" 
+            placeholder="Filtrar anomalias..." 
+            value={filter} 
+            onChange={e => setFilter(e.target.value)} 
+            style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+          />
+        </div>
+      </div>
+      <DataTable
+        columns={columns}
+        rows={filteredData}
+        sortable
+        initialSort={{ key: 'criado_em', direction: 'desc' }}
+        empty="Nenhum outlier encontrado com este filtro."
+      />
+    </div>
+  )
+}
+
 function OcorrenciasPage({
   resumo,
   fila,
@@ -3430,6 +3542,7 @@ function OcorrenciasPage({
     { id: 'busca', label: 'Busca e Triagem' },
     { id: 'impacto', label: 'Priorização por Impacto' },
     { id: 'fila', label: 'Fila Técnica' },
+    { id: 'outlier', label: 'Outlier' },
   ]
 
   return (
@@ -3468,6 +3581,9 @@ function OcorrenciasPage({
         )}
         {activeOccurrenceTab === 'fila' && (
           <FilaPage fila={fila} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
+        )}
+        {activeOccurrenceTab === 'outlier' && (
+          <OutlierAnomaliaPanel token={token} />
         )}
       </section>
     </>
