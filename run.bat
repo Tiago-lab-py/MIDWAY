@@ -91,6 +91,10 @@ if /I "%~1"=="amostra_raw" (
 if /I "%~1"=="exportar" (
     echo Exportando CSVs finais sem reprocessar...
     "%PYTHON_EXE%" -m midway.export.csv_iqs
+    if errorlevel 1 goto erro
+
+    echo Validando arquivos exportados...
+    "%PYTHON_EXE%" -m midway.export.validacao_csv
     goto fim
 )
 
@@ -131,6 +135,10 @@ if /I "%~1"=="exportacoes_auxiliares" (
 
     echo Normalizando datas das exportacoes auxiliares...
     "%PYTHON_EXE%" -m midway.export.normalizar_datas_iqs
+    if errorlevel 1 goto erro
+
+    echo Validando arquivos exportados...
+    "%PYTHON_EXE%" -m midway.export.validacao_csv
     if errorlevel 1 goto erro
 
     goto fim
@@ -223,6 +231,13 @@ if /I "%~1"=="testar_dados" (
     goto fim
 )
 
+if /I "%~1"=="validar_exportacao" (
+    echo Validando arquivos CSV gerados...
+    "%PYTHON_EXE%" -m midway.export.validacao_csv
+    if errorlevel 1 goto erro
+    goto fim
+)
+
 if /I "%~1"=="validar_dados" (
     echo Executando testes automatizados dos dados tratados...
     "%PYTHON_EXE%" -m unittest discover -s "%SCRIPT_DIR%tests" -p "test_*.py"
@@ -245,6 +260,13 @@ if /I "%~1"=="metricas_qualidade" (
 if /I "%~1"=="amostras_auditoria" (
     echo Exportando amostras de auditoria orientadas por risco...
     "%PYTHON_EXE%" "%SCRIPT_DIR%tools\exportar_amostras_auditoria.py"
+    if errorlevel 1 goto erro
+    goto fim
+)
+
+if /I "%~1"=="auditoria_duracao_negativa" (
+    echo Verificando e exportando ocorrencias de duracao negativa - fim menor que inicio...
+    "%PYTHON_EXE%" -m midway.auditoria.duracao_negativa
     if errorlevel 1 goto erro
     goto fim
 )
@@ -452,6 +474,10 @@ if /I "%~1"=="full_mais_apuracao" (
     "%PYTHON_EXE%" -m midway.export.normalizar_datas_iqs
     if errorlevel 1 goto erro
 
+    echo Validando arquivos exportados...
+    "%PYTHON_EXE%" -m midway.export.validacao_csv
+    if errorlevel 1 goto erro
+
     goto fim
 )
 
@@ -504,9 +530,11 @@ echo   run.bat suspeita_falha_RA [ANOMES]   Identifica suspeita de falha de comu
 echo   run.bat analise_tecnica_cache [ANOMES] Materializa cache rapido da Analise Tecnica
 echo   run.bat testar_dados                 Executa testes automatizados dos dados tratados
 echo   run.bat validar_dados                Executa testes e metricas de qualidade
+echo   run.bat validar_exportacao           Valida consistencia e qualidade dos CSVs do IQS
 echo   run.bat metricas_qualidade           Gera metricas estatisticas de qualidade
 echo   run.bat amostras_auditoria           Exporta amostras para verificacao manual
 echo   run.bat auditoria_duplicidade_tipo   Verifica duplicidade por COD_TIPO_INTRP 1, 2 e 3
+echo   run.bat auditoria_duracao_negativa   Verifica interrupcoes com hora de fim anterior ao inicio
 echo   run.bat simulacao_ise                Gera simulacao ISE / Dia Critico
 echo   run.bat full                         Executa extracao e depois tratamento
 echo   run.bat full_mais_apuracao           Executa extracao, tratamento, consumidores, UC fatura, apuracao e exportacoes auxiliares
