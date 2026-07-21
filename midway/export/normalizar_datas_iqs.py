@@ -22,14 +22,14 @@ FORMATOS_ENTRADA = [
     "%Y-%m-%d %H:%M:%S",
     "%Y-%m-%d %H:%M",
     "%Y-%m-%d",
-    "%m/%d/%Y %H:%M:%S.%f",
-    "%m/%d/%Y %H:%M:%S",
-    "%m/%d/%Y %H:%M",
-    "%m/%d/%Y",
     "%d/%m/%Y %H:%M:%S.%f",
     "%d/%m/%Y %H:%M:%S",
     "%d/%m/%Y %H:%M",
     "%d/%m/%Y",
+    "%m/%d/%Y %H:%M:%S.%f",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y %H:%M",
+    "%m/%d/%Y",
 ]
 
 HINTS_COLUNA_DATA = [

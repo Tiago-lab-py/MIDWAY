@@ -167,7 +167,7 @@ def formatar_coluna_data_iqs(serie):
         SLASH_DAY_FIRST_FORMATS,
     )
 
-    parsed = parsed_iso.fillna(parsed_barra_mes_dia).fillna(parsed_barra_dia_mes)
+    parsed = parsed_iso.fillna(parsed_barra_dia_mes).fillna(parsed_barra_mes_dia)
     formatted = parsed.dt.strftime("%d/%m/%Y %H:%M:%S")
     return formatted.fillna(original)
 

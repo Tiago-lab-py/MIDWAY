@@ -7,8 +7,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from midway.export.iqs_csv import exportar_dataframe_iqs
-
-
+from midway.auditoria.sobreposicoes import formatar_coluna_data_iqs
 load_dotenv()
 
 ANOMES = os.getenv("ANOMES", "202606")
@@ -113,10 +112,7 @@ def exportar_csv_iqs(df, path):
         if column not in df.columns:
             continue
 
-        original = df[column].astype("string").fillna("")
-        parsed = pd.to_datetime(original, errors="coerce", dayfirst=True)
-        formatted = parsed.dt.strftime("%d/%m/%Y %H:%M:%S")
-        df[column] = formatted.fillna(original)
+        df[column] = formatar_coluna_data_iqs(df[column])
 
     for column in INTEGER_COLUMNS:
         if column not in df.columns:
