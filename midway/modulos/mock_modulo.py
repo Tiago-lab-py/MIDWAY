@@ -56,7 +56,7 @@ if __name__ == "__main__":
             for p in anomalias:
                 conn.execute(
                     text("""
-                    INSERT INTO ddcq.propostas_tratamento 
+                    INSERT INTO ddcq.midway_propostas_tratamento 
                     (codigo_modulo, chave_negocio, evidencias, impacto, acao_sugerida, campos_iqs_afetados, exportacao_iqs)
                     VALUES (:codigo, :chave, :evidencias, :impacto, :acao, :campos, :exportacao)
                     """),

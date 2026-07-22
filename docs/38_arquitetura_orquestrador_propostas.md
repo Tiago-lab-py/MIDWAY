@@ -41,7 +41,7 @@ As responsabilidades do Orquestrador:
 3. Consolidar todas as listas de `PropostaTratamento`.
 4. Executar um **Bulk Insert Ultrarrápido** via `psycopg2.extras.execute_values` numa `raw_connection`. 
 
-O orquestrador varre milhões de linhas em segundos e as despacha para a tabela PostgreSQL `ddcq.propostas_tratamento` em questão de milissegundos.
+O orquestrador varre milhões de linhas em segundos e as despacha para a tabela PostgreSQL `ddcq.midway_propostas_tratamento` em questão de milissegundos.
 
 ## 4. Como criar um novo Módulo
 

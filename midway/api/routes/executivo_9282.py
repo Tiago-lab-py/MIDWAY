@@ -532,7 +532,7 @@ def autorizar_9282(
         with engine.connect() as con:
             res = con.execute(
                 text(f"""
-                    UPDATE {schema}.propostas_tratamento
+                    UPDATE {schema}.midway_propostas_tratamento
                     SET status_governanca = 'APROVADA', 
                         acao_sugerida = COALESCE(acao_sugerida, '') || CASE WHEN :justificativa != '' THEN ' | Justificativa: ' || :justificativa ELSE '' END
                     WHERE codigo_modulo = 'CORRECAO_9282' 

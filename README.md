@@ -150,7 +150,7 @@ run.bat painel
 
 O MIDWAY evoluiu para uma arquitetura escalável e orientada a objetos focada no motor de propostas. Todos os agentes analíticos agora herdam da classe `BaseModulo` e são executados centralizadamente pelo **Orquestrador Central**. 
 
-O orquestrador é responsável por invocar os módulos, compilar a lista unificada de `Propostas de Tratamento` e persisti-las em bloco (`bulk insert`) no PostgreSQL local (tabela `ddcq.propostas_tratamento`), garantindo enorme performance e zero vazamento de memória.
+O orquestrador é responsável por invocar os módulos, compilar a lista unificada de `Propostas de Tratamento` e persisti-las em bloco (`bulk insert`) no PostgreSQL local (tabela `ddcq.midway_propostas_tratamento`), garantindo enorme performance e zero vazamento de memória.
 
 Módulos regulatórios (Apurados via SQL/DuckDB puro na etapa de Apuração):
 
