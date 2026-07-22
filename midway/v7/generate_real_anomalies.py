@@ -403,11 +403,16 @@ def _technical_impact_anomalies(con: duckdb.DuckDBPyConnection) -> list[dict[str
                     "grupos_causa_iqs": row.get("GRUPOS_CAUSA_IQS"),
                 },
                 impact={
-                    "dic": row.get("CHI_LIQUIDO") or 0,
-                    "fic": row.get("CI_LIQUIDO") or 0,
+                    "chi_liquido": row.get("CHI_LIQUIDO") or 0,
+                    "ci_liquido": row.get("CI_LIQUIDO") or 0,
+                    "chi_bruto": row.get("CHI_BRUTO") or 0,
+                    "ci_bruto": row.get("CI_BRUTO") or 0,
+                    "dic": 0,
+                    "fic": 0,
                     "dec": 0,
                     "fec": 0,
                     "ressarcimento": row.get("RESSARCIMENTO_ESTIMADO") or 0,
+                    "duracao_maxima": row.get("DURACAO_MAX_HORA") or 0,
                 },
                 evidence=[
                     ("RESSARCIMENTO_ESTIMADO", row.get("RESSARCIMENTO_ESTIMADO"), "gold_analise_tecnica_impacto_base"),

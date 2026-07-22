@@ -3436,7 +3436,8 @@ function OutlierAnomaliaPanel({ token }) {
         const json = await response.json()
         
         const processedData = json.map(row => {
-          let impactoDec = 0, impactoDic = 0, impactoFec = 0, impactoFic = 0, impactoRessarc = 0
+          let impactoDec = 0, impactoDic = 0, impactoFec = 0, impactoFic = 0, impactoRessarc = 0, impactoDuracaoMaxima = 0
+          let impactoChiLiquido = 0, impactoCiLiquido = 0, impactoChiBruto = 0, impactoCiBruto = 0
           if (row.impacto) {
             try {
               const imp = typeof row.impacto === 'string' ? JSON.parse(row.impacto) : row.impacto
@@ -3446,6 +3447,11 @@ function OutlierAnomaliaPanel({ token }) {
                 impactoFec = imp.fec || 0
                 impactoFic = imp.fic || 0
                 impactoRessarc = imp.ressarcimento || 0
+                impactoDuracaoMaxima = imp.duracao_maxima || 0
+                impactoChiLiquido = imp.chi_liquido || 0
+                impactoCiLiquido = imp.ci_liquido || 0
+                impactoChiBruto = imp.chi_bruto || 0
+                impactoCiBruto = imp.ci_bruto || 0
               }
             } catch (e) {}
           }
@@ -3456,6 +3462,11 @@ function OutlierAnomaliaPanel({ token }) {
             impacto_fec: impactoFec,
             impacto_fic: impactoFic,
             impacto_ressarc: impactoRessarc,
+            impacto_duracao_maxima: impactoDuracaoMaxima,
+            impacto_chi_liquido: impactoChiLiquido,
+            impacto_ci_liquido: impactoCiLiquido,
+            impacto_chi_bruto: impactoChiBruto,
+            impacto_ci_bruto: impactoCiBruto,
           }
         })
         setData(processedData)
@@ -3495,12 +3506,13 @@ function OutlierAnomaliaPanel({ token }) {
     { key: 'categoria', label: 'Categoria' },
     { key: 'severidade', label: 'Severidade' },
     { key: 'status_anomalia', label: 'Status' },
-    { key: 'impacto_dec', label: 'DEC' },
-    { key: 'impacto_dic', label: 'DIC' },
-    { key: 'impacto_fec', label: 'FEC' },
-    { key: 'impacto_fic', label: 'FIC' },
-    { key: 'impacto_ressarc', label: 'Ressarc.' },
-    { key: 'criado_em', label: 'Criado Em' },
+    { key: 'impacto_duracao_maxima', label: 'Duração Máx.', render: (item) => `${decimalFormat(item.impacto_duracao_maxima, 2)} h` },
+    { key: 'impacto_chi_liquido', label: 'CHI Liq.', render: (item) => decimalFormat(item.impacto_chi_liquido, 2) },
+    { key: 'impacto_ci_liquido', label: 'CI Liq.', render: (item) => numberFormat(item.impacto_ci_liquido) },
+    { key: 'impacto_chi_bruto', label: 'CHI Bruto', render: (item) => decimalFormat(item.impacto_chi_bruto, 2) },
+    { key: 'impacto_ci_bruto', label: 'CI Bruto', render: (item) => numberFormat(item.impacto_ci_bruto) },
+    { key: 'impacto_ressarc', label: 'Ressarc.', render: (item) => currencyFormat(item.impacto_ressarc) },
+    { key: 'criado_em', label: 'Criado Em', render: (item) => dateTime(item.criado_em) },
   ]
 
   return (
