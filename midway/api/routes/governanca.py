@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -1250,6 +1250,9 @@ def registrar_alteracao(
     schema = _schema()
     id_alteracao = str(uuid4())
     engine = create_postgres_engine()
+    
+    check_fechamento(schema, engine, payload.anomes)
+    
     with engine.begin() as con:
         con.execute(
             text(
@@ -1296,7 +1299,7 @@ def _decidir_alteracao(
         row = con.execute(
             text(
                 f"""
-                SELECT id_alteracao, entidade, id_entidade, solicitado_por, status_alteracao
+                SELECT id_alteracao, anomes, entidade, id_entidade, solicitado_por, status_alteracao
                 FROM {schema}.midway_alteracao_registro
                 WHERE id_alteracao = :id_alteracao
                 """
@@ -1306,6 +1309,9 @@ def _decidir_alteracao(
 
         if not row:
             raise HTTPException(status_code=404, detail="Alteração não encontrada.")
+            
+        check_fechamento(schema, engine, str(row["anomes"]))
+        
         if row["status_alteracao"] != "PENDENTE":
             raise HTTPException(status_code=409, detail="Apenas alterações pendentes podem ser decididas.")
         if row["solicitado_por"] == user.login:
@@ -1404,3 +1410,115 @@ def listar_sql_scripts(user: AuthUser = Depends(require_profiles("ADM", "GESTOR"
             }
         )
     return api_rows(scripts)
+
+def check_fechamento(schema: str, engine, anomes: str):
+    with engine.begin() as con:
+        # Garante a tabela
+        con.execute(text(f"""
+        CREATE TABLE IF NOT EXISTS {schema}.midway_mes_apuracao (
+            anomes VARCHAR(6) PRIMARY KEY,
+            status VARCHAR(20) NOT NULL DEFAULT 'ABERTO',
+            fechado_em TIMESTAMP,
+            fechado_por VARCHAR(100)
+        );
+        """))
+        res = con.execute(text(f"SELECT status FROM {schema}.midway_mes_apuracao WHERE anomes = :anomes"), {"anomes": anomes}).scalar()
+        if res == 'FECHADO':
+            raise HTTPException(status_code=403, detail=f"O mês {anomes} já está FECHADO. Nenhuma alteração permitida.")
+
+def get_fechamento_status(schema: str, engine, anomes: str):
+    with engine.begin() as con:
+        con.execute(text(f"""
+        CREATE TABLE IF NOT EXISTS {schema}.midway_mes_apuracao (
+            anomes VARCHAR(6) PRIMARY KEY,
+            status VARCHAR(20) NOT NULL DEFAULT 'ABERTO',
+            fechado_em TIMESTAMP,
+            fechado_por VARCHAR(100)
+        );
+        """))
+        res = con.execute(text(f"SELECT status FROM {schema}.midway_mes_apuracao WHERE anomes = :anomes"), {"anomes": anomes}).scalar()
+        return res or 'ABERTO'
+
+@router.get("/governanca/fechamento")
+def obter_status_fechamento(anomes: str = Query(..., description="Anomes (ex: 202606)"), user: AuthUser = Depends(get_current_user)):
+    engine = create_postgres_engine()
+    schema = _schema()
+    status = get_fechamento_status(schema, engine, anomes)
+    return {"anomes": anomes, "status": status}
+
+@router.post("/governanca/fechamento")
+def fechar_mes(anomes: str = Query(..., description="Anomes (ex: 202606)"), user: AuthUser = Depends(get_current_user)):
+    engine = create_postgres_engine()
+    schema = _schema()
+    
+    with engine.begin() as con:
+        con.execute(text(f"""
+        INSERT INTO {schema}.midway_mes_apuracao (anomes, status, fechado_em, fechado_por)
+        VALUES (:anomes, 'FECHADO', CURRENT_TIMESTAMP, :user)
+        ON CONFLICT (anomes) DO UPDATE SET 
+            status = 'FECHADO',
+            fechado_em = CURRENT_TIMESTAMP,
+            fechado_por = :user
+        """), {"anomes": anomes, "user": user.login})
+    
+    # Atualizar o arquivo .env
+    from pathlib import Path
+    env_path = Path("D:/MIDWAY/.env")
+    novo_anomes = anomes
+    if env_path.exists():
+        content = env_path.read_text(encoding="utf-8")
+        
+        # Incrementar mês
+        ano = int(anomes[:4])
+        mes = int(anomes[4:])
+        if mes == 12:
+            novo_anomes = f"{ano + 1}01"
+        else:
+            novo_anomes = f"{ano}{mes + 1:02d}"
+            
+        new_content = []
+        for line in content.splitlines():
+            if line.startswith("ANOMES="):
+                new_content.append(f"ANOMES={novo_anomes}")
+            else:
+                new_content.append(line)
+        env_path.write_text("\n".join(new_content) + "\n", encoding="utf-8")
+        
+    audit_event("MES_FECHADO", "midway_mes_apuracao", anomes, user.login, {"novo_anomes": novo_anomes})
+    return {"status": "FECHADO", "novo_anomes": novo_anomes}
+
+class ReaberturaRequest(BaseModel):
+    justificativa: str
+
+@router.post("/governanca/fechamento/{anomes}/reabrir")
+def reabrir_mes(anomes: str, payload: ReaberturaRequest, user: AuthUser = Depends(get_current_user)):
+    if user.funcao != "ADMIN":
+        raise HTTPException(status_code=403, detail="Apenas administradores podem reabrir o mês.")
+        
+    engine = create_postgres_engine()
+    schema = _schema()
+    
+    with engine.begin() as con:
+        con.execute(text(f"""
+        UPDATE {schema}.midway_mes_apuracao
+        SET status = 'ABERTO',
+            fechado_em = NULL,
+            fechado_por = NULL
+        WHERE anomes = :anomes
+        """), {"anomes": anomes})
+        
+    # Atualizar o arquivo .env de volta para o anomes reaberto
+    from pathlib import Path
+    env_path = Path("D:/MIDWAY/.env")
+    if env_path.exists():
+        content = env_path.read_text(encoding="utf-8")
+        new_content = []
+        for line in content.splitlines():
+            if line.startswith("ANOMES="):
+                new_content.append(f"ANOMES={anomes}")
+            else:
+                new_content.append(line)
+        env_path.write_text("\n".join(new_content) + "\n", encoding="utf-8")
+        
+    audit_event("MES_REABERTO", "midway_mes_apuracao", anomes, user.login, {"justificativa": payload.justificativa})
+    return {"status": "ABERTO", "anomes": anomes}

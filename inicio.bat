@@ -7,6 +7,11 @@ set "PG_DATA=C:\Program Files\PostgreSQL\18\data"
 
 cd /d "%SCRIPT_DIR%"
 
+:: Configurando binario local do Node.js
+if exist "D:\nodejs\node-v24.18.0-win-x64" (
+    set "PATH=D:\nodejs\node-v24.18.0-win-x64;%PATH%"
+)
+
 echo.
 echo ============================================================
 echo  MIDWAY 7.0.0 - Inicio do painel React + FastAPI
@@ -58,8 +63,8 @@ start "MIDWAY Frontend React" /D "%SCRIPT_DIR%" cmd /k "call run.bat frontend"
 echo.
 echo ============================================================
 echo  Painel React: http://127.0.0.1:5173
-echo  API FastAPI : http://127.0.0.1:8001
-echo  Docs API    : http://127.0.0.1:8001/docs
+echo  API FastAPI : http://127.0.0.1:8000
+echo  Docs API    : http://127.0.0.1:8000/docs
 echo ============================================================
 echo.
 echo Se a pagina nao abrir automaticamente, acesse:

@@ -8,10 +8,27 @@ if not exist "%PYTHON_EXE%" (
     set "PYTHON_EXE=python"
 )
 
+:: Configurando binario local do Node.js
+if exist "D:\nodejs\node-v24.18.0-win-x64" (
+    set "PATH=D:\nodejs\node-v24.18.0-win-x64;%PATH%"
+)
+
 if "%~1"=="" goto uso
 
 if /I "%~1"=="versao" (
     type "%SCRIPT_DIR%VERSION"
+    goto fim
+)
+
+if /I "%~1"=="api" (
+    echo Iniciando API FastAPI local...
+    "%PYTHON_EXE%" -m uvicorn midway.api.main:app --port 8000 --reload
+    goto fim
+)
+
+if /I "%~1"=="frontend" (
+    echo Iniciando Frontend React...
+    cd frontend && npm run dev
     goto fim
 )
 
@@ -50,8 +67,13 @@ if /I "%~1"=="frontend" (
 )
 
 if /I "%~1"=="extract" (
-    echo Executando extracao...
-    "%PYTHON_EXE%" -m midway.extract.adms
+    echo O comando extract foi integrado ao pipeline ETL. Use 'run.bat etl'.
+    goto fim
+)
+
+if /I "%~1"=="etl" (
+    echo Iniciando o Orquestrador Central ETL...
+    "%PYTHON_EXE%" -m midway.pipeline.etl
     goto fim
 )
 
@@ -63,22 +85,21 @@ if /I "%~1"=="registrar" (
 )
 
 if /I "%~1"=="tratamento" (
-    echo Executando tratamento...
-    "%PYTHON_EXE%" -m midway.transform.tratamento
+    echo O comando tratamento foi integrado ao pipeline ETL. Use 'run.bat etl'.
     goto fim
 )
 
 if /I "%~1"=="reprocessar" (
-    echo Executando tratamento com REPROCESSAR=1...
+    echo Executando tratamento com REPROCESSAR=1 (via etl)...
     set "REPROCESSAR=1"
-    "%PYTHON_EXE%" -m midway.transform.tratamento
+    "%PYTHON_EXE%" -m midway.pipeline.etl
     goto fim
 )
 
 if /I "%~1"=="reextrair" (
-    echo Executando extracao com REEXTRAIR=1...
+    echo Executando extracao com REEXTRAIR=1 (via etl)...
     set "REEXTRAIR=1"
-    "%PYTHON_EXE%" -m midway.extract.adms
+    "%PYTHON_EXE%" -m midway.pipeline.etl
     goto fim
 )
 
@@ -129,14 +150,7 @@ if /I "%~1"=="exportacoes_auxiliares" (
 )
 
 if /I "%~1"=="apuracao_parcial" (
-    echo Gerando camada gold e BDO de apuracao previa...
-    "%PYTHON_EXE%" -m midway.apuracao.previa
-    if errorlevel 1 goto erro
-
-    echo Gerando gold_outlier_uc...
-    "%PYTHON_EXE%" -m midway.analytics.outlier_uc
-    if errorlevel 1 goto erro
-
+    echo O comando apuracao_parcial foi integrado ao pipeline ETL. Use 'run.bat etl'.
     goto fim
 )
 

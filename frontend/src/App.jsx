@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8001'
+const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8000'
 
 const menuItems = [
   { id: 'dashboard', label: 'Visão Geral', icon: 'V' },
@@ -4641,6 +4641,114 @@ function ConfiguracoesPage({ health, embedded = false }) {
   )
 }
 
+function CicloApuracaoPage({ embedded = false, user, token }) {
+  const [status, setStatus] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [closing, setClosing] = useState(false)
+  
+  useEffect(() => {
+    async function loadStatus() {
+      try {
+        const response = await fetch(`${API_URL}/api/governanca/fechamento?anomes=202606`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (response.ok) {
+          setStatus(await response.json())
+        }
+      } catch (err) {}
+      setLoading(false)
+    }
+    loadStatus()
+  }, [token])
+
+  async function fecharMes() {
+    if (!window.confirm("ATENÇÃO: Deseja fechar o mês 202606 de forma irreversível?")) return;
+    
+    setClosing(true)
+    try {
+      const response = await fetch(`${API_URL}/api/governanca/fechamento?anomes=202606`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (!response.ok) {
+        throw new Error("Falha ao fechar o mês.")
+      }
+      const data = await response.json()
+      alert(`Mês fechado com sucesso! O novo ANOMES passará a ser ${data.novo_anomes}. A tela será recarregada automaticamente.`)
+      window.location.reload()
+    } catch (err) {
+      alert(err.message)
+      setClosing(false)
+    }
+  }
+
+  async function reabrirMes() {
+    const justificativa = window.prompt("Justificativa para reabertura:")
+    if (!justificativa) return;
+    
+    setClosing(true)
+    try {
+      const response = await fetch(`${API_URL}/api/governanca/fechamento/202606/reabrir`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({ justificativa })
+      })
+      if (!response.ok) {
+        throw new Error("Falha ao reabrir o mês.")
+      }
+      alert(`Mês reaberto com sucesso! O sistema foi revertido para 202606. A tela será recarregada automaticamente.`)
+      window.location.reload()
+    } catch (err) {
+      alert(err.message)
+      setClosing(false)
+    }
+  }
+
+  return (
+    <section className="content-grid">
+      <article className="panel">
+        <div className="panel-title">
+          <div>
+            <h2>Virada de Ciclo (Fechamento)</h2>
+            <p>Tranca o mês atual contra edições e vira a chave para o próximo ANOMES.</p>
+          </div>
+        </div>
+        {loading ? (
+          <p>Carregando status...</p>
+        ) : (
+          <div className="stat-list">
+            <span>Mês em processamento: <strong>{status?.anomes || '202606'}</strong></span>
+            <span>Status atual: <strong>{status?.status || 'ABERTO'}</strong></span>
+            
+            {status?.status === 'ABERTO' && user?.perfil === 'ADM' && (
+              <div style={{ marginTop: 24 }}>
+                <button className="primary-button" style={{ backgroundColor: '#dc2626' }} onClick={fecharMes} disabled={closing}>
+                  {closing ? 'Fechando mês...' : 'Fechar Mês Definitivamente'}
+                </button>
+              </div>
+            )}
+            {status?.status === 'FECHADO' && (
+              <div className="alert alert-success" style={{ marginTop: 16 }}>
+                Este mês já está fechado. Para operar no próximo, reinicie a API.
+                {user?.perfil === 'ADM' && (
+                  <div style={{ marginTop: 16 }}>
+                    <button className="secondary-button" onClick={reabrirMes} disabled={closing}>
+                      {closing ? 'Processando...' : 'Reabrir Mês (Requer Justificativa)'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </article>
+    </section>
+  )
+}
+
 function AdministracaoPage({
   usuarios,
   sessoes,
@@ -4661,6 +4769,7 @@ function AdministracaoPage({
     { id: 'usuarios', label: 'Usuários' },
     { id: 'perfis', label: 'Perfis e Funções' },
     { id: 'processamentos', label: 'Processamentos' },
+    { id: 'ciclo', label: 'Ciclo de Apuração' },
     { id: 'auditoria', label: 'Auditoria' },
     { id: 'sistema', label: 'Sistema' },
   ]
@@ -4702,6 +4811,7 @@ function AdministracaoPage({
           embedded
         />
       )}
+      {activeAdminTab === 'ciclo' && <CicloApuracaoPage user={user} token={token} embedded />}
       {activeAdminTab === 'auditoria' && <AuditoriaPage auditoria={auditoria} embedded />}
       {activeAdminTab === 'sistema' && (
         <>
