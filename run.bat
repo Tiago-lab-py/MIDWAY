@@ -39,8 +39,8 @@ if /I "%~1"=="api" (
 if /I "%~1"=="frontend" (
     echo Abrindo frontend React...
     pushd "%SCRIPT_DIR%frontend"
-    set "PATH=D:\ADMSToIQS\tools\nodejs;%PATH%"
-    call "D:\ADMSToIQS\tools\nodejs\npm.cmd" run dev
+    set "PATH=D:\nodejs\node-v24.18.0-win-x64;%PATH%"
+    call "D:\nodejs\node-v24.18.0-win-x64\npm.cmd" run dev
     if errorlevel 1 (
         popd
         goto erro
