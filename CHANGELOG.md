@@ -1,5 +1,17 @@
 # Changelog
 
+## 7.1.0 - 2026-07-22
+
+Versão de reestruturação do Motor de Anomalias, centralização da orquestração e adoção de `JSONB`.
+
+- Unifica todos os módulos analíticos legados (`ajuste_inicio_manobra`, `duplicidade_tipo_intrp`, `sobreposicao_uc`, `interrupcao_sem_uc`, `agente_comp_causa`, `suspeita_falha_ra`, `correcao_9282`) para herdar a classe escalável `BaseModulo`.
+- Adiciona orquestrador central (`midway.modulos.orquestrador`), que impõe ordem de execução rigorosa das regras operacionais e evita anomalias sistêmicas (ex: sobreposição antes de validação de UC).
+- Adota persistência unificada de propostas no PostgreSQL via execução em lote veloz (`execute_values`) gravando na tabela `ddcq.propostas_tratamento`.
+- Adota coluna nativa `JSONB` (`evidencias`) no PostgreSQL para centralizar campos analíticos não estruturados, abolindo os joins densos com as tabelas `midway_evidencia` e `midway_sugestao`.
+- Elimina mapeamentos isolados de execução do frontend (`EXECUCAO_MODULO_MAP`), introduzindo o acionador nativo "Executar Motor de Anomalias".
+- Redesenha o modal `AnomalyDetailModal` do frontend (`App.jsx`) para renderizar dinamicamente os objetos `JSONB` como cards interativos de evidência ao invés de DataTables estáticas.
+- Atualiza a rota de aprovação do painel executivo (92/82) para salvar o status "APROVADA" e conciliar justificativas nativamente no Orquestrador.
+- Reduz consideravelmente a base de código; a pesada regra original da Correção 92/82, que contava com mais de 1.200 linhas de gerenciamento e manipulação manual, foi reduzida a cerca de 170 linhas de puro processo lógico de negócio (NLP/DuckDB).
 ## 7.0.0 - 2026-07-11
 
 Versao de transicao arquitetural para React + FastAPI + PostgreSQL `ddcq`, mantendo DuckDB como motor analitico.

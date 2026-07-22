@@ -215,8 +215,6 @@ def _ensure_tables(schema: str) -> bool:
 
 def _list_postgres_anomalies() -> list[dict[str, object]]:
     schema = _schema()
-    if not _ensure_tables(schema):
-        return []
 
     engine = create_postgres_engine()
     with engine.connect() as con:
@@ -224,53 +222,34 @@ def _list_postgres_anomalies() -> list[dict[str, object]]:
             text(
                 f"""
                 SELECT
-                    a.id_anomalia::text,
-                    a.registro_id,
-                    a.anomalia_codigo,
-                    a.nome,
-                    a.categoria,
-                    a.severidade,
-                    a.confianca,
-                    a.status_anomalia,
-                    a.origem,
-                    a.regional,
-                    a.conjunto,
-                    a.equipamento,
-                    a.uc,
-                    a.ocorrencia,
-                    a.interrupcao,
-                    a.criado_em,
-                    a.descricao,
-                    COALESCE(
-                        a.dados_originais ->> 'VALID_POS_OPERACAO',
-                        a.dados_sugeridos ->> 'VALID_POS_OPERACAO',
-                        ''
-                    ) AS valid_pos_operacao,
-                    COALESCE(s.acao, 'sem_sugestao') AS acao_sugerida,
-                    COALESCE(s.nivel_confianca, 'inconclusiva') AS confianca_sugestao,
-                    COALESCE(s.requer_aprovacao, true) AS requer_aprovacao,
-                    COALESCE((a.impacto ->> 'dec')::numeric, 0) AS impacto_dec,
-                    COALESCE((a.impacto ->> 'fec')::numeric, 0) AS impacto_fec,
-                    COALESCE((a.impacto ->> 'dic')::numeric, 0) AS impacto_dic,
-                    COALESCE((a.impacto ->> 'fic')::numeric, 0) AS impacto_fic,
-                    COALESCE((a.impacto ->> 'ressarcimento')::numeric, 0) AS impacto_ressarcimento
-                FROM {schema}.midway_anomalia a
-                LEFT JOIN LATERAL (
-                    SELECT *
-                    FROM {schema}.midway_sugestao s
-                    WHERE s.id_anomalia = a.id_anomalia
-                    ORDER BY s.criado_em DESC
-                    LIMIT 1
-                ) s ON true
-                ORDER BY
-                    CASE a.severidade
-                        WHEN 'crítica' THEN 1
-                        WHEN 'alta' THEN 2
-                        WHEN 'média' THEN 3
-                        ELSE 4
-                    END,
-                    a.confianca DESC,
-                    a.criado_em DESC
+                    id::text AS id_anomalia,
+                    chave_negocio AS registro_id,
+                    codigo_modulo AS anomalia_codigo,
+                    codigo_modulo AS nome,
+                    'modulo' AS categoria,
+                    'alta' AS severidade,
+                    1.0 AS confianca,
+                    status_governanca AS status_anomalia,
+                    'MIDWAY_7.1' AS origem,
+                    evidencias ->> 'regional' AS regional,
+                    evidencias ->> 'conjunto' AS conjunto,
+                    evidencias ->> 'equipamento' AS equipamento,
+                    evidencias ->> 'uc' AS uc,
+                    evidencias ->> 'num_ocorrencia' AS ocorrencia,
+                    evidencias ->> 'interrupcao' AS interrupcao,
+                    created_at AS criado_em,
+                    impacto AS descricao,
+                    evidencias ->> 'valid_pos_operacao' AS valid_pos_operacao,
+                    acao_sugerida,
+                    'alta' AS confianca_sugestao,
+                    true AS requer_aprovacao,
+                    COALESCE((evidencias ->> 'impacto_dec')::numeric, 0) AS impacto_dec,
+                    COALESCE((evidencias ->> 'impacto_fec')::numeric, 0) AS impacto_fec,
+                    COALESCE((evidencias ->> 'impacto_dic')::numeric, 0) AS impacto_dic,
+                    COALESCE((evidencias ->> 'impacto_fic')::numeric, 0) AS impacto_fic,
+                    COALESCE((evidencias ->> 'impacto_ressarcimento')::numeric, 0) AS impacto_ressarcimento
+                FROM {schema}.midway_propostas_tratamento
+                ORDER BY created_at DESC
                 LIMIT 500
                 """
             )
@@ -280,8 +259,6 @@ def _list_postgres_anomalies() -> list[dict[str, object]]:
 
 def _postgres_anomaly_detail(id_anomalia: str) -> dict[str, object] | None:
     schema = _schema()
-    if not _ensure_tables(schema):
-        return None
 
     engine = create_postgres_engine()
     with engine.connect() as con:
@@ -289,77 +266,69 @@ def _postgres_anomaly_detail(id_anomalia: str) -> dict[str, object] | None:
             text(
                 f"""
                 SELECT
-                    id_anomalia::text,
-                    registro_id,
-                    anomalia_codigo,
-                    nome,
-                    categoria,
-                    severidade,
-                    confianca,
-                    status_anomalia,
-                    origem,
-                    regional,
-                    conjunto,
-                    equipamento,
-                    uc,
-                    ocorrencia,
-                    interrupcao,
-                    criado_em,
-                    descricao,
-                    explicacao_simples,
-                    explicacao_tecnica,
-                    regra_violada,
-                    impacto_possivel,
-                    campos_envolvidos,
-                    dados_originais,
-                    dados_sugeridos,
-                    impacto,
-                    linha_tempo
-                FROM {schema}.midway_anomalia
-                WHERE id_anomalia::text = :id_anomalia
+                    id::text AS id_anomalia,
+                    chave_negocio AS registro_id,
+                    codigo_modulo AS anomalia_codigo,
+                    codigo_modulo AS nome,
+                    'modulo' AS categoria,
+                    'alta' AS severidade,
+                    1.0 AS confianca,
+                    status_governanca AS status_anomalia,
+                    'MIDWAY_7.1' AS origem,
+                    evidencias ->> 'regional' AS regional,
+                    evidencias ->> 'conjunto' AS conjunto,
+                    evidencias ->> 'equipamento' AS equipamento,
+                    evidencias ->> 'uc' AS uc,
+                    evidencias ->> 'num_ocorrencia' AS ocorrencia,
+                    evidencias ->> 'interrupcao' AS interrupcao,
+                    created_at AS criado_em,
+                    impacto AS descricao,
+                    'Módulo detectou anomalia estrutural' AS explicacao_simples,
+                    impacto AS explicacao_tecnica,
+                    'Regra baseada em módulo' AS regra_violada,
+                    'Revisão dos campos ' || array_to_string(campos_iqs_afetados, ',') AS impacto_possivel,
+                    campos_iqs_afetados AS campos_envolvidos,
+                    '{{}}'::jsonb AS dados_originais,
+                    '{{}}'::jsonb AS dados_sugeridos,
+                    '{{}}'::jsonb AS impacto,
+                    '[]'::jsonb AS linha_tempo,
+                    evidencias,
+                    acao_sugerida
+                FROM {schema}.midway_propostas_tratamento
+                WHERE id::text = :id_anomalia
                 """
             ),
             {"id_anomalia": id_anomalia},
         ).mappings().first()
+        
         if not row:
             return None
 
-        evidences = con.execute(
-            text(
-                f"""
-                SELECT campo, valor, origem, detalhe
-                FROM {schema}.midway_evidencia
-                WHERE id_anomalia::text = :id_anomalia
-                ORDER BY criado_em, campo
-                """
-            ),
-            {"id_anomalia": id_anomalia},
-        ).mappings().all()
+        # Convertendo o json das evidências em uma lista para a UI
+        evidences = []
+        evidencias_json = row.get("evidencias") or {}
+        for k, v in evidencias_json.items():
+            evidences.append({
+                "campo": k,
+                "valor": str(v),
+                "origem": "MIDWAY_7.1",
+                "detalhe": "Extraído via PropostaTratamento"
+            })
 
-        suggestion = con.execute(
-            text(
-                f"""
-                SELECT
-                    id_sugestao::text,
-                    acao,
-                    valor_original,
-                    valor_sugerido,
-                    justificativa,
-                    nivel_confianca,
-                    risco_regulatorio,
-                    risco_operacional,
-                    risco_juridico,
-                    requer_aprovacao
-                FROM {schema}.midway_sugestao
-                WHERE id_anomalia::text = :id_anomalia
-                ORDER BY criado_em DESC
-                LIMIT 1
-                """
-            ),
-            {"id_anomalia": id_anomalia},
-        ).mappings().first()
+        suggestion = {
+            "id_sugestao": row["id_anomalia"],
+            "acao": row["acao_sugerida"],
+            "valor_original": "",
+            "valor_sugerido": "Ver JSON",
+            "justificativa": row["descricao"],
+            "nivel_confianca": "alta",
+            "risco_regulatorio": "baixo",
+            "risco_operacional": "baixo",
+            "risco_juridico": "baixo",
+            "requer_aprovacao": True
+        }
 
-    return _detail_row(dict(row), [dict(item) for item in evidences], dict(suggestion) if suggestion else None)
+    return _detail_row(dict(row), evidences, suggestion)
 
 
 def _summary_row(row: dict[str, Any]) -> dict[str, object]:

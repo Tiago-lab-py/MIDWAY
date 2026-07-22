@@ -68,7 +68,7 @@ def persistir_propostas_lote(propostas_com_codigo: List[Tuple[str, PropostaTrata
             execute_values(
                 cur,
                 """
-                INSERT INTO ddcq.propostas_tratamento 
+                INSERT INTO ddcq.midway_propostas_tratamento 
                 (codigo_modulo, chave_negocio, evidencias, impacto, acao_sugerida, campos_iqs_afetados, exportacao_iqs)
                 VALUES %s
                 """,

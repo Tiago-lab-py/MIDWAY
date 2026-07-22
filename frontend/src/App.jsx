@@ -12,18 +12,7 @@ const menuItems = [
   { id: 'administracao', label: 'Administração', icon: 'G', profiles: ['ADM'] },
 ]
 
-const EXECUCAO_MODULO_MAP = {
-  CORRECAO_9282: 'correcao_9282',
-  COMPONENTE_CAUSA: 'agente_comp_causa',
-  FALHA_EQUIPAMENTO_RA: 'suspeita_falha_ra',
-  DURACAO_IMPACTO: 'analise_tecnica_cache',
-  RESSARCIMENTO_ATIPICO: 'analise_tecnica_cache',
-  SOBREPOSICAO_UC: 'exportacao_sobreposicao',
-  INTERRUPCAO_SEM_UC: 'interrupcao_sem_uc',
-  DUPLICIDADE_TIPO: 'auditoria_duplicidade_tipo',
-  DIA_CRITICO_ISE: 'simulacao_ise',
-  RECLAMACOES_SERVICOS: 'reclamacoes_servicos',
-}
+
 
 function numberFormat(value) {
   return new Intl.NumberFormat('pt-BR').format(Number(value || 0))
@@ -1407,7 +1396,7 @@ function AjustesGovernadosPanel({
   }
 
   function tipoExecucaoModulo(module) {
-    return EXECUCAO_MODULO_MAP[module?.codigo] || null
+    return 'orquestrador'
   }
 
   function ultimaExecucaoModulo(module) {
@@ -1498,7 +1487,7 @@ function AjustesGovernadosPanel({
 
   function moduleCard(module, mode) {
     const isAuto = mode === 'auto'
-    const updateDisabled = actionDisabled || !tipoExecucaoModulo(module) || runningAlgorithm === module.codigo
+    const updateDisabled = actionDisabled || !tipoExecucaoModulo(module) || runningAlgorithm === 'orquestrador'
     return (
       <article className={`module-summary-card ${module.codigo === 'CORRECAO_9282' ? 'module-summary-card-featured' : ''}`} key={`${mode}-${module.codigo}`}>
         <div>
@@ -1529,10 +1518,7 @@ function AjustesGovernadosPanel({
         {isAuto && (
           <div className="module-action-row">
             <button className="primary-button" type="button" onClick={() => abrirVisualizacao(module)}>
-              Visualizar
-            </button>
-            <button className="secondary-button" type="button" disabled={updateDisabled} onClick={() => onAtualizarAlgoritmo?.(module)}>
-              {runningAlgorithm === module.codigo ? 'Solicitando...' : moduloEmExecucao(module) ? 'Rodar novamente' : 'Atualizar'}
+              Visualizar Evidências
             </button>
           </div>
         )}
@@ -1548,6 +1534,14 @@ function AjustesGovernadosPanel({
             <h2>Painel de ajustes</h2>
             <p>Módulos tratados por algoritmo separados dos itens que exigem decisão humana e justificativa.</p>
           </div>
+          <button 
+            className="primary-button" 
+            style={{ padding: '0.75rem 1.5rem', fontWeight: 'bold' }}
+            disabled={runningAlgorithm === 'orquestrador'} 
+            onClick={() => onAtualizarAlgoritmo?.({ codigo: 'orquestrador', nome: 'Orquestrador Completo' })}
+          >
+            {runningAlgorithm === 'orquestrador' ? 'Executando Motor...' : 'Executar Motor de Anomalias'}
+          </button>
         </div>
 
         <div className="adjustment-panel-grid">
@@ -1960,9 +1954,9 @@ function AprovacaoPage({
     return catalogo
       .filter((item, index, self) => self.findIndex((candidate) => candidate.codigo === item.codigo) === index)
       .map((item) => {
-        const tipoExecucao = EXECUCAO_MODULO_MAP[item.codigo]
-        const execucao = tipoExecucao ? latestExecucaoByTipo.get(tipoExecucao) : null
-        const statusExecucao = execucao?.status_lote || (tipoExecucao ? 'SEM EXECUÇÃO' : 'SEM EXECUTOR')
+        const tipoExecucao = 'orquestrador'
+        const execucao = latestExecucaoByTipo.get('orquestrador')
+        const statusExecucao = execucao?.status_lote || 'SEM EXECUTOR'
         const encaminhado = tratativasAceitas.includes(item.codigo)
         const statusAprovacao = encaminhado
           ? 'ENCAMINHADO PARA APROVAÇÃO'
@@ -2631,15 +2625,16 @@ function AnomalyDetailModal({ detail, loading, onClose, onRegisterDecision }) {
 
           <section className="content-grid">
             <div className="panel">
-              <h3>Evidências</h3>
-              <DataTable
-                columns={[
-                  { key: 'campo', label: 'Campo' },
-                  { key: 'valor', label: 'Valor' },
-                  { key: 'origem', label: 'Origem' },
-                ]}
-                rows={detail.evidencias || []}
-              />
+              <h3>Evidências (JSONB)</h3>
+              <div className="product-card-list">
+                {(detail.evidencias || []).map((ev, index) => (
+                  <article className="product-card" key={index} style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                    <small style={{ color: 'var(--muted)' }}>{ev.campo}</small>
+                    <strong style={{ display: 'block', margin: '0.25rem 0', fontSize: '1.1rem' }}>{ev.valor}</strong>
+                    <span className="pill pill-info" style={{ marginTop: '0.5rem' }}>{ev.origem}</span>
+                  </article>
+                ))}
+              </div>
             </div>
             <div className="panel">
               <h3>Linha do tempo</h3>
@@ -6114,14 +6109,9 @@ export default function App() {
   }
 
   async function handleAtualizarAlgoritmo(module) {
-    const tipoLote = EXECUCAO_MODULO_MAP[module?.codigo]
-    if (!tipoLote) {
-      setActionMessage('')
-      setError(`Algoritmo ${module?.nome || module?.codigo || '—'} ainda não possui executor backend mapeado.`)
-      return
-    }
+    const tipoLote = 'orquestrador'
     try {
-      setRunningAlgorithm(module.codigo)
+      setRunningAlgorithm('orquestrador')
       setError('')
       setActionMessage('')
       const response = await fetch(`${API_URL}/api/governanca/execucoes`, {

@@ -249,40 +249,10 @@ EXECUCOES_PERMITIDAS = {
         ),
         "etapas": [{"module": "midway.transform.dbguo_reclamacoes_silver", "env": {}}],
     },
-    "correcao_9282": {
-        "titulo": "run.bat correcao_9282 — Tratativa em massa",
-        "descricao": "Gera tratativa em massa de correção operacional.",
-        "etapas": [{"module": "midway.auditoria.correcao_9282", "env": {}}],
-    },
-    "agente_comp_causa": {
-        "titulo": "run.bat agente_comp_causa — Agente componente/causa",
-        "descricao": "Identifica outros componentes/causas candidatos a ajuste com evidência de serviços, referência IQS e reclamações.",
-        "etapas": [{"module": "midway.auditoria.agente_comp_causa", "env": {}}],
-    },
-    "suspeita_falha_ra": {
-        "titulo": "run.bat suspeita_falha_RA — Suspeita falha RA",
-        "descricao": "Identifica religadores automáticos com ocorrências sucessivas no mesmo dia, sem reclamações, mas com FIC/ressarcimento FIC relevante.",
-        "etapas": [{"module": "midway.auditoria.suspeita_falha_ra", "env": {}}],
-    },
-    "analise_tecnica_cache": {
-        "titulo": "run.bat analise_tecnica_cache — Cache análise técnica",
-        "descricao": "Materializa cache da Análise Técnica.",
-        "etapas": [{"module": "midway.qualidade.analise_tecnica_cache", "env": {}}],
-    },
-    "exportacao_sobreposicao": {
-        "titulo": "run.bat exportacao_sobreposicao — Sobreposição UC",
-        "descricao": "Processa exportação separada de sobreposição total/parcial por UC.",
-        "etapas": [{"module": "midway.auditoria.sobreposicoes", "env": {}}],
-    },
-    "interrupcao_sem_uc": {
-        "titulo": "run.bat interrupcao_sem_uc — Interrupções sem UC",
-        "descricao": "Exporta interrupções sem UC para análise de ESTADO 7.",
-        "etapas": [{"module": "midway.auditoria.interrupcao_sem_uc", "env": {}}],
-    },
-    "auditoria_duplicidade_tipo": {
-        "titulo": "run.bat auditoria_duplicidade_tipo — Duplicidade de tipo",
-        "descricao": "Audita duplicidade de interrupção por COD_TIPO_INTRP 1, 2 e 3.",
-        "etapas": [{"module": "midway.auditoria.duplicidade_tipo_intrp", "env": {}}],
+    "orquestrador": {
+        "titulo": "run.bat orquestrador — Tratativas em massa (Orquestrador)",
+        "descricao": "Executa todos os módulos de anomalias (Sobreposições, Interrupção sem UC, etc) e gera as Propostas de Tratamento.",
+        "etapas": [{"module": "midway.modulos.orquestrador", "env": {}}],
     },
     "simulacao_ise": {
         "titulo": "run.bat simulacao_ise — Dia crítico / ISE",

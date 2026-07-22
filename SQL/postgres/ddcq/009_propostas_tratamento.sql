@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS ddcq.propostas_tratamento (
+CREATE TABLE IF NOT EXISTS ddcq.midway_propostas_tratamento (
     id SERIAL PRIMARY KEY,
     codigo_modulo VARCHAR(100) NOT NULL,
     chave_negocio VARCHAR(255) NOT NULL,
@@ -23,8 +23,8 @@ CREATE TABLE IF NOT EXISTS ddcq.propostas_tratamento (
 );
 
 -- Índices essenciais para o Frontend e deduplicação
-CREATE INDEX IF NOT EXISTS idx_propostas_modulo ON ddcq.propostas_tratamento(codigo_modulo);
-CREATE INDEX IF NOT EXISTS idx_propostas_status ON ddcq.propostas_tratamento(status_governanca);
-CREATE INDEX IF NOT EXISTS idx_propostas_chave ON ddcq.propostas_tratamento(chave_negocio);
+CREATE INDEX IF NOT EXISTS idx_propostas_modulo ON ddcq.midway_propostas_tratamento(codigo_modulo);
+CREATE INDEX IF NOT EXISTS idx_propostas_status ON ddcq.midway_propostas_tratamento(status_governanca);
+CREATE INDEX IF NOT EXISTS idx_propostas_chave ON ddcq.midway_propostas_tratamento(chave_negocio);
 -- Índice GIN para busca rápida dentro das evidências JSON
-CREATE INDEX IF NOT EXISTS idx_propostas_evidencias ON ddcq.propostas_tratamento USING GIN (evidencias);
+CREATE INDEX IF NOT EXISTS idx_propostas_evidencias ON ddcq.midway_propostas_tratamento USING GIN (evidencias);

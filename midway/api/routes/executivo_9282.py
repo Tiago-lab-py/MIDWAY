@@ -10,7 +10,6 @@ from sqlalchemy import text
 
 from midway.api.security import AuthUser, require_profiles
 from midway.api.serialization import api_row, api_rows
-from midway.auditoria.correcao_9282 import registrar_ajustes_automaticos_9282_postgres
 from midway.db.postgres import create_postgres_engine, get_config
 
 router = APIRouter(prefix="/api/executivo/9282", tags=["executivo-9282"])
@@ -527,11 +526,29 @@ def autorizar_9282(
                 if justificativas_unicas:
                     partes.append("Justificativas dos processos aceitos: " + " | ".join(justificativas_unicas))
             justificativa = "\n\n".join(partes).strip()
-        result = registrar_ajustes_automaticos_9282_postgres(
-            anomes=anomes,
-            responsavel=user.login,
-            justificativa_autorizacao=justificativa or None,
-        )
+            
+        schema = _schema()
+        engine = create_postgres_engine()
+        with engine.connect() as con:
+            res = con.execute(
+                text(f"""
+                    UPDATE {schema}.propostas_tratamento
+                    SET status_governanca = 'APROVADA', 
+                        acao_sugerida = COALESCE(acao_sugerida, '') || CASE WHEN :justificativa != '' THEN ' | Justificativa: ' || :justificativa ELSE '' END
+                    WHERE codigo_modulo = 'CORRECAO_9282' 
+                      AND status_governanca = 'PENDENTE'
+                """),
+                {"justificativa": justificativa}
+            )
+            con.commit()
+            linhas_afetadas = res.rowcount
+
+        result = {
+            "status": "APROVADA",
+            "linhas_afetadas": linhas_afetadas,
+            "anomes": anomes,
+            "responsavel": user.login
+        }
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
     return api_row(result)
