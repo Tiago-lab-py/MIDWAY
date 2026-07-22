@@ -16,6 +16,7 @@ from midway.modulos.duplicidade_tipo_intrp import ModuloDuplicidadeTipoIntrp
 from midway.modulos.interrupcao_sem_uc import ModuloInterrupcaoSemUC
 from midway.modulos.agente_comp_causa import ModuloAgenteCompCausa
 from midway.modulos.suspeita_falha_ra import ModuloSuspeitaFalhaRA
+from midway.modulos.correcao_9282 import ModuloCorrecao9282
 from midway.modulos.base_modulo import PropostaTratamento
 
 # Lista de módulos ativos
@@ -30,7 +31,8 @@ MODULOS_ATIVOS = [
     ModuloAjusteInicioManobra(),
     ModuloDuplicidadeTipoIntrp(),
     ModuloAgenteCompCausa(),
-    ModuloSuspeitaFalhaRA()
+    ModuloSuspeitaFalhaRA(),
+    ModuloCorrecao9282()
 ]
 
 def persistir_propostas_lote(propostas_com_codigo: List[Tuple[str, PropostaTratamento]], chunk_size: int = 10000) -> None:
