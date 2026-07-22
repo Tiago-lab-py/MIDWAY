@@ -1,6 +1,6 @@
 # MIDWAY - Anomalias OMS/ADMS para IQS
 
-Versao atual: `6.2.1`
+Versao atual: `7.1.0`
 
 O MIDWAY e uma plataforma local de ETL, apuracao, auditoria e decisao governada para tratar anomalias dos dados OMS/ADMS antes da carga no IQS.
 
@@ -126,7 +126,7 @@ run.bat apuracao_parcial
 run.bat validar_dados
 ```
 
-Abrir painel React `MIDWAY 7.0.0`:
+Abrir painel React `MIDWAY 7.1.0`:
 
 ```bat
 inicio.bat
@@ -146,11 +146,13 @@ Abrir painel Streamlit de conferencia:
 run.bat painel
 ```
 
-## Módulos de Anomalia
+## Módulos de Anomalia e Orquestração
 
-O MIDWAY deve evoluir como catálogo de módulos de anomalia. Cada módulo detecta uma distorção, gera evidências, estima impacto, propõe ação e, quando aprovado, alimenta a exportação IQS.
+O MIDWAY evoluiu para uma arquitetura escalável e orientada a objetos focada no motor de propostas. Todos os agentes analíticos agora herdam da classe `BaseModulo` e são executados centralizadamente pelo **Orquestrador Central**. 
 
-Módulos regulatórios:
+O orquestrador é responsável por invocar os módulos, compilar a lista unificada de `Propostas de Tratamento` e persisti-las em bloco (`bulk insert`) no PostgreSQL local (tabela `ddcq.propostas_tratamento`), garantindo enorme performance e zero vazamento de memória.
+
+Módulos regulatórios (Apurados via SQL/DuckDB puro na etapa de Apuração):
 
 | Módulo | Escopo | Objetivo |
 | --- | --- | --- |
@@ -158,18 +160,20 @@ Módulos regulatórios:
 | DEC/FEC PRODIST | conjunto/regional/empresa | Calcular DEC e FEC com denominador COPEL de consumidores faturados |
 | Ressarcimento PRODIST | UC/compensação | Calcular compensação financeira por continuidade conforme metas, VRC e filtros COPEL |
 
-Módulos de anomalia já tratados ou em consolidação:
+Módulos de anomalia migrados para a nova arquitetura (Orquestrador `BaseModulo`):
 
 | Módulo | Escopo | Objetivo |
 | --- | --- | --- |
-| Sobreposição total/parcial por UC | UC/interrupção | Corrigir conflito temporal e preservar base apurável |
-| Interrupção/ocorrência sem UC | Interrupção/ocorrência | Identificar eventos sem UC apurável após tratamentos |
-| Duração suspeita | Ocorrência/interrupção | Priorizar duração extrema ou incompatível |
-| Componente/causa divergente | Ocorrência/interrupção | Comparar OMS/ADMS, serviços, reclamações e referência IQS |
-| Ressarcimento atípico | UC/ocorrência | Evitar duplicidade ou soma sem filtro correto |
-| Falha de equipamento/comunicação | Equipamento/alimentador/conjunto | Detectar FIC recorrente com baixa reclamação proporcional |
-| Reclamação sem ocorrência compatível | Reclamação/UC | Sinalizar lacuna entre demanda e registro IQS |
-| `92/82` | Especialização componente/causa | Módulo específico, mantido como caso particular |
+| Durações Negativas | Interrupção | Sanitiza ocorrências onde FIM < INÍCIO para evitar crash nos módulos temporais |
+| Sobreposição UC (Total/Parcial) | UC/interrupção | Corrige conflito temporal (Total: anula, Parcial: trunca) preservando a base apurável |
+| Interrupção sem UC | Interrupção/ocorrência | Identifica eventos totalmente esvaziados (Estado 7) após a sobreposição 91/D |
+| Ajuste Início Manobra | Interrupção | Reposiciona a chave `NUM_INTRP_INIC_MANOBRA_UCI` para pai válido |
+| Duplicidade Tipo Intrp | Interrupção | Oculta registros clones idênticos (dupla persistência ADMS/OMS) |
+| Agente de Causa/Componente | Ocorrência/interrupção | Sugere par Componente/Causa cruzando serviços e reclamações reais |
+| Suspeita Falha Religador (RA) | Equipamento/alimentador | Detecta operações sucessivas de RA com FIC alto e sem reclamações |
+| Correção 92/82 | Especialização Causa/Comp | Usa Heurística e NLP para reclassificar o lixo genérico de religadores |
+
+## Comandos Principais
 
 ## Comandos Principais
 
@@ -182,9 +186,9 @@ Módulos de anomalia já tratados ou em consolidação:
 | `run.bat apuracao_parcial` | Gera camadas gold, BDO e previa de ressarcimento |
 | `run.bat validar_dados` | Executa testes automatizados e metricas |
 | `inicio.bat` | Inicia PostgreSQL local, API FastAPI e frontend React |
+| `run.bat orquestrador` | **(NOVO)** Roda a inteligência do `BaseModulo` e salva propostas no Postgres |
 | `run.bat painel` | Abre painel Streamlit |
 | `run.bat exportar` | Regenera CSVs finais sem refazer tratamento |
-| `run.bat exportacoes_auxiliares` | Gera exportacoes separadas de sobreposicao e sem UC |
 | `run.bat sincronizar_iqs_raw` | Sincroniza `data/raw/iqs_raw_<ANOMES>.duckdb` para o processed |
 | `run.bat extrair_dbguo_reclamacoes` | Extrai reclamacoes DBGUO para `data/raw` |
 | `run.bat dbguo_reclamacoes` | Materializa silver/gold de reclamacoes DBGUO |
@@ -427,19 +431,9 @@ Interrupcoes_IQS_<YYYYMMDDHHMMSS>_<REGIONAL>.CSV
 Exportacao_IQS_<YYYYMMDDHHMMSS>_RESUMO.TXT
 ```
 
-Exportacoes auxiliares:
+Exportacoes auxiliares (Legado inativado):
 
-```bat
-run.bat exportacoes_auxiliares
-```
-
-Pastas geradas:
-
-```text
-data/export/sobreposicao_total_uc
-data/export/sobreposicao_UC_parcial
-data/export/interrupcao_sem_uc
-```
+A rotina de anomalias (Sobreposições e Sem UC) foi migrada para o motor de Propostas de Tratamento (`run.bat orquestrador`). As planilhas manuais geradas anteriormente foram descontinuadas em favor da interface Web e persistência estruturada no Postgres.
 
 ## Problemas Comuns
 
@@ -515,8 +509,10 @@ Consultar:
 run.bat versao
 ```
 
-## Destaques da 6.2.1
+## Destaques da 7.1.0
 
+- **Nova Arquitetura `BaseModulo` e Orquestrador Central**: Backend de auditoria refatorado para um pipeline massivamente escalável de propostas de tratamento.
+- **Persistência de Alto Desempenho**: Substituição de gravações individuais por Bulk Insert (execute_values) no PostgreSQL.
 - Exportacoes IQS em layout padrao: `|`, UNIX/LF e ISO-8859-1 transliterado.
 - Datas de pacote IQS normalizadas para `dd/mm/aaaa hh:mm:ss` e inteiros sem decimal pelo helper oficial.
 - Exportador separado para sobreposicao total por UC, parcial por UC e interrupcao sem UC.
@@ -557,7 +553,7 @@ run.bat uc_fatura
 run.bat vrc
 run.bat metas_uc
 run.bat apuracao_parcial
-run.bat exportacoes_auxiliares
+run.bat orquestrador
 run.bat validar_dados
 
 ## Processo de restração para ao longo do mes
@@ -570,7 +566,7 @@ set REPROCESSAR=1
 run.bat extract
 run.bat tratamento
 run.bat apuracao_parcial
-run.bat exportacoes_auxiliares
+run.bat orquestrador
 run.bat validar_dados
 
 ## Rodar dados do react
@@ -578,5 +574,4 @@ run.bat validar_dados
 run.bat anomalias_setup
 run.bat dbguo_reclamacoes
 run.bat analise_tecnica_cache
-
-run.bat correcao_9282
+run.bat orquestrador

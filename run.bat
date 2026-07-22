@@ -123,24 +123,8 @@ if /I "%~1"=="auditar_ajuste_inicio_manobra" (
 )
 
 if /I "%~1"=="exportacoes_auxiliares" (
-    echo Gerando exportacoes separadas de sobreposicao...
-    "%PYTHON_EXE%" -m midway.auditoria.sobreposicoes
-    if errorlevel 1 goto erro
-
-    ping -n 2 127.0.0.1 >nul
-
-    echo Gerando exportacao de interrupcoes sem UC...
-    "%PYTHON_EXE%" -m midway.auditoria.interrupcao_sem_uc
-    if errorlevel 1 goto erro
-
-    echo Normalizando datas das exportacoes auxiliares...
-    "%PYTHON_EXE%" -m midway.export.normalizar_datas_iqs
-    if errorlevel 1 goto erro
-
-    echo Validando arquivos exportados...
-    "%PYTHON_EXE%" -m midway.export.validacao_csv
-    if errorlevel 1 goto erro
-
+    echo O comando exportacoes_auxiliares foi inativado. 
+    echo Use 'run.bat orquestrador' para tratar as anomalias.
     goto fim
 )
 
@@ -184,31 +168,9 @@ if /I "%~1"=="extrair_adms_servicos" (
     goto fim
 )
 
-if /I "%~1"=="correcao_9282" (
-    echo Gerando tratativa em massa RA 92/82...
-    "%PYTHON_EXE%" -m midway.auditoria.correcao_9282
-    if errorlevel 1 goto erro
-    goto fim
-)
-
-if /I "%~1"=="agente_comp_causa" (
-    echo Rodando agente de componentes e causas...
-    if "%~2"=="" (
-        "%PYTHON_EXE%" -m midway.auditoria.agente_comp_causa
-    ) else (
-        "%PYTHON_EXE%" -m midway.auditoria.agente_comp_causa %~2
-    )
-    if errorlevel 1 goto erro
-    goto fim
-)
-
-if /I "%~1"=="suspeita_falha_RA" (
-    echo Rodando agente de suspeita de falha em religador automatico...
-    if "%~2"=="" (
-        "%PYTHON_EXE%" -m midway.auditoria.suspeita_falha_ra
-    ) else (
-        "%PYTHON_EXE%" -m midway.auditoria.suspeita_falha_ra %~2
-    )
+if /I "%~1"=="orquestrador" (
+    echo Executando Orquestrador de Anomalias...
+    "%PYTHON_EXE%" -m midway.modulos.orquestrador
     if errorlevel 1 goto erro
     goto fim
 )
@@ -460,14 +422,8 @@ if /I "%~1"=="full_mais_apuracao" (
     "%PYTHON_EXE%" -m midway.analytics.outlier_uc
     if errorlevel 1 goto erro
 
-    echo Gerando exportacoes separadas de sobreposicao...
-    "%PYTHON_EXE%" -m midway.auditoria.sobreposicoes
-    if errorlevel 1 goto erro
-
-    ping -n 2 127.0.0.1 >nul
-
-    echo Gerando exportacao de interrupcoes sem UC...
-    "%PYTHON_EXE%" -m midway.auditoria.interrupcao_sem_uc
+    echo Executando Orquestrador de Anomalias...
+    "%PYTHON_EXE%" -m midway.modulos.orquestrador
     if errorlevel 1 goto erro
 
     echo Normalizando datas das exportacoes auxiliares...
@@ -524,9 +480,7 @@ echo   run.bat extrair_dbguo_reclamacoes    Extrai reclamacoes DBGUO para data\r
 echo   run.bat dbguo_reclamacoes            Materializa silver e gold de reclamacoes DBGUO
 echo   run.bat reclamacoes_servicos         Materializa reclamacoes e evidencias para servicos
 echo   run.bat extrair_adms_servicos        Extrai servicos ADMS de backup para data\raw
-echo   run.bat correcao_9282                Gera tratativa RA 92/82 e CSV IQS em data\export\correcao_9282
-echo   run.bat agente_comp_causa [ANOMES]   Identifica outros componentes/causas candidatos a ajuste
-echo   run.bat suspeita_falha_RA [ANOMES]   Identifica suspeita de falha de comunicacao em religadores automaticos
+echo   run.bat orquestrador                 Roda todos os modulos de anomalia e salva as propostas no BD
 echo   run.bat analise_tecnica_cache [ANOMES] Materializa cache rapido da Analise Tecnica
 echo   run.bat testar_dados                 Executa testes automatizados dos dados tratados
 echo   run.bat validar_dados                Executa testes e metricas de qualidade
@@ -547,8 +501,8 @@ echo.
 echo   set REEXTRAIR=
 echo   set REPROCESSAR=1
 echo   run.bat tratamento
-echo   run.bat exportacoes_auxiliares
 echo   run.bat apuracao_parcial
+echo   run.bat orquestrador
 echo   run.bat dbguo_reclamacoes
 echo   run.bat referencia_iqs
 goto fim
