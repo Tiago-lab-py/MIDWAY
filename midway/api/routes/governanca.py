@@ -145,8 +145,13 @@ EXECUCOES_PERMITIDAS = {
         "descricao": "Refaz tratamento com REPROCESSAR=1.",
         "etapas": [{"module": "midway.transform.tratamento", "env": {"REPROCESSAR": "1"}}],
     },
+    "etl": {
+        "titulo": "run.bat etl — Pipeline ETL Central (Extração, Tratamento e Apuração)",
+        "descricao": "Executa de forma centralizada todas as etapas do ETL 100% Python (Fase 1, 2 e 3).",
+        "etapas": [{"module": "midway.pipeline.etl", "env": {}}],
+    },
     "full": {
-        "titulo": "run.bat full — Extração + tratamento",
+        "titulo": "run.bat full — Extração + tratamento (Legado)",
         "descricao": "Executa extração RAW e tratamento SILVER em sequência.",
         "etapas": [
             {"module": "midway.extract.adms", "env": {}},
