@@ -11,28 +11,34 @@ from midway.db.postgres import create_postgres_engine
 # Importar os módulos migrados
 from midway.modulos.duracao_negativa import ModuloDuracaoNegativa
 from midway.modulos.sobreposicao_uc import ModuloSobreposicaoUC
+from midway.modulos.interrupcao_sem_uc import ModuloInterrupcaoSemUC
 from midway.modulos.ajuste_inicio_manobra import ModuloAjusteInicioManobra
 from midway.modulos.duplicidade_tipo_intrp import ModuloDuplicidadeTipoIntrp
-from midway.modulos.interrupcao_sem_uc import ModuloInterrupcaoSemUC
 from midway.modulos.agente_comp_causa import ModuloAgenteCompCausa
 from midway.modulos.suspeita_falha_ra import ModuloSuspeitaFalhaRA
 from midway.modulos.correcao_9282 import ModuloCorrecao9282
-from midway.modulos.base_modulo import PropostaTratamento
+from midway.modulos.duracao_impacto import ModuloDuracaoImpacto
+from midway.modulos.ressarcimento_atipico import ModuloRessarcimentoAtipico
+from midway.modulos.reclamacoes_servicos import ModuloReclamacoesServicos
+from midway.modulos.dia_critico_ise import ModuloDiaCriticoIse
+from midway.modulos.base_modulo import PropostaTratamento, BaseModulo
 
-# Lista de módulos ativos
-# A ordem de execução é crítica para os módulos de sobreposição:
-# 1. Durações Negativas
-# 2. Sobreposição UC (Total e depois Parcial)
-# 3. Interrupção sem UC
-MODULOS_ATIVOS = [
+logger = logging.getLogger(__name__)
+
+# Configuração da ordem de execução
+MODULOS_ATIVOS: List[BaseModulo] = [
     ModuloDuracaoNegativa(),
     ModuloSobreposicaoUC(),
-    ModuloInterrupcaoSemUC(),
     ModuloAjusteInicioManobra(),
     ModuloDuplicidadeTipoIntrp(),
+    ModuloInterrupcaoSemUC(),
     ModuloAgenteCompCausa(),
     ModuloSuspeitaFalhaRA(),
-    ModuloCorrecao9282()
+    ModuloDuracaoImpacto(),
+    ModuloRessarcimentoAtipico(),
+    ModuloReclamacoesServicos(),
+    ModuloDiaCriticoIse(),
+    ModuloCorrecao9282() # Sempre por último, após todas as normalizações estruturais
 ]
 
 def persistir_propostas_lote(propostas_com_codigo: List[Tuple[str, PropostaTratamento]], chunk_size: int = 10000) -> None:
