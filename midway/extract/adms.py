@@ -21,7 +21,7 @@ from midway.controle_execucao import (
 # .ENV
 # ============================================================
 
-load_dotenv()
+load_dotenv(override=True)
 
 IQS_UID = os.getenv("IQS_UID")
 IQS_PWD = os.getenv("IQS_PWD")

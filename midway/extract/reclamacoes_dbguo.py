@@ -15,6 +15,8 @@ load_dotenv(override=True)
 def _anomes() -> str:
     return os.getenv("ANOMES", "202607")
 
+ANOMES = _anomes()
+
 DB_URL = os.getenv("DB_URL")
 REEXTRAIR_DBGUO = os.getenv("REEXTRAIR_DBGUO", "0") == "1"
 

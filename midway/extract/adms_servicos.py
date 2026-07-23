@@ -10,7 +10,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 
-load_dotenv()
+load_dotenv(override=True)
 
 ANOMES = os.getenv("ANOMES", "202606")
 REEXTRAIR_ADMS_SERVICOS = os.getenv("REEXTRAIR_ADMS_SERVICOS", "0") == "1"
