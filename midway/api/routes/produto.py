@@ -17,7 +17,38 @@ from midway.transform.iqs_raw_utils import processed_path
 
 router = APIRouter(prefix="/api/produto", tags=["produto"])
 
-ANOMES = os.getenv("ANOMES", "202606")
+def get_anomes() -> str:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    return os.getenv("ANOMES", "202607")
+
+class DynamicANOMES(str):
+    def _val(self):
+        return get_anomes()
+    def __str__(self):
+        return self._val()
+    def __repr__(self):
+        return self._val()
+    def __format__(self, format_spec):
+        return self._val().__format__(format_spec)
+    def __add__(self, other):
+        return self._val() + str(other)
+    def __radd__(self, other):
+        return str(other) + self._val()
+    def __eq__(self, other):
+        return self._val() == str(other)
+    def __hash__(self):
+        return hash(self._val())
+    def __len__(self):
+        return len(self._val())
+    def __getitem__(self, item):
+        return self._val()[item]
+    def __getattribute__(self, name):
+        if name in ('_val', '__class__', '__doc__', '__str__', '__repr__', '__format__', '__add__', '__radd__', '__eq__', '__hash__', '__len__', '__getitem__'):
+            return object.__getattribute__(self, name)
+        return getattr(object.__getattribute__(self, '_val')(), name)
+
+ANOMES = DynamicANOMES()
 INPUT_DIR = Path("data") / "input"
 CAUSA_CSV_PATH = Path(os.getenv("IQS_CAUSA_CSV", str(INPUT_DIR / "causa.csv")))
 COMPONENTE_CSV_PATH = Path(os.getenv("IQS_COMPONENTE_CSV", str(INPUT_DIR / "componente.csv")))

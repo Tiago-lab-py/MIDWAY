@@ -8,19 +8,24 @@ import duckdb
 from dotenv import load_dotenv
 
 
-load_dotenv()
+load_dotenv(override=True)
 
-ANOMES = os.getenv("ANOMES", "202606")
+def _anomes() -> str:
+    return os.getenv("ANOMES", "202607")
+
 BASE_DIR = Path("data")
 INPUT_DIR = BASE_DIR / "input"
-RAW_DUCKDB_PATH = BASE_DIR / "raw" / f"dbguo_raw_{ANOMES}.duckdb"
-PROCESSED_DUCKDB_PATH = BASE_DIR / "processed" / f"iqs_adms_processed_{ANOMES}.duckdb"
-MARTS_DIR = BASE_DIR / "marts"
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M%S")
 RAW_SCHEMA = "dbguo_raw"
 RAW_TABLE = "raw_dbguo_reclamacoes"
 CAUSA_CSV_PATH = Path(os.getenv("IQS_CAUSA_CSV", str(INPUT_DIR / "causa.csv")))
 COMPONENTE_CSV_PATH = Path(os.getenv("IQS_COMPONENTE_CSV", str(INPUT_DIR / "componente.csv")))
+
+def _processed_path() -> Path:
+    return BASE_DIR / "processed" / f"iqs_adms_processed_{_anomes()}.duckdb"
+
+def _raw_path() -> Path:
+    return BASE_DIR / "raw" / f"dbguo_raw_{_anomes()}.duckdb"
 
 
 def sql_literal(valor) -> str:
@@ -857,10 +862,11 @@ def exportar_resumo(con):
 
 
 def main():
-    if not PROCESSED_DUCKDB_PATH.exists():
-        raise RuntimeError(f"DuckDB processado nao encontrado: {PROCESSED_DUCKDB_PATH}")
+    processed_db = _processed_path()
+    if not processed_db.exists():
+        raise RuntimeError(f"DuckDB processado nao encontrado: {processed_db}. Execute a Fase 2 de Tratamento antes.")
 
-    con = duckdb.connect(str(PROCESSED_DUCKDB_PATH))
+    con = duckdb.connect(str(processed_db))
     try:
         criar_referencias_iqs(con)
         criar_silver_reclamacoes(con)

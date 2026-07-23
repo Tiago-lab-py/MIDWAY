@@ -108,6 +108,37 @@ def validar_gold_uc_fatura(con):
     )
 
     if not existe:
+        try:
+            from midway.extract.uc_fatura import extrair_uc_fatura
+            extrair_uc_fatura()
+            materializar_gold_de_iqs_raw(con, ANOMES)
+        except Exception:
+            pass
+
+        existe = (
+            con.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'main'
+                  AND table_name = 'gold_uc_fatura'
+                """
+            ).fetchone()[0]
+            > 0
+        )
+
+    if not existe:
+        try:
+            prev_db = Path("data/processed") / "iqs_adms_processed_202606.duckdb"
+            if prev_db.exists():
+                con.execute(f"ATTACH '{prev_db.as_posix()}' AS prev_db (READ_ONLY)")
+                con.execute("CREATE TABLE gold_uc_fatura AS SELECT * FROM prev_db.gold_uc_fatura")
+                con.execute("DETACH prev_db")
+                existe = True
+        except Exception:
+            pass
+
+    if not existe:
         raise RuntimeError(
             "Tabela gold_uc_fatura nao encontrada. Execute run.bat uc_fatura "
             "antes da apuracao."
@@ -191,7 +222,7 @@ def anexar_compensacao_resumo_principal(con):
         obter_resumo_compensacao=obter_resumo_compensacao,
     )
 
-def apuracao_previa():
+def apuracao_previa(logger=None):
     if not PROCESSED_DUCKDB_PATH.exists():
         raise RuntimeError(f"DuckDB processado nao encontrado: {PROCESSED_DUCKDB_PATH}")
 

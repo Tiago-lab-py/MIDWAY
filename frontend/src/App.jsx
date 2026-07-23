@@ -180,7 +180,7 @@ function StatusBadge({ health }) {
   )
 }
 
-function PageHero({ eyebrow = 'MIDWAY 7.0.0', title, description, sideLabel, sideValue, sideContent }) {
+function PageHero({ eyebrow = 'MIDWAY 7.1.0', title, description, sideLabel, sideValue, sideContent }) {
   const hasSide = Boolean(sideLabel || sideValue || sideContent)
   return (
     <section className="hero">
@@ -4043,8 +4043,8 @@ function GovernancaPage({
     justificativa: '',
   })
   const [execucaoForm, setExecucaoForm] = useState({
-    tipo_lote: 'extract',
-    anomes: '202606',
+    tipo_lote: 'etl',
+    anomes: '202607',
   })
   const [governancaMessage, setGovernancaMessage] = useState('')
   const [governancaError, setGovernancaError] = useState('')
@@ -4221,8 +4221,10 @@ function GovernancaPage({
     }
   }
 
-  async function iniciarExecucao(event) {
-    event.preventDefault()
+  const [forcarReprocessamento, setForcarReprocessamento] = useState(false)
+  const hasActiveExecution = execucoes.some((execucao) => ['ABERTO', 'PROCESSANDO'].includes(String(execucao.status_lote || '').toUpperCase()))
+
+  async function dispararExecucaoLote(tipo_lote, forcarVal = false) {
     try {
       setStartingExecucao(true)
       setGovernancaError('')
@@ -4233,19 +4235,51 @@ function GovernancaPage({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(execucaoForm),
+        body: JSON.stringify({
+          tipo_lote,
+          anomes: execucaoForm.anomes || '202607',
+          forcar: Boolean(forcarVal),
+        }),
       })
       const result = await response.json()
       if (!response.ok) {
         throw new Error(result?.detail || 'Falha ao iniciar processamento.')
       }
-      setGovernancaMessage(`Processamento enviado para backend: ${result.tipo_lote}.`)
+      setGovernancaMessage(`Processamento enviado para o backend: ${result.tipo_lote}${forcarVal ? ' (REPROCESSAMENTO FORÇADO)' : ''}.`)
       await onRefresh()
     } catch (requestError) {
       setGovernancaError(requestError.message)
     } finally {
       setStartingExecucao(false)
     }
+  }
+
+  async function cancelarExecucao(id_lote) {
+    if (!window.confirm("Deseja cancelar este processamento?")) return;
+    try {
+      setSavingGovernanca(true)
+      setGovernancaError('')
+      setGovernancaMessage('')
+      const response = await fetch(`${API_URL}/api/governanca/execucoes/${id_lote}/cancelar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao cancelar execução.')
+      }
+      setGovernancaMessage('Processamento cancelado.')
+      await onRefresh()
+    } catch (requestError) {
+      setGovernancaError(requestError.message)
+    } finally {
+      setSavingGovernanca(false)
+    }
+  }
+
+  async function iniciarExecucao(event) {
+    event.preventDefault()
+    dispararExecucaoLote(execucaoForm.tipo_lote, forcarReprocessamento)
   }
 
   async function atualizarPermissao(perfil, permissao, campo, value) {
@@ -4524,72 +4558,234 @@ function GovernancaPage({
       </section>
       )}
       {activeSection === 'processamentos' && (
-      <section className="content-grid">
+      <>
         {isAdmin && (
-          <article className="panel">
+          <>
+            {/* CARD PRINCIPAL DE DISPARO */}
+            <section className="content-grid" style={{ marginBottom: 20 }}>
+              <article className="panel panel-large">
+                <div className="panel-title">
+                  <div>
+                    <h2>Processamentos Backend (Execução Central & Manual)</h2>
+                    <p>Dispare o pipeline ETL completo ou selecione rotinas individuais com opção de reprocessamento forçado.</p>
+                  </div>
+                </div>
+                <form className="governed-form governed-form-compact" onSubmit={iniciarExecucao}>
+                  <label>
+                    Processamento Selecionado
+                    <select
+                      value={execucaoForm.tipo_lote}
+                      onChange={(event) => updateExecucaoForm('tipo_lote', event.target.value)}
+                      disabled={!tiposExecucao.length || hasActiveExecution}
+                    >
+                      {!tiposExecucao.length && <option value="">Lista do run.bat não carregada</option>}
+                      {tiposExecucao.map((item) => (
+                        <option key={item.tipo_lote} value={item.tipo_lote}>{item.titulo}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    ANOMES
+                    <input value={execucaoForm.anomes} onChange={(event) => updateExecucaoForm('anomes', event.target.value)} maxLength={6} disabled={hasActiveExecution} required />
+                  </label>
+                  <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 18 }}>
+                    <input
+                      type="checkbox"
+                      checked={forcarReprocessamento}
+                      onChange={(e) => setForcarReprocessamento(e.target.checked)}
+                      disabled={hasActiveExecution}
+                    />
+                    <span style={{ fontSize: '0.85rem', color: forcarReprocessamento ? '#f59e0b' : '#94a3b8', fontWeight: forcarReprocessamento ? 600 : 400 }}>
+                      ⚡ Forçar Reprocessamento (REPROCESSAR=1 / REEXTRAIR=1)
+                    </span>
+                  </label>
+                  <div className="form-actions">
+                    <button className="primary-button" type="submit" disabled={startingExecucao || !tiposExecucao.length || hasActiveExecution}>
+                      {startingExecucao ? 'Enviando...' : hasActiveExecution ? 'Execução em andamento' : forcarReprocessamento ? 'Executar Forçado' : 'Executar no backend'}
+                    </button>
+                  </div>
+                </form>
+                {hasActiveExecution && (
+                  <div className="alert" style={{ marginTop: 12 }}>
+                    Já existe um processamento em andamento na fila. Aguarde a conclusão ou cancele a execução ativa abaixo antes de iniciar outra.
+                  </div>
+                )}
+                {selectedExecucao && (
+                  <p className="panel-note">
+                    Comando: <strong>{selectedExecucao.comando || `run.bat ${selectedExecucao.tipo_lote}`}</strong> · {selectedExecucao.descricao}
+                  </p>
+                )}
+              </article>
+            </section>
+
+            {/* GRID DAS 4 FASES DE PROCESSAMENTO */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+              {/* CARD FASE 1 */}
+              <article className="panel" style={{ borderTop: '3px solid #3b82f6', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <h3 style={{ margin: 0, color: '#60a5fa', fontSize: '1.05rem', fontWeight: 600 }}>FASE 1 — EXTRAÇÕES SEQUENCIAIS</h3>
+                    <span style={{ fontSize: '0.725rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd', border: '1px solid rgba(59, 130, 246, 0.3)' }}>Início de Mês</span>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: 12 }}>
+                    Extração em esteira sequencial das bases de dados brutas para a competência:
+                  </p>
+                  <ul style={{ fontSize: '0.8rem', color: '#cbd5e1', paddingLeft: 18, margin: '0 0 16px 0', lineHeight: 1.6 }}>
+                    <li><strong>[1.1] Ocorrências e Interrupções ADMS:</strong> <code>iqs_adms_raw_&lt;ANOMES&gt;.duckdb</code></li>
+                    <li><strong>[1.2] UCs Faturadas (uc_fatura):</strong> Materializa <code>gold_uc_fatura</code></li>
+                    <li><strong>[1.3] Reclamações DBGUO (reclamacoes_dbguo):</strong> Histórico de reclamações</li>
+                    <li><strong>[1.4] Serviços ADMS (adms_servicos):</strong> Ordens de serviço de campo (92/82)</li>
+                    <li><strong>[1.5] Referências IQS (referencia_componente_causa):</strong> Dicionários IQS</li>
+                  </ul>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.775rem', color: '#94a3b8', cursor: 'pointer' }}>
+                      <input type="checkbox" id="forcar_fase1" /> Forçar Reextração
+                    </label>
+                    <button
+                      className="secondary-button"
+                      disabled={hasActiveExecution || startingExecucao}
+                      onClick={() => dispararExecucaoLote('fase1', document.getElementById('forcar_fase1')?.checked)}
+                    >
+                      Atualizar Fase 1
+                    </button>
+                  </div>
+                </div>
+              </article>
+
+              {/* CARD FASE 2 */}
+              <article className="panel" style={{ borderTop: '3px solid #10b981', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <h3 style={{ margin: 0, color: '#34d399', fontSize: '1.05rem', fontWeight: 600 }}>FASE 2 — TRATAMENTO E NORMALIZAÇÃO</h3>
+                    <span style={{ fontSize: '0.725rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.15)', color: '#6ee7b7', border: '1px solid rgba(16, 185, 129, 0.3)' }}>Tratamento</span>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: 12 }}>
+                    Normalização de anomalias temporais, limpeza de sobreposições e geração dos arquivos de carga IQS:
+                  </p>
+                  <ul style={{ fontSize: '0.8rem', color: '#cbd5e1', paddingLeft: 18, margin: '0 0 16px 0', lineHeight: 1.6 }}>
+                    <li>Processamento da base bruta para a camada processada (SILVER).</li>
+                    <li>Higienização de durações negativas e sobreposições de UC.</li>
+                    <li>Geração dos CSVs regulatórios: <code>CSL</code>, <code>LES</code>, <code>NRO</code>, <code>NRT</code>, <code>OES</code>.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.775rem', color: '#94a3b8', cursor: 'pointer' }}>
+                      <input type="checkbox" id="forcar_fase2" /> Forçar Reprocessamento
+                    </label>
+                    <button
+                      className="secondary-button"
+                      disabled={hasActiveExecution || startingExecucao}
+                      onClick={() => dispararExecucaoLote('fase2', document.getElementById('forcar_fase2')?.checked)}
+                    >
+                      Atualizar Fase 2
+                    </button>
+                  </div>
+                </div>
+              </article>
+
+              {/* CARD FASE 3 */}
+              <article className="panel" style={{ borderTop: '3px solid #f59e0b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <h3 style={{ margin: 0, color: '#fbbf24', fontSize: '1.05rem', fontWeight: 600 }}>FASE 3 — APURAÇÃO PRÉVIA REGULATÓRIA</h3>
+                    <span style={{ fontSize: '0.725rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.15)', color: '#fde047', border: '1px solid rgba(245, 158, 11, 0.3)' }}>Apuração</span>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: 12 }}>
+                    Cálculo dos indicadores macro de continuidade e materialização das tabelas analíticas GOLD:
+                  </p>
+                  <ul style={{ fontSize: '0.8rem', color: '#cbd5e1', paddingLeft: 18, margin: '0 0 16px 0', lineHeight: 1.6 }}>
+                    <li>Materialização das tabelas GOLD regulatórias.</li>
+                    <li>Cálculo de métricas de DEC/FEC, DIC/FIC e limites contratuais.</li>
+                    <li>Estimativa preliminar de compensação financeira aos consumidores.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.775rem', color: '#94a3b8', cursor: 'pointer' }}>
+                      <input type="checkbox" id="forcar_fase3" /> Recalcular GOLD
+                    </label>
+                    <button
+                      className="secondary-button"
+                      disabled={hasActiveExecution || startingExecucao}
+                      onClick={() => dispararExecucaoLote('fase3', document.getElementById('forcar_fase3')?.checked)}
+                    >
+                      Atualizar Fase 3
+                    </button>
+                  </div>
+                </div>
+              </article>
+
+              {/* CARD FASE 4 */}
+              <article className="panel" style={{ borderTop: '3px solid #8b5cf6', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <h3 style={{ margin: 0, color: '#a78bfa', fontSize: '1.05rem', fontWeight: 600 }}>FASE 4 — ANALYTICS E PROPOSTAS</h3>
+                    <span style={{ fontSize: '0.725rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(139, 92, 246, 0.15)', color: '#c4b5fd', border: '1px solid rgba(139, 92, 246, 0.3)' }}>IA & Analytics</span>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: 12 }}>
+                    Identificação de anomalias por inteligência analítica e motor de propostas de tratamento:
+                  </p>
+                  <ul style={{ fontSize: '0.8rem', color: '#cbd5e1', paddingLeft: 18, margin: '0 0 16px 0', lineHeight: 1.6 }}>
+                    <li>Alimenta a base de Outliers por UC (<code>gold_outlier_uc</code>).</li>
+                    <li>Executa o Orquestrador Central com todos os agentes inteligentes.</li>
+                    <li>Gera propostas automáticas de ajuste técnico para auditoria.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.775rem', color: '#94a3b8', cursor: 'pointer' }}>
+                      <input type="checkbox" id="forcar_fase4" /> Forçar Analytics
+                    </label>
+                    <button
+                      className="secondary-button"
+                      disabled={hasActiveExecution || startingExecucao}
+                      onClick={() => dispararExecucaoLote('fase4', document.getElementById('forcar_fase4')?.checked)}
+                    >
+                      Atualizar Fase 4
+                    </button>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </>
+        )}
+        <section className="content-grid">
+          <article className="panel panel-large">
             <div className="panel-title">
               <div>
-                <h2>Processamentos Backend</h2>
-                <p>Dispare cargas pesadas sem travar a utilização da tela.</p>
+                <h2>Fila de Execuções</h2>
+                <p>Status dos lotes executados pelo backend.</p>
               </div>
             </div>
-            <form className="governed-form governed-form-compact" onSubmit={iniciarExecucao}>
-              <label>
-                Processamento
-                <select
-                  value={execucaoForm.tipo_lote}
-                  onChange={(event) => updateExecucaoForm('tipo_lote', event.target.value)}
-                  disabled={!tiposExecucao.length}
-                >
-                  {!tiposExecucao.length && <option value="">Lista do run.bat não carregada</option>}
-                  {tiposExecucao.map((item) => (
-                    <option key={item.tipo_lote} value={item.tipo_lote}>{item.titulo}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                ANOMES
-                <input value={execucaoForm.anomes} onChange={(event) => updateExecucaoForm('anomes', event.target.value)} maxLength={6} required />
-              </label>
-              <div className="form-actions">
-                <button className="primary-button" type="submit" disabled={startingExecucao || !tiposExecucao.length}>
-                  {startingExecucao ? 'Enviando...' : 'Executar no backend'}
-                </button>
-              </div>
-            </form>
-            {selectedExecucao && (
-              <p className="panel-note">
-                Comando: <strong>{selectedExecucao.comando || `run.bat ${selectedExecucao.tipo_lote}`}</strong> · {selectedExecucao.descricao}
-              </p>
-            )}
-            {!tiposExecucao.length && (
-              <div className="alert">
-                A lista de processamentos do `run.bat` não foi carregada. Clique em `Atualizar`; se continuar vazio, reinicie a API.
-              </div>
-            )}
+            <DataTable
+              columns={[
+                { key: 'tipo_lote', label: 'Tipo' },
+                { key: 'anomes', label: 'ANOMES' },
+                { key: 'status_lote', label: 'Status', render: (item) => <StatusPill value={item.status_lote} /> },
+                { key: 'criado_por', label: 'Solicitado por' },
+                { key: 'iniciado_em', label: 'Início', render: (item) => dateTime(item.iniciado_em) },
+                { key: 'finalizado_em', label: 'Fim', render: (item) => dateTime(item.finalizado_em) },
+                { key: 'mensagem', label: 'Mensagem', render: (item) => String(item.mensagem || '—').slice(0, 180) },
+                ...(isAdmin ? [{
+                  key: 'acoes',
+                  label: 'Ações',
+                  render: (item) => (
+                    ['ABERTO', 'PROCESSANDO'].includes(String(item.status_lote || '').toUpperCase()) ? (
+                      <button className="mini-button mini-button-danger" disabled={savingGovernanca} onClick={() => cancelarExecucao(item.id_lote)}>
+                        Cancelar
+                      </button>
+                    ) : '—'
+                  ),
+                }] : []),
+              ]}
+              rows={execucoes}
+            />
           </article>
-        )}
-        <article className={isAdmin ? 'panel' : 'panel panel-large'}>
-          <div className="panel-title">
-            <div>
-              <h2>Fila de Execuções</h2>
-              <p>Status dos lotes executados pelo backend.</p>
-            </div>
-          </div>
-          <DataTable
-            columns={[
-              { key: 'tipo_lote', label: 'Tipo' },
-              { key: 'anomes', label: 'ANOMES' },
-              { key: 'status_lote', label: 'Status', render: (item) => <StatusPill value={item.status_lote} /> },
-              { key: 'criado_por', label: 'Solicitado por' },
-              { key: 'iniciado_em', label: 'Início', render: (item) => dateTime(item.iniciado_em) },
-              { key: 'finalizado_em', label: 'Fim', render: (item) => dateTime(item.finalizado_em) },
-              { key: 'mensagem', label: 'Mensagem', render: (item) => String(item.mensagem || '—').slice(0, 180) },
-            ]}
-            rows={execucoes}
-          />
-        </article>
-      </section>
+        </section>
+      </>
       )}
     </>
   )
@@ -4617,7 +4813,7 @@ function ConfiguracoesPage({ health, embedded = false }) {
           </div>
           <div className="stat-list">
             <span>API URL: <strong>{API_URL}</strong></span>
-            <span>Versão UI: <strong>7.0.0</strong></span>
+            <span>Versão UI: <strong>7.1.0</strong></span>
             <span>Runtime: <strong>Vite + React</strong></span>
           </div>
         </article>
@@ -4649,7 +4845,7 @@ function CicloApuracaoPage({ embedded = false, user, token }) {
   useEffect(() => {
     async function loadStatus() {
       try {
-        const response = await fetch(`${API_URL}/api/governanca/fechamento?anomes=202606`, {
+        const response = await fetch(`${API_URL}/api/governanca/fechamento`, {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (response.ok) {
@@ -4662,11 +4858,13 @@ function CicloApuracaoPage({ embedded = false, user, token }) {
   }, [token])
 
   async function fecharMes() {
-    if (!window.confirm("ATENÇÃO: Deseja fechar o mês 202606 de forma irreversível?")) return;
+    const anomesAtual = status?.anomes || ''
+    if (!anomesAtual) return;
+    if (!window.confirm(`ATENÇÃO: Deseja fechar o mês ${anomesAtual} de forma irreversível?`)) return;
     
     setClosing(true)
     try {
-      const response = await fetch(`${API_URL}/api/governanca/fechamento?anomes=202606`, {
+      const response = await fetch(`${API_URL}/api/governanca/fechamento?anomes=${anomesAtual}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -4674,7 +4872,7 @@ function CicloApuracaoPage({ embedded = false, user, token }) {
         throw new Error("Falha ao fechar o mês.")
       }
       const data = await response.json()
-      alert(`Mês fechado com sucesso! O novo ANOMES passará a ser ${data.novo_anomes}. A tela será recarregada automaticamente.`)
+      alert(`Mês ${anomesAtual} fechado com sucesso! O novo ANOMES passará a ser ${data.novo_anomes}. A tela será recarregada automaticamente.`)
       window.location.reload()
     } catch (err) {
       alert(err.message)
@@ -4683,12 +4881,14 @@ function CicloApuracaoPage({ embedded = false, user, token }) {
   }
 
   async function reabrirMes() {
-    const justificativa = window.prompt("Justificativa para reabertura:")
+    const anomesAtual = status?.anomes || ''
+    if (!anomesAtual) return;
+    const justificativa = window.prompt(`Justificativa para reabertura do mês ${anomesAtual}:`)
     if (!justificativa) return;
     
     setClosing(true)
     try {
-      const response = await fetch(`${API_URL}/api/governanca/fechamento/202606/reabrir`, {
+      const response = await fetch(`${API_URL}/api/governanca/fechamento/${anomesAtual}/reabrir`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -4699,7 +4899,7 @@ function CicloApuracaoPage({ embedded = false, user, token }) {
       if (!response.ok) {
         throw new Error("Falha ao reabrir o mês.")
       }
-      alert(`Mês reaberto com sucesso! O sistema foi revertido para 202606. A tela será recarregada automaticamente.`)
+      alert(`Mês ${anomesAtual} reaberto com sucesso! A tela será recarregada automaticamente.`)
       window.location.reload()
     } catch (err) {
       alert(err.message)

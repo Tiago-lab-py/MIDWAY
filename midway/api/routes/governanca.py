@@ -91,8 +91,9 @@ class DecisaoAlteracaoRequest(BaseModel):
 
 class ExecucaoRequest(BaseModel):
     tipo_lote: str
-    anomes: str = "202606"
+    anomes: str = "202607"
     parametros: dict[str, object] | None = None
+    forcar: bool = False
 
 
 class PerfilPermissaoUpdateRequest(BaseModel):
@@ -147,9 +148,38 @@ EXECUCOES_PERMITIDAS = {
         "etapas": [{"module": "midway.transform.tratamento", "env": {"REPROCESSAR": "1"}}],
     },
     "etl": {
-        "titulo": "run.bat etl — Pipeline ETL Central (Extração, Tratamento e Apuração)",
-        "descricao": "Executa de forma centralizada todas as etapas do ETL 100% Python (Fase 1, 2 e 3).",
+        "titulo": "run.bat etl — Pipeline ETL Central Completo (Fase 1 a 4)",
+        "descricao": "Executa de forma centralizada todas as etapas do ETL 100% Python (Fase 1, 2, 3 e 4).",
         "etapas": [{"module": "midway.pipeline.etl", "env": {}}],
+    },
+    "fase1": {
+        "titulo": "FASE 1 — Extrações Sequenciais (Início de Mês)",
+        "descricao": "Executa em sequência todas as extrações de início de mês: ADMS, UCs Faturadas, Reclamações DBGUO, Serviços ADMS e Referências IQS.",
+        "etapas": [
+            {"module": "midway.extract.adms", "env": {}},
+            {"module": "midway.extract.uc_fatura", "env": {}},
+            {"module": "midway.extract.reclamacoes_dbguo", "env": {}},
+            {"module": "midway.extract.adms_servicos", "env": {}},
+            {"module": "midway.extract.referencia_componente_causa", "env": {}},
+        ],
+    },
+    "fase2": {
+        "titulo": "FASE 2 — Tratamento e Normalização",
+        "descricao": "Processa anomalias, higieniza sobreposições temporais e exporta os arquivos regulatórios CSV de carga (CSL, LES, NRO, NRT, OES).",
+        "etapas": [{"module": "midway.transform.tratamento", "env": {}}],
+    },
+    "fase3": {
+        "titulo": "FASE 3 — Apuração Prévia Regulatória",
+        "descricao": "Materializa as tabelas GOLD e calcula os indicadores macro de DEC/FEC, DIC/FIC e estimativa de compensação financeira.",
+        "etapas": [{"module": "midway.apuracao.previa", "env": {}}],
+    },
+    "fase4": {
+        "titulo": "FASE 4 — Analytics e Propostas de Anomalia",
+        "descricao": "Alimenta a base de Outliers por UC e executa os agentes inteligentes do motor de anomalias.",
+        "etapas": [
+            {"module": "midway.analytics.outlier_uc", "env": {}},
+            {"module": "midway.modulos.orquestrador", "env": {}},
+        ],
     },
     "full": {
         "titulo": "run.bat full — Extração + tratamento (Legado)",
@@ -370,15 +400,24 @@ def _atualizar_lote(id_lote: str, status: str, mensagem: str) -> None:
         )
 
 
-def _executar_lote_background(id_lote: str, tipo_lote: str, anomes: str) -> None:
+def _executar_lote_background(id_lote: str, tipo_lote: str, anomes: str, forcar: bool = False) -> None:
     config = EXECUCOES_PERMITIDAS[tipo_lote]
     root = _repo_root()
     env_base = os.environ.copy()
     env_base["ANOMES"] = anomes
+    if forcar:
+        env_base["REEXTRAIR"] = "1"
+        env_base["REPROCESSAR"] = "1"
+        env_base["REGISTRAR_RAW"] = "0"
+        env_base["REEXTRAIR_VRC"] = "1"
+        env_base["REEXTRAIR_METAS_UC"] = "1"
+        env_base["REEXTRAIR_REFERENCIA_IQS"] = "1"
+        env_base["REEXTRAIR_DBGUO"] = "1"
+        env_base["REEXTRAIR_ADMS_SERVICOS"] = "1"
     _atualizar_lote(
         id_lote,
         "ABERTO",
-        f"Solicitação recebida: {config['titulo']}. Aguardando fila de execução para evitar bloqueio do DuckDB.",
+        f"Solicitação recebida: {config['titulo']}{' (FORÇAR REPROCESSAMENTO)' if forcar else ''}. Aguardando fila de execução.",
     )
     saidas: list[str] = []
     try:
@@ -1197,10 +1236,20 @@ def iniciar_execucao(
         raise HTTPException(status_code=400, detail="ANOMES deve ter 6 dígitos.")
 
     schema = _schema()
-    id_lote = str(uuid4())
-    parametros = payload.parametros or {}
     engine = create_postgres_engine()
+    
     with engine.begin() as con:
+        active = con.execute(
+            text(f"SELECT id_lote, tipo_lote FROM {schema}.midway_execucao_lote WHERE status_lote IN ('ABERTO', 'PROCESSANDO')")
+        ).mappings().first()
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Já existe um processamento em andamento ({active['tipo_lote']}). Aguarde a conclusão ou cancele a execução ativa."
+            )
+
+        id_lote = str(uuid4())
+        parametros = payload.parametros or {}
         con.execute(
             text(
                 f"""
@@ -1223,7 +1272,8 @@ def iniciar_execucao(
             },
         )
 
-    thread = threading.Thread(target=_executar_lote_background, args=(id_lote, tipo_lote, anomes), daemon=True)
+    forcar = bool(payload.forcar)
+    thread = threading.Thread(target=_executar_lote_background, args=(id_lote, tipo_lote, anomes, forcar), daemon=True)
     thread.start()
     audit_event(
         "EXECUCAO_LOTE_SOLICITADA",
@@ -1233,6 +1283,31 @@ def iniciar_execucao(
         {"tipo_lote": tipo_lote, "anomes": anomes},
     )
     return {"id_lote": id_lote, "status": "ABERTO", "tipo_lote": tipo_lote}
+
+
+@router.post("/governanca/execucoes/{id_lote}/cancelar")
+def cancelar_execucao(
+    id_lote: str,
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR")),
+) -> dict[str, object]:
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.begin() as con:
+        row = con.execute(
+            text(f"SELECT id_lote, status_lote FROM {schema}.midway_execucao_lote WHERE id_lote = :id_lote"),
+            {"id_lote": id_lote}
+        ).mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Execução não encontrada.")
+        if row["status_lote"] not in ("ABERTO", "PROCESSANDO"):
+            raise HTTPException(status_code=400, detail="Apenas execuções ativas (ABERTO ou PROCESSANDO) podem ser canceladas.")
+
+        con.execute(
+            text(f"UPDATE {schema}.midway_execucao_lote SET status_lote = 'CANCELADO', mensagem = 'Cancelado pelo usuário.', finalizado_em = now() WHERE id_lote = :id_lote"),
+            {"id_lote": id_lote}
+        )
+    audit_event("EXECUCAO_LOTE_CANCELADA", "midway_execucao_lote", id_lote, user.login, {})
+    return {"id_lote": id_lote, "status": "CANCELADO"}
 
 
 @router.get("/governanca/alteracoes")
@@ -1446,14 +1521,18 @@ def get_fechamento_status(schema: str, engine, anomes: str):
         return res or 'ABERTO'
 
 @router.get("/governanca/fechamento")
-def obter_status_fechamento(anomes: str = Query(..., description="Anomes (ex: 202606)"), user: AuthUser = Depends(get_current_user)):
+def obter_status_fechamento(anomes: str | None = Query(None, description="Anomes (ex: 202606)"), user: AuthUser = Depends(get_current_user)):
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    target_anomes = anomes or os.getenv("ANOMES", "202607")
     engine = create_postgres_engine()
     schema = _schema()
-    status = get_fechamento_status(schema, engine, anomes)
-    return {"anomes": anomes, "status": status}
+    status = get_fechamento_status(schema, engine, target_anomes)
+    return {"anomes": target_anomes, "status": status}
 
 @router.post("/governanca/fechamento")
-def fechar_mes(anomes: str = Query(..., description="Anomes (ex: 202606)"), user: AuthUser = Depends(get_current_user)):
+def fechar_mes(anomes: str | None = Query(None, description="Anomes (ex: 202606)"), user: AuthUser = Depends(get_current_user)):
+    target_anomes = anomes or os.getenv("ANOMES", "202606")
     engine = create_postgres_engine()
     schema = _schema()
     
@@ -1465,18 +1544,18 @@ def fechar_mes(anomes: str = Query(..., description="Anomes (ex: 202606)"), user
             status = 'FECHADO',
             fechado_em = CURRENT_TIMESTAMP,
             fechado_por = :user
-        """), {"anomes": anomes, "user": user.login})
+        """), {"anomes": target_anomes, "user": user.login})
     
     # Atualizar o arquivo .env
     from pathlib import Path
     env_path = Path("D:/MIDWAY/.env")
-    novo_anomes = anomes
+    novo_anomes = target_anomes
     if env_path.exists():
         content = env_path.read_text(encoding="utf-8")
         
         # Incrementar mês
-        ano = int(anomes[:4])
-        mes = int(anomes[4:])
+        ano = int(target_anomes[:4])
+        mes = int(target_anomes[4:])
         if mes == 12:
             novo_anomes = f"{ano + 1}01"
         else:
@@ -1490,7 +1569,8 @@ def fechar_mes(anomes: str = Query(..., description="Anomes (ex: 202606)"), user
                 new_content.append(line)
         env_path.write_text("\n".join(new_content) + "\n", encoding="utf-8")
         
-    audit_event("MES_FECHADO", "midway_mes_apuracao", anomes, user.login, {"novo_anomes": novo_anomes})
+    os.environ["ANOMES"] = novo_anomes
+    audit_event("MES_FECHADO", "midway_mes_apuracao", target_anomes, user.login, {"novo_anomes": novo_anomes})
     return {"status": "FECHADO", "novo_anomes": novo_anomes}
 
 class ReaberturaRequest(BaseModel):
@@ -1526,5 +1606,6 @@ def reabrir_mes(anomes: str, payload: ReaberturaRequest, user: AuthUser = Depend
                 new_content.append(line)
         env_path.write_text("\n".join(new_content) + "\n", encoding="utf-8")
         
+    os.environ["ANOMES"] = anomes
     audit_event("MES_REABERTO", "midway_mes_apuracao", anomes, user.login, {"justificativa": payload.justificativa})
     return {"status": "ABERTO", "anomes": anomes}

@@ -10,9 +10,11 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 
-load_dotenv()
+load_dotenv(override=True)
 
-ANOMES = os.getenv("ANOMES", "202606")
+def _anomes() -> str:
+    return os.getenv("ANOMES", "202607")
+
 DB_URL = os.getenv("DB_URL")
 REEXTRAIR_DBGUO = os.getenv("REEXTRAIR_DBGUO", "0") == "1"
 
@@ -20,9 +22,11 @@ BASE_DIR = Path("data")
 RAW_DIR = BASE_DIR / "raw"
 MARTS_DIR = BASE_DIR / "marts"
 SQL_PATH = Path("SQL") / "DBGUO_reclamacoes.sql"
-RAW_DUCKDB_PATH = RAW_DIR / f"dbguo_raw_{ANOMES}.duckdb"
 RAW_TABLE = "raw_dbguo_reclamacoes"
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M%S")
+
+def _raw_duckdb_path() -> Path:
+    return RAW_DIR / f"dbguo_raw_{_anomes()}.duckdb"
 
 
 def conectar_postgres():
@@ -116,11 +120,13 @@ def extrair_reclamacoes_dbguo(chunksize: int = 100_000) -> None:
 
     sql = carregar_sql()
 
-    print(f"Extraindo reclamacoes DBGUO ANOMES={ANOMES}...")
+    raw_db = _raw_duckdb_path()
+    anomes_val = _anomes()
+    print(f"Extraindo reclamacoes DBGUO ANOMES={anomes_val}...")
     print(f"SQL: {SQL_PATH}")
-    print(f"DuckDB destino: {RAW_DUCKDB_PATH}")
+    print(f"DuckDB destino: {raw_db}")
 
-    con_duck = duckdb.connect(str(RAW_DUCKDB_PATH))
+    con_duck = duckdb.connect(str(raw_db))
     try:
         if tabela_existe(con_duck, RAW_TABLE) and not REEXTRAIR_DBGUO:
             total_existente = con_duck.execute(f"SELECT COUNT(*) FROM {RAW_TABLE}").fetchone()[0]
