@@ -28,6 +28,7 @@ from midway.api.serialization import api_row, api_rows
 from midway.db.postgres import create_postgres_engine, get_config, validate_postgres
 
 router = APIRouter(prefix="/api", tags=["governanca"])
+
 EXECUCAO_LOTE_LOCK = threading.Lock()
 DUCKDB_BUSY_MAX_TENTATIVAS = 30
 DUCKDB_BUSY_INTERVALO_SEGUNDOS = 10

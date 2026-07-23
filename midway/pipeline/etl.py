@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from midway.controle_execucao import configurar_logger, valor_verdadeiro
 from midway.extract.adms import registrar_raw_existente, extrair_iqs_para_duckdb
 from midway.transform.tratamento import tratar_e_exportar_alterados
-from midway.apuracao.previa import gerar_apuracao_previa
+from midway.apuracao.previa import apuracao_previa as gerar_apuracao_previa
 from midway.analytics.outlier_uc import materializar_gold_outlier_uc as gerar_outliers_uc
 
 load_dotenv()

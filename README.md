@@ -116,35 +116,40 @@ Consultar versao:
 run.bat versao
 ```
 
-Fluxo local mais usado quando o RAW ja existe:
-
-```bat
-set ANOMES=202606
-set REPROCESSAR=1
-run.bat reprocessar
-run.bat apuracao_parcial
-run.bat validar_dados
-```
-
-Abrir painel React `MIDWAY 7.1.0`:
+Abrir toda a stack do sistema (PostgreSQL local, API FastAPI e painel React `MIDWAY 7.1.0`):
 
 ```bat
 inicio.bat
 ```
 
-Preparar o núcleo de anomalias no PostgreSQL local usando RAW, SILVER e GOLD:
+> **Aviso de Migração (v7.1.0):** A execução encadeada manual via `.env` (onde era preciso rodar `reprocessar`, `apuracao_parcial`, `validar_dados` etc separadamente) caiu em desuso. Todo o fluxo local agora é 100% governado e executado diretamente pela interface gráfica no menu **Administração > Processamentos**, utilizando o novo orquestrador central `etl`.
+
+Preparar o núcleo de anomalias no PostgreSQL local pela primeira vez:
 
 ```bat
 run.bat anomalias_setup
 ```
 
-O comando carrega somente anomalias geradas a partir das tabelas reais do DuckDB processado.
-
-Abrir painel Streamlit de conferencia:
+Abrir painel Streamlit legado de conferencia técnica:
 
 ```bat
 run.bat painel
 ```
+
+## Fechamento e Abertura de Novo Mês (Virada de Ciclo)
+
+O MIDWAY agora possui uma interface de Governança para realizar a virada de mês (fechar um ciclo e abrir outro) sem a necessidade de editar o `.env` manualmente.
+
+Para iniciar um novo mês:
+1. Abra a interface React em seu navegador.
+2. Navegue até o menu **Administração**.
+3. Acesse a guia **Ciclo de Apuração**.
+4. Clique no botão **"Fechar Mês Definitivamente"**. Isso bloqueará o mês atual contra alterações e atualizará automaticamente a variável `ANOMES` do seu arquivo `.env` para o mês seguinte. A tela sofrerá um "reload" e o sistema já acordará no novo mês.
+5. Acesse a guia **Processamentos**.
+6. Selecione no dropdown a opção **`run.bat etl — Pipeline ETL Central`** e clique em **Executar no backend**.
+Isso vai realizar automaticamente a extração limpa (ADMS/IQS), o tratamento DuckDB e as apurações prévias daquele novo mês de maneira encadeada.
+
+Em caso de necessidade de roll-back, administradores podem utilizar a opção "Reabrir Mês", que reverterá as ações do `.env` e abrirá a base mediante registro de justificativa na auditoria.
 
 ## Módulos de Anomalia e Orquestração
 
@@ -173,29 +178,21 @@ Módulos de anomalia migrados para a nova arquitetura (Orquestrador `BaseModulo`
 | Suspeita Falha Religador (RA) | Equipamento/alimentador | Detecta operações sucessivas de RA com FIC alto e sem reclamações |
 | Correção 92/82 | Especialização Causa/Comp | Usa Heurística e NLP para reclassificar o lixo genérico de religadores |
 
-## Comandos Principais
-
-## Comandos Principais
+## Comandos Principais (Atualizados v7.1.0)
 
 | Comando | Uso |
 | --- | --- |
-| `run.bat extract` | Extrai Oracle para DuckDB bruto |
-| `run.bat registrar` | Registra DuckDB bruto local ja existente |
-| `run.bat tratamento` | Executa tratamento e exportacao principal |
-| `run.bat reprocessar` | Reexecuta o tratamento com `REPROCESSAR=1` |
-| `run.bat apuracao_parcial` | Gera camadas gold, BDO e previa de ressarcimento |
-| `run.bat validar_dados` | Executa testes automatizados e metricas |
 | `inicio.bat` | Inicia PostgreSQL local, API FastAPI e frontend React |
-| `run.bat orquestrador` | **(NOVO)** Roda a inteligência do `BaseModulo` e salva propostas no Postgres |
-| `run.bat painel` | Abre painel Streamlit |
-| `run.bat exportar` | Regenera CSVs finais sem refazer tratamento |
-| `run.bat sincronizar_iqs_raw` | Sincroniza `data/raw/iqs_raw_<ANOMES>.duckdb` para o processed |
+| `run.bat etl` | **(NOVO)** Roda o orquestrador principal completo (Extração, Tratamento e Apuração) |
+| `run.bat orquestrador` | Roda a inteligência dos módulos de anomalia e salva propostas no Postgres |
+| `run.bat extract` | Extrai Oracle para DuckDB bruto (Modo granular) |
+| `run.bat registrar` | Registra DuckDB bruto local ja existente (Modo granular) |
+| `run.bat validar_dados` | Executa testes automatizados e metricas |
+| `run.bat painel` | Abre painel Streamlit legado |
+| `run.bat exportar` | Regenera CSVs finais a partir dos dados já processados |
 | `run.bat extrair_dbguo_reclamacoes` | Extrai reclamacoes DBGUO para `data/raw` |
-| `run.bat dbguo_reclamacoes` | Materializa silver/gold de reclamacoes DBGUO |
 | `run.bat extrair_adms_servicos` | Extrai servicos ADMS de backup para `data/raw` |
-| `run.bat analise_tecnica_cache [ANOMES]` | Materializa cache rapido do ranking da Analise Tecnica |
-| `run.bat anomalias_setup` | Aplica núcleo de anomalias e carrega anomalias RAW/SILVER/GOLD |
-| `run.bat anomalias_validar` | Valida testes unitários do núcleo de anomalias |
+| `run.bat anomalias_setup` | Aplica núcleo de anomalias e prepara o banco PostgreSQL |
 | `run.bat vrc` | Extrai VRC IQS sob demanda |
 | `run.bat metas_uc` | Extrai metas UC IQS sob demanda |
 
