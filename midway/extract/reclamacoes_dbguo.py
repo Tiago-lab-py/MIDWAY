@@ -17,7 +17,7 @@ def _anomes() -> str:
 
 ANOMES = _anomes()
 
-DB_URL = os.getenv("DB_URL")
+DB_URL = os.getenv("MIDWAY_DATABASE_URL")
 REEXTRAIR_DBGUO = os.getenv("REEXTRAIR_DBGUO", "0") == "1"
 
 BASE_DIR = Path("data")
@@ -27,8 +27,10 @@ SQL_PATH = Path("SQL") / "DBGUO_reclamacoes.sql"
 RAW_TABLE = "raw_dbguo_reclamacoes"
 TIMESTAMP = datetime.now().strftime("%Y%m%d%H%M%S")
 
+RAW_DUCKDB_PATH = RAW_DIR / f"dbguo_raw_{ANOMES}.duckdb"
+
 def _raw_duckdb_path() -> Path:
-    return RAW_DIR / f"dbguo_raw_{_anomes()}.duckdb"
+    return RAW_DUCKDB_PATH
 
 
 def conectar_postgres():

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from midway.transform.iqs_raw_utils import iqs_raw_path, materializar_gold_table, processed_path
 
 
-load_dotenv()
+load_dotenv(override=True)
 
 IQS_UID = os.getenv("IQS_UID")
 IQS_PWD = os.getenv("IQS_PWD")
