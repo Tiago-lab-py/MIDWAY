@@ -45,7 +45,7 @@ class ModuloReclamacoesServicos(BaseModulo):
                 DSC_CAUSA_IQS,
                 QTD_UC_ATGD,
                 CHI_LIQUIDO
-            FROM read_parquet('data/gold/gold_interrupcao_tratada_*.parquet')
+            FROM gold_interrupcao_tratada
             WHERE DSC_COMP_IQS = 'DESCONHECIDO' OR DSC_CAUSA_IQS = 'NAO IDENTIFICADA'
             LIMIT 50  -- Simulação baseada em causa genérica e impacto
         """

@@ -48,7 +48,7 @@ class ModuloDuracaoImpacto(BaseModulo):
                 DUR_INTRP_MIN,
                 QTD_UC_ATGD,
                 CHI_LIQUIDO
-            FROM read_parquet('data/gold/gold_interrupcao_tratada_*.parquet')
+            FROM gold_interrupcao_tratada
             WHERE DUR_INTRP_MIN > (72 * 60) OR COALESCE(CHI_LIQUIDO, 0) > 100
         """
         

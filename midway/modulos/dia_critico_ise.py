@@ -44,7 +44,7 @@ class ModuloDiaCriticoIse(BaseModulo):
                 CAST(DAT_INI_INTRP AS DATE) as data_referencia,
                 SUM(CHI_LIQUIDO) as total_chi,
                 SUM(DUR_INTRP_MIN)/60 as horas_totais
-            FROM read_parquet('data/gold/gold_interrupcao_tratada_*.parquet')
+            FROM gold_interrupcao_tratada
             GROUP BY NOM_CONJ, CAST(DAT_INI_INTRP AS DATE)
             HAVING SUM(CHI_LIQUIDO) > 1000 OR SUM(DUR_INTRP_MIN)/60 > 500
         """

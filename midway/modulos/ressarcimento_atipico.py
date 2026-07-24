@@ -42,7 +42,7 @@ class ModuloRessarcimentoAtipico(BaseModulo):
                 NUM_UC,
                 COUNT(DISTINCT PID_INTRP_SRVE) as qtd_ocorrencias,
                 SUM(COMP_TOTAL_PRODIST) as soma_compensacao
-            FROM read_parquet('data/gold/gold_ressarcimento_prodist_*.parquet')
+            FROM gold_ressarcimento_prodist
             GROUP BY NUM_UC
             HAVING COUNT(DISTINCT PID_INTRP_SRVE) > 1 OR SUM(COMP_TOTAL_PRODIST) > 1000
         """
