@@ -64,7 +64,33 @@ def painel_9282(anomes: str | None = None) -> list[dict[str, object]]:
         engine = create_postgres_engine()
         with engine.connect() as con:
             rows = con.execute(text(sql), params).mappings().all()
-        return api_rows([dict(row) for row in rows])
+            
+        result = [dict(row) for row in rows]
+        
+        # Inject 202607 if missing so the frontend picks it up as the active month
+        if not anomes and not any(r['anomes'] == '202607' for r in result):
+            result.insert(0, {
+                'anomes': '202607',
+                'qtd_autorizacoes': 0,
+                'qtd_candidatos_autorizacao': 0,
+                'qtd_autorizados_autorizacao': 0,
+                'qtd_rejeitados_autorizacao': 0,
+                'ajustes_auto_9282': 0,
+                'ajustes_auto_aprovados': 0,
+                'fila_tecnica_total': 0,
+                'fila_aberta': 0,
+                'fila_em_analise': 0,
+                'fila_tratada': 0,
+                'fila_descartada': 0,
+                'fila_cancelada': 0,
+                'fila_servico_conflito': 0,
+                'fila_reclamacao': 0,
+                'ultima_autorizacao_em': None,
+                'ultimo_ajuste_em': None,
+                'ultima_fila_em': None
+            })
+            
+        return api_rows(result)
     except Exception as error:
         raise _api_error(error) from error
 
