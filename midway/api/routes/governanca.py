@@ -1532,7 +1532,7 @@ def obter_status_fechamento(anomes: str | None = Query(None, description="Anomes
 
 @router.post("/governanca/fechamento")
 def fechar_mes(anomes: str | None = Query(None, description="Anomes (ex: 202606)"), user: AuthUser = Depends(get_current_user)):
-    target_anomes = anomes or os.getenv("ANOMES", "202606")
+    target_anomes = anomes or os.getenv("ANOMES", "202607")
     engine = create_postgres_engine()
     schema = _schema()
     

@@ -70,7 +70,7 @@ def painel_9282(anomes: str | None = None) -> list[dict[str, object]]:
 
 
 @router.get("/dec-fec")
-def dec_fec_tratativas(anomes: str = "202606") -> dict[str, object]:
+def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
     db_path = _processed_path(anomes)
     raw_path = _raw_path(anomes)
     if not db_path.exists():
@@ -507,7 +507,7 @@ def auditoria_9282(
 
 @router.post("/autorizar")
 def autorizar_9282(
-    anomes: str = "202606",
+    anomes: str = "202607",
     payload: Autorizar9282Request | None = Body(default=None),
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR")),
 ) -> dict[str, object]:

@@ -122,7 +122,7 @@ def _detectar_sobreposicoes_uc(interrupcoes: list[dict[str, object]]) -> list[di
 def busca_qualidade(
     tipo: str = Query("ocorrencia", pattern="^(ocorrencia|interrupcao|uc)$"),
     valor: str = Query(..., min_length=1),
-    anomes: str = "202606",
+    anomes: str = "202607",
     limit: int = Query(20, ge=1, le=100),
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA")),
 ) -> list[dict[str, object]]:
@@ -306,7 +306,7 @@ def busca_qualidade(
 @router.get("/uc-visao")
 def uc_visao(
     uc: str = Query(..., min_length=1),
-    anomes: str = "202606",
+    anomes: str = "202607",
     limit: int = Query(300, ge=1, le=1000),
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA")),
 ) -> dict[str, object]:
@@ -438,7 +438,7 @@ def uc_visao(
 
 @router.get("/analise-tecnica/opcoes")
 def opcoes_analise_tecnica(
-    anomes: str = "202606",
+    anomes: str = "202607",
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA")),
 ) -> dict[str, list[dict[str, object]]]:
     db_path = _processed_path(anomes)
@@ -502,7 +502,7 @@ def opcoes_analise_tecnica(
 
 @router.get("/analise-tecnica")
 def analise_tecnica_impacto(
-    anomes: str = "202606",
+    anomes: str = "202607",
     min_chi: float | None = Query(None, ge=0),
     min_ci: float | None = Query(None, ge=0),
     min_ressarcimento: float | None = Query(None, ge=0),
@@ -634,7 +634,7 @@ def analise_tecnica_impacto(
 @router.get("/ocorrencias/{num_ocorrencia_adms}")
 def detalhe_ocorrencia(
     num_ocorrencia_adms: str,
-    anomes: str = "202606",
+    anomes: str = "202607",
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA")),
 ) -> dict[str, object]:
     db_path = _processed_path(anomes)

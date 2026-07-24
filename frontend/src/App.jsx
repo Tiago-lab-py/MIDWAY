@@ -317,7 +317,7 @@ function KeyValueGrid({ data }) {
   )
 }
 
-function OccurrenceModal({ detail, loading, onClose, onCreateAlteracao, savingDecision, token, anomes = '202606' }) {
+function OccurrenceModal({ detail, loading, onClose, onCreateAlteracao, savingDecision, token, anomes = '202607' }) {
   const interruptionOptions = detail?.interrupcoes || []
   const ucOptions = detail?.apuracao_uc || []
   const firstInterruption = interruptionOptions[0] || {}
@@ -359,7 +359,7 @@ function OccurrenceModal({ detail, loading, onClose, onCreateAlteracao, savingDe
     async function carregarOpcoesReferencia() {
       try {
         setOpcoesReferenciaStatus('Carregando catálogo IQS de grupo/componente/causa...')
-        const params = new URLSearchParams({ anomes: anomes || '202606' })
+        const params = new URLSearchParams({ anomes: anomes || '202607' })
         const response = await fetch(`${API_URL}/api/qualidade/analise-tecnica/opcoes?${params.toString()}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
@@ -660,7 +660,7 @@ function OccurrenceModal({ detail, loading, onClose, onCreateAlteracao, savingDe
     const proposedMap = Object.fromEntries(comparisonRows.map((row) => [row.field, row.proposed]))
     const proposedDisplayMap = Object.fromEntries(comparisonRows.map((row) => [row.field, row.proposedDisplay]))
     await onCreateAlteracao?.({
-      anomes: anomes || '202606',
+      anomes: anomes || '202607',
       modulo: 'CORRECAO_OCORRENCIA',
       entidade: proposalForm.alvo,
       id_entidade: alvoId || numOcorrencia,
@@ -2386,7 +2386,7 @@ function FilaPreview({ anomes, token, onOpenOccurrence }) {
       setUcVisao(null)
       const params = new URLSearchParams({
         uc,
-        anomes: anomes || '202606',
+        anomes: anomes || '202607',
       })
       const response = await fetch(`${API_URL}/api/qualidade/uc-visao?${params.toString()}`, {
         headers: {
@@ -2422,7 +2422,7 @@ function FilaPreview({ anomes, token, onOpenOccurrence }) {
       const params = new URLSearchParams({
         tipo,
         valor: valor.trim(),
-        anomes: anomes || '202606',
+        anomes: anomes || '202607',
         limit: '20',
       })
       const response = await fetch(`${API_URL}/api/qualidade/busca?${params.toString()}`, {
@@ -3001,7 +3001,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
       setLoading(true)
       setErro('')
       const params = new URLSearchParams({
-        anomes: anomes || '202606',
+        anomes: anomes || '202607',
         problema: filtrosAtuais.problema || 'impacto',
         duracao_suspeita_min: normalizeDecimalParam(filtrosAtuais.duracao_suspeita_min) || '24',
         limit: filtrosAtuais.limit || '50',
@@ -3050,7 +3050,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
 
     async function carregarOpcoesReferencia() {
       try {
-        const params = new URLSearchParams({ anomes: anomes || '202606' })
+        const params = new URLSearchParams({ anomes: anomes || '202607' })
         const response = await fetch(`${API_URL}/api/qualidade/analise-tecnica/opcoes?${params.toString()}`, {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -3608,7 +3608,7 @@ function IqsGenerationPanel({
 }) {
   const canGenerate = hasProfile(user, ['GESTOR', 'ADM'])
   const [selected, setSelected] = useState([])
-  const [anomes, setAnomes] = useState('202606')
+  const [anomes, setAnomes] = useState('202607')
   const [justificativa, setJustificativa] = useState('')
 
   function toggleModelo(codigo) {
@@ -3842,7 +3842,7 @@ function AlteracoesPage({ alteracoes, user, onCreate, onApprove, onReject, savin
   const canCreate = hasProfile(user, ['ANALISTA', 'GESTOR'])
   const canDecide = hasProfile(user, ['GESTOR', 'ADM'])
   const [form, setForm] = useState({
-    anomes: '202606',
+    anomes: '202607',
     modulo: 'QUALIDADE_INTERRUPCOES',
     entidade: 'interrupcao',
     id_entidade: '',
@@ -4923,7 +4923,7 @@ function CicloApuracaoPage({ embedded = false, user, token }) {
           <p>Carregando status...</p>
         ) : (
           <div className="stat-list">
-            <span>Mês em processamento: <strong>{status?.anomes || '202606'}</strong></span>
+            <span>Mês em processamento: <strong>{status?.anomes || '202607'}</strong></span>
             <span>Status atual: <strong>{status?.status || 'ABERTO'}</strong></span>
             
             {status?.status === 'ABERTO' && user?.perfil === 'ADM' && (
@@ -6398,7 +6398,7 @@ export default function App() {
         body.incluir_justificativas_processos = true
         body.justificativas_processos = contextoAprovacao.justificativasProcessos || []
       }
-      const response = await fetch(`${API_URL}/api/executivo/9282/autorizar?anomes=${resumo.anomes || '202606'}`, {
+      const response = await fetch(`${API_URL}/api/executivo/9282/autorizar?anomes=${resumo.anomes || '202607'}`, {
         method: 'POST',
         headers: {
           ...(Object.keys(body).length ? { 'Content-Type': 'application/json' } : {}),
@@ -6435,7 +6435,7 @@ export default function App() {
         },
         body: JSON.stringify({
           tipo_lote: tipoLote,
-          anomes: resumo.anomes || '202606',
+          anomes: resumo.anomes || '202607',
           parametros: {
             origem_tela: 'tratativas_massa',
             modulo: module.codigo,
@@ -6529,7 +6529,7 @@ export default function App() {
       setOccurrenceLoading(true)
       setOccurrenceDetail({ num_ocorrencia_adms: numOcorrencia })
       const response = await fetch(
-        `${API_URL}/api/qualidade/ocorrencias/${encodeURIComponent(numOcorrencia)}?anomes=${resumo.anomes || '202606'}`,
+        `${API_URL}/api/qualidade/ocorrencias/${encodeURIComponent(numOcorrencia)}?anomes=${resumo.anomes || '202607'}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -6577,7 +6577,7 @@ export default function App() {
     const justificativa = window.prompt(`Justificativa para propor ${label} da sugestão:`)
     if (!justificativa) return
     await handleCreateAlteracao({
-      anomes: '202606',
+      anomes: '202607',
       modulo: 'MIDWAY_ANOMALIAS',
       entidade: 'anomalia_v7',
       id_entidade: detail.id_anomalia,
@@ -6792,7 +6792,7 @@ export default function App() {
             onCreateAlteracao={handleCreateAlteracao}
             savingDecision={savingDecision}
             token={token}
-            anomes={resumo.anomes || '202606'}
+            anomes={resumo.anomes || '202607'}
           />
         )}
         {anomalyDetail && (
