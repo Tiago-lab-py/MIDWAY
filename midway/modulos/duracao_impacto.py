@@ -1,23 +1,39 @@
 from typing import List
+import os
+from pathlib import Path
+import duckdb
+from dotenv import load_dotenv
+
 from midway.modulos.base_modulo import BaseModulo, PropostaTratamento
+from midway.controle_execucao import configurar_logger
 
 class ModuloDuracaoImpacto(BaseModulo):
     """
     Detecta interrupções/ocorrências com impactos suspeitamente altos:
     duração extrema, CHI elevado, etc.
     """
-    def __init__(self):
-        super().__init__(
-            codigo_modulo="DURACAO_IMPACTO",
-            escopo="interrupcao",
-            fontes=["gold_interrupcao_tratada"],
-            criterio_anomalia="Duração da interrupção excede 72 horas ou CHI líquido muito alto (> 100).",
-            risco_falso_positivo="Eventos climáticos extremos podem justificar impactos imensos legitimamente.",
-            acao_sugerida="Avaliar ocorrência detalhadamente cruzando serviços e reclamações."
-        )
+    
+    @property
+    def codigo_modulo(self) -> str:
+        return "DURACAO_IMPACTO"
+
+    @property
+    def escopo(self) -> str:
+        return "interrupcao"
+
+    @property
+    def criterio_anomalia(self) -> str:
+        return "Duração da interrupção excede 72 horas ou CHI líquido muito alto (> 100)."
+
+    @property
+    def risco_falso_positivo(self) -> str:
+        return "Eventos climáticos extremos podem justificar impactos imensos legitimamente."
 
     def detectar_anomalias(self) -> List[PropostaTratamento]:
-        self.logger.info(f"[{self.codigo_modulo}] Iniciando detecção de duração/impactos anormais...")
+        load_dotenv()
+        anomes = os.getenv("ANOMES", "202606")
+        logger = configurar_logger("modulo_duracao_impacto", anomes)
+        logger.info(f"[{self.codigo_modulo}] Iniciando detecção de duração/impactos anormais...")
         propostas = []
         
         query = """
@@ -37,22 +53,25 @@ class ModuloDuracaoImpacto(BaseModulo):
         """
         
         try:
-            resultados = self.executar_query(query)
+            con = duckdb.connect()
+            # duckdb uses dict fetch
+            resultados_df = con.execute(query).df()
+            resultados = resultados_df.to_dict('records')
             
             for row in resultados:
                 evidencias = {
-                    "duracao_horas": round(row["DUR_INTRP_MIN"] / 60, 2),
-                    "chi_liquido": row["CHI_LIQUIDO"],
-                    "qtd_uc": row["QTD_UC_ATGD"],
+                    "duracao_horas": round(float(row["DUR_INTRP_MIN"]) / 60, 2) if row["DUR_INTRP_MIN"] is not None else 0.0,
+                    "chi_liquido": float(row["CHI_LIQUIDO"]) if row["CHI_LIQUIDO"] is not None else 0.0,
+                    "qtd_uc": int(row["QTD_UC_ATGD"]) if row["QTD_UC_ATGD"] is not None else 0,
                     "inicio": str(row["DAT_INI_INTRP"]),
                     "fim": str(row["DAT_FIM_INTRP"]),
-                    "conjunto": row["NOM_CONJ"],
-                    "alimentador": row["NOM_ALIM"],
-                    "componente": row["DSC_COMP_IQS"],
-                    "causa": row["DSC_CAUSA_IQS"]
+                    "conjunto": str(row["NOM_CONJ"]),
+                    "alimentador": str(row["NOM_ALIM"]),
+                    "componente": str(row["DSC_COMP_IQS"]),
+                    "causa": str(row["DSC_CAUSA_IQS"])
                 }
                 
-                impacto = f"Impacto elevado: CHI={row['CHI_LIQUIDO']} | Dura={evidencias['duracao_horas']}h"
+                impacto = f"Impacto elevado: CHI={evidencias['chi_liquido']} | Dura={evidencias['duracao_horas']}h"
                 acao = "Análise prioritária (cruzar serviços e reclamações)"
                 
                 propostas.append(
@@ -65,9 +84,9 @@ class ModuloDuracaoImpacto(BaseModulo):
                     )
                 )
             
-            self.logger.info(f"[{self.codigo_modulo}] Detecção concluída. {len(propostas)} anomalias encontradas.")
+            logger.info(f"[{self.codigo_modulo}] Detecção concluída. {len(propostas)} anomalias encontradas.")
             
         except Exception as e:
-            self.logger.error(f"[{self.codigo_modulo}] Erro durante a detecção: {e}")
+            logger.error(f"[{self.codigo_modulo}] Erro durante a detecção: {e}")
             
         return propostas

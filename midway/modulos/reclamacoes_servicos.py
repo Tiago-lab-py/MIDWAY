@@ -1,24 +1,40 @@
 import json
+import os
+from pathlib import Path
 from typing import List
+import duckdb
+from dotenv import load_dotenv
+
 from midway.modulos.base_modulo import BaseModulo, PropostaTratamento
+from midway.controle_execucao import configurar_logger
 
 class ModuloReclamacoesServicos(BaseModulo):
     """
     Cruza reclamações com ocorrências e serviços para apontar desvios.
     Por exemplo, ocorrências com muitas reclamações mas serviços incompatíveis.
     """
-    def __init__(self):
-        super().__init__(
-            codigo_modulo="RECLAMACOES_SERVICOS",
-            escopo="ocorrencia",
-            fontes=["gold_interrupcao_tratada", "reclamacoes_dbguo"],
-            criterio_anomalia="Volume alto de reclamações para uma mesma ocorrência ou serviço sem aderência.",
-            risco_falso_positivo="Desconexão de bases temporárias pode gerar falso positivo de falta de serviço.",
-            acao_sugerida="Analisar serviços em campo e cruzar com teor das reclamações."
-        )
+    
+    @property
+    def codigo_modulo(self) -> str:
+        return "RECLAMACOES_SERVICOS"
+
+    @property
+    def escopo(self) -> str:
+        return "ocorrencia"
+
+    @property
+    def criterio_anomalia(self) -> str:
+        return "Volume alto de reclamações para uma mesma ocorrência ou serviço sem aderência."
+
+    @property
+    def risco_falso_positivo(self) -> str:
+        return "Desconexão de bases temporárias pode gerar falso positivo de falta de serviço."
 
     def detectar_anomalias(self) -> List[PropostaTratamento]:
-        self.logger.info(f"[{self.codigo_modulo}] Iniciando análise de reclamações e serviços...")
+        load_dotenv()
+        anomes = os.getenv("ANOMES", "202606")
+        logger = configurar_logger("modulo_reclamacoes_servicos", anomes)
+        logger.info(f"[{self.codigo_modulo}] Iniciando análise de reclamações e serviços...")
         propostas = []
         
         query = """
@@ -35,16 +51,18 @@ class ModuloReclamacoesServicos(BaseModulo):
         """
         
         try:
-            resultados = self.executar_query(query)
+            con = duckdb.connect()
+            resultados_df = con.execute(query).df()
+            resultados = resultados_df.to_dict('records')
             
             for row in resultados:
                 evidencias = {
-                    "num_seq_intrp": row["NUM_SEQ_INTRP"],
-                    "chi_liquido": row["CHI_LIQUIDO"],
-                    "conjunto": row["NOM_CONJ"],
-                    "componente": row["DSC_COMP_IQS"],
-                    "causa": row["DSC_CAUSA_IQS"],
-                    "qtd_uc": row["QTD_UC_ATGD"],
+                    "num_seq_intrp": str(row["NUM_SEQ_INTRP"]),
+                    "chi_liquido": float(row["CHI_LIQUIDO"]) if row["CHI_LIQUIDO"] is not None else 0.0,
+                    "conjunto": str(row["NOM_CONJ"]),
+                    "componente": str(row["DSC_COMP_IQS"]),
+                    "causa": str(row["DSC_CAUSA_IQS"]),
+                    "qtd_uc": int(row["QTD_UC_ATGD"]) if row["QTD_UC_ATGD"] is not None else 0,
                     "reclamacoes_vinculadas": "Suspeita de volume alto (Simulação)"
                 }
                 
@@ -61,9 +79,9 @@ class ModuloReclamacoesServicos(BaseModulo):
                     )
                 )
             
-            self.logger.info(f"[{self.codigo_modulo}] Detecção concluída. {len(propostas)} anomalias encontradas.")
+            logger.info(f"[{self.codigo_modulo}] Detecção concluída. {len(propostas)} anomalias encontradas.")
             
         except Exception as e:
-            self.logger.error(f"[{self.codigo_modulo}] Erro durante a detecção: {e}")
+            logger.error(f"[{self.codigo_modulo}] Erro durante a detecção: {e}")
             
         return propostas

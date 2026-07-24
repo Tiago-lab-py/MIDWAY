@@ -1,24 +1,40 @@
 import json
+import os
+from pathlib import Path
 from typing import List
+import duckdb
+from dotenv import load_dotenv
+
 from midway.modulos.base_modulo import BaseModulo, PropostaTratamento
+from midway.controle_execucao import configurar_logger
 
 class ModuloDiaCriticoIse(BaseModulo):
     """
     Avalia a concentração de interrupções e o ISE para classificar dias críticos
     que merecem expurgo ou tratamento excepcional.
     """
-    def __init__(self):
-        super().__init__(
-            codigo_modulo="DIA_CRITICO_ISE",
-            escopo="conjunto",
-            fontes=["gold_apuracao_uc"],
-            criterio_anomalia="Meta de Dia Crítico Sintética excedida por agrupamento regional ou conjunto.",
-            risco_falso_positivo="Baixa densidade de UCs pode distorcer a meta sintética.",
-            acao_sugerida="Validar as interrupções do conjunto no dia indicado e classificar o expurgo."
-        )
+    
+    @property
+    def codigo_modulo(self) -> str:
+        return "DIA_CRITICO_ISE"
+
+    @property
+    def escopo(self) -> str:
+        return "conjunto"
+
+    @property
+    def criterio_anomalia(self) -> str:
+        return "Meta de Dia Crítico Sintética excedida por agrupamento regional ou conjunto."
+
+    @property
+    def risco_falso_positivo(self) -> str:
+        return "Baixa densidade de UCs pode distorcer a meta sintética."
 
     def detectar_anomalias(self) -> List[PropostaTratamento]:
-        self.logger.info(f"[{self.codigo_modulo}] Iniciando análise de dia crítico e ISE...")
+        load_dotenv()
+        anomes = os.getenv("ANOMES", "202606")
+        logger = configurar_logger("modulo_dia_critico_ise", anomes)
+        logger.info(f"[{self.codigo_modulo}] Iniciando análise de dia crítico e ISE...")
         propostas = []
         
         # Leitura da lógica baseada na agregação diária de impacto
@@ -34,14 +50,16 @@ class ModuloDiaCriticoIse(BaseModulo):
         """
         
         try:
-            resultados = self.executar_query(query)
+            con = duckdb.connect()
+            resultados_df = con.execute(query).df()
+            resultados = resultados_df.to_dict('records')
             
             for row in resultados:
                 evidencias = {
-                    "conjunto": row["NOM_CONJ"],
+                    "conjunto": str(row["NOM_CONJ"]),
                     "data": str(row["data_referencia"]),
-                    "total_chi": row["total_chi"],
-                    "horas_totais": round(row["horas_totais"], 2)
+                    "total_chi": float(row["total_chi"]) if row["total_chi"] is not None else 0.0,
+                    "horas_totais": round(float(row["horas_totais"]), 2) if row["horas_totais"] is not None else 0.0
                 }
                 
                 impacto = f"Possível Dia Crítico detectado (Total CHI: {evidencias['total_chi']})"
@@ -57,9 +75,9 @@ class ModuloDiaCriticoIse(BaseModulo):
                     )
                 )
             
-            self.logger.info(f"[{self.codigo_modulo}] Detecção concluída. {len(propostas)} anomalias encontradas.")
+            logger.info(f"[{self.codigo_modulo}] Detecção concluída. {len(propostas)} anomalias encontradas.")
             
         except Exception as e:
-            self.logger.error(f"[{self.codigo_modulo}] Erro durante a detecção: {e}")
+            logger.error(f"[{self.codigo_modulo}] Erro durante a detecção: {e}")
             
         return propostas

@@ -1,27 +1,42 @@
 import json
+import os
+from pathlib import Path
 from typing import List
+import duckdb
+from dotenv import load_dotenv
+
 from midway.modulos.base_modulo import BaseModulo, PropostaTratamento
+from midway.controle_execucao import configurar_logger
 
 class ModuloRessarcimentoAtipico(BaseModulo):
     """
     Detecta valores de ressarcimento incompatíveis com a granularidade correta ou
     duplicidade de compensação para a mesma UC.
     """
-    def __init__(self):
-        super().__init__(
-            codigo_modulo="RESSARCIMENTO_ATIPICO",
-            escopo="uc",
-            fontes=["gold_ressarcimento_prodist"],
-            criterio_anomalia="Duplicidade de compensação para mesma UC em várias ocorrências ou valores inflados.",
-            risco_falso_positivo="Ressarcimento alto legítimo devido a violação massiva.",
-            acao_sugerida="Revisar valores compensatórios associados à UC."
-        )
+    
+    @property
+    def codigo_modulo(self) -> str:
+        return "RESSARCIMENTO_ATIPICO"
+
+    @property
+    def escopo(self) -> str:
+        return "uc"
+
+    @property
+    def criterio_anomalia(self) -> str:
+        return "Duplicidade de compensação para mesma UC em várias ocorrências ou valores inflados."
+
+    @property
+    def risco_falso_positivo(self) -> str:
+        return "Ressarcimento alto legítimo devido a violação massiva."
 
     def detectar_anomalias(self) -> List[PropostaTratamento]:
-        self.logger.info(f"[{self.codigo_modulo}] Iniciando detecção de ressarcimento atípico...")
+        load_dotenv()
+        anomes = os.getenv("ANOMES", "202606")
+        logger = configurar_logger("modulo_ressarcimento_atipico", anomes)
+        logger.info(f"[{self.codigo_modulo}] Iniciando detecção de ressarcimento atípico...")
         propostas = []
         
-        # Agrupa ressarcimento por UC e verifica se há valores anômalos ou múltiplas ocorrências
         query = """
             SELECT 
                 NUM_UC,
@@ -33,13 +48,15 @@ class ModuloRessarcimentoAtipico(BaseModulo):
         """
         
         try:
-            resultados = self.executar_query(query)
+            con = duckdb.connect()
+            resultados_df = con.execute(query).df()
+            resultados = resultados_df.to_dict('records')
             
             for row in resultados:
                 evidencias = {
-                    "num_uc": row["NUM_UC"],
-                    "qtd_ocorrencias": row["qtd_ocorrencias"],
-                    "soma_compensacao_estimada": round(row["soma_compensacao"], 2)
+                    "num_uc": str(row["NUM_UC"]),
+                    "qtd_ocorrencias": int(row["qtd_ocorrencias"]),
+                    "soma_compensacao_estimada": round(float(row["soma_compensacao"]), 2) if row["soma_compensacao"] is not None else 0.0
                 }
                 
                 impacto = f"Compensação alta ou múltipla detectada: R$ {evidencias['soma_compensacao_estimada']}"
@@ -55,9 +72,9 @@ class ModuloRessarcimentoAtipico(BaseModulo):
                     )
                 )
             
-            self.logger.info(f"[{self.codigo_modulo}] Detecção concluída. {len(propostas)} anomalias encontradas.")
+            logger.info(f"[{self.codigo_modulo}] Detecção concluída. {len(propostas)} anomalias encontradas.")
             
         except Exception as e:
-            self.logger.error(f"[{self.codigo_modulo}] Erro durante a detecção: {e}")
+            logger.error(f"[{self.codigo_modulo}] Erro durante a detecção: {e}")
             
         return propostas
