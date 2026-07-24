@@ -102,6 +102,15 @@ def main():
 
         # FASE 2: TRATAMENTO DE ANOMALIAS E NORMALIZAÇÃO
         logger.info("--- [FASE 2/4] TRATAMENTO E NORMALIZAÇÃO ---")
+        
+        try:
+            logger.info("[2.1] Materializando Reclamações DBGUO (Silver e Gold)...")
+            from midway.transform.dbguo_reclamacoes_silver import materializar_silver_e_gold
+            materializar_silver_e_gold(logger=logger)
+        except Exception as err:
+            logger.warning(f"[2.1] Aviso ao processar Reclamações DBGUO: {err}.")
+            
+        logger.info("[2.2] Tratamento de anomalias da rede...")
         tratar_e_exportar_alterados(logger=logger)
 
         # FASE 3: APURAÇÃO PRÉVIA E MATERIALIZAÇÃO DE CAMADAS GOLD
