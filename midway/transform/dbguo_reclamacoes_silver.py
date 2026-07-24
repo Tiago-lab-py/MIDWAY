@@ -33,8 +33,9 @@ def sql_literal(valor) -> str:
 
 
 def janela_reclamacoes_anomes() -> tuple[str, str]:
-    ano = int(ANOMES[:4])
-    mes = int(ANOMES[4:6])
+    anomes = _anomes()
+    ano = int(anomes[:4])
+    mes = int(anomes[4:6])
     inicio = datetime(ano, mes, 1)
     if mes == 12:
         proximo_mes = datetime(ano + 1, 1, 1)
@@ -134,11 +135,12 @@ def column_text_expr(columns: list[str], column_name: str, alias: str | None = N
 
 
 def attach_dbguo_raw(con) -> str:
-    if not RAW_DUCKDB_PATH.exists():
-        raise RuntimeError(f"DuckDB raw DBGUO nao encontrado: {RAW_DUCKDB_PATH}")
+    raw_path = _raw_path()
+    if not raw_path.exists():
+        raise RuntimeError(f"DuckDB raw DBGUO nao encontrado: {raw_path}")
 
     try:
-        con.execute(f"ATTACH '{RAW_DUCKDB_PATH.as_posix()}' AS {RAW_SCHEMA} (READ_ONLY)")
+        con.execute(f"ATTACH '{raw_path.as_posix()}' AS {RAW_SCHEMA} (READ_ONLY)")
     except duckdb.BinderException:
         pass
 
@@ -814,8 +816,10 @@ def criar_gold_reclamacoes(con):
 
 
 def exportar_resumo(con):
-    MARTS_DIR.mkdir(parents=True, exist_ok=True)
-    resumo_path = MARTS_DIR / f"Silver_DBGUO_Reclamacoes_{ANOMES}_{TIMESTAMP}_RESUMO.TXT"
+    anomes = _anomes()
+    marts_dir = BASE_DIR / "marts"
+    marts_dir.mkdir(parents=True, exist_ok=True)
+    resumo_path = marts_dir / f"Silver_DBGUO_Reclamacoes_{anomes}_{TIMESTAMP}_RESUMO.TXT"
 
     row = con.execute(
         """
@@ -840,7 +844,7 @@ def exportar_resumo(con):
 
     with resumo_path.open("w", encoding="utf-8", newline="\n") as arquivo:
         arquivo.write("SILVER/GOLD DBGUO RECLAMACOES\n")
-        arquivo.write(f"ANOMES: {ANOMES}\n")
+        arquivo.write(f"ANOMES: {anomes}\n")
         arquivo.write("Tabela silver: silver_dbguo_reclamacoes\n")
         arquivo.write("Tabela gold detalhe: gold_reclamacao_uc_vinculada\n")
         arquivo.write("Tabela gold UC: gold_reclamacao_uc_resumo\n")
