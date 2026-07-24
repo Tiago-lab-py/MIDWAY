@@ -52,6 +52,30 @@ def main():
         except Exception as err:
             logger.warning(f"[1.2] Aviso ao extrair UCs faturadas: {err}. Garantindo compatibilidade com o mês anterior.")
 
+        # 1.2.1 Base de Consumidores (gold_consumidores)
+        try:
+            logger.info("[1.2.1] Extraindo Consumidores da competência...")
+            from midway.extract.consumidores import extrair_consumidores
+            extrair_consumidores()
+        except Exception as err:
+            logger.warning(f"[1.2.1] Aviso ao extrair Consumidores: {err}.")
+
+        # 1.2.2 Metas UC (gold_metas_uc)
+        try:
+            logger.info("[1.2.2] Extraindo Metas UC...")
+            from midway.extract.metas_uc import extrair_metas_uc
+            extrair_metas_uc()
+        except Exception as err:
+            logger.warning(f"[1.2.2] Aviso ao extrair Metas UC: {err}.")
+
+        # 1.2.3 VRC (gold_vrc)
+        try:
+            logger.info("[1.2.3] Extraindo VRC...")
+            from midway.extract.vrc import extrair_vrc
+            extrair_vrc()
+        except Exception as err:
+            logger.warning(f"[1.2.3] Aviso ao extrair VRC: {err}.")
+
         # 1.3 Base de Apoio: Reclamações DBGUO
         try:
             logger.info("[1.3] Extraindo reclamações DBGUO...")
