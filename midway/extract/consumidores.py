@@ -14,7 +14,7 @@ from midway.transform.iqs_raw_utils import (
 )
 
 
-load_dotenv()
+load_dotenv(override=True)
 
 IQS_UID = os.getenv("IQS_UID")
 IQS_PWD = os.getenv("IQS_PWD")

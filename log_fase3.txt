@@ -1,0 +1,26 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\MIDWAY\midway\apuracao\previa.py", line 306, in <module>
+    apuracao_previa()
+  File "D:\MIDWAY\midway\apuracao\previa.py", line 241, in apuracao_previa
+    criar_gold_apuracao_uc(con)
+  File "D:\MIDWAY\midway\apuracao\previa.py", line 293, in criar_gold_apuracao_uc
+    criar_gold_continuidade_uc(con)
+  File "D:\MIDWAY\midway\apuracao\continuidade.py", line 27, in criar_gold_continuidade_uc
+    raise RuntimeError("Tabela gold_metas_uc nao encontrada. Execute run.bat metas_uc.")
+RuntimeError: Tabela gold_metas_uc nao encontrada. Execute run.bat metas_uc.
+Tabelas IQS sincronizadas do raw: silver_iqs_uc_fatura, gold_uc_fatura, silver_iqs_vrc, gold_vrc, silver_iqs_referencia_componente_causa, gold_iqs_referencia_componente_causa
+Criando gold_interrupcao_tratada completa do RAW...
+Criando gold_apuracao_uc...
+Criando gold_interrupcao_sem_uc...
+Criando gold_ocorrencia_sem_uc...
+Exportando auditoria de interrupcoes sem UC apuravel...
+Interrupcoes sem UC apuravel: 37166
+Auditoria interrupcao sem UC: data\marts\Auditoria_Interrupcao_Sem_UC_202607_20260724143505.CSV
+Resumo interrupcao sem UC: data\marts\Auditoria_Interrupcao_Sem_UC_202607_20260724143505_RESUMO.TXT
+Ocorrencias com interrupcao sem UC apuravel: 282
+Ocorrencias completas sem UC apuravel: 181
+Auditoria ocorrencia sem UC: data\marts\Auditoria_Ocorrencia_Sem_UC_202607_20260724143505.CSV
+Resumo ocorrencia sem UC: data\marts\Auditoria_Ocorrencia_Sem_UC_202607_20260724143505_RESUMO.TXT
+Criando gold_continuidade_uc...

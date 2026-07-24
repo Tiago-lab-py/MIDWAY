@@ -4636,6 +4636,9 @@ function GovernancaPage({
                     <li><strong>[1.3] Reclamações DBGUO (reclamacoes_dbguo):</strong> Histórico de reclamações</li>
                     <li><strong>[1.4] Serviços ADMS (adms_servicos):</strong> Ordens de serviço de campo (92/82)</li>
                     <li><strong>[1.5] Referências IQS (referencia_componente_causa):</strong> Dicionários IQS</li>
+                    <li><strong>[1.6] Metas UC (metas_uc):</strong> Limites de indicadores</li>
+                    <li><strong>[1.7] VRC (vrc):</strong> Valor de Reposição</li>
+                    <li><strong>[1.8] Consumidores (consumidores):</strong> Quantidade de UCs base</li>
                   </ul>
                 </div>
                 <div>

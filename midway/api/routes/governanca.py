@@ -161,6 +161,9 @@ EXECUCOES_PERMITIDAS = {
             {"module": "midway.extract.reclamacoes_dbguo", "env": {}},
             {"module": "midway.extract.adms_servicos", "env": {}},
             {"module": "midway.extract.referencia_componente_causa", "env": {}},
+            {"module": "midway.extract.metas_uc", "env": {}},
+            {"module": "midway.extract.vrc", "env": {}},
+            {"module": "midway.extract.consumidores", "env": {}},
         ],
     },
     "fase2": {
