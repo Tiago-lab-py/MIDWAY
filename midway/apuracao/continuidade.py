@@ -25,7 +25,7 @@ def criar_gold_continuidade_uc(con):
 
     if "gold_metas_uc" not in tabelas:
         print("Aviso: gold_metas_uc nao encontrada. Criando mock vazio para permitir execucao da Fase 3.")
-        con.execute("CREATE TABLE gold_metas_uc AS SELECT '0' AS ISN_UC, '0' AS COD_GRUPO_NTFN, '0' AS COD_NTFN, 'Mock' AS DESC_NTFN, 0.0 AS META_DIC, 0.0 AS META_FIC, 0.0 AS META_DMIC, 0.0 AS META_DICRI, 0.0 AS META_DISE, '0' AS COD_CONJUNTO_ANEEL, 0.0 AS META_DEC, 0.0 AS META_FEC WHERE 1=0")
+        con.execute("CREATE TABLE gold_metas_uc AS SELECT '0' AS ISN_UC, '0' AS COD_GRUPO_NTFN, '0' AS COD_NTFN, 'Mock' AS DESC_NTFN, 0.0 AS META_DIC, 0.0 AS META_FIC, 0.0 AS META_DMIC, 0.0 AS META_DICRI, 0.0 AS META_DISE, '0' AS COD_CONJUNTO_ANEEL, 0.0 AS META_DEC, 0.0 AS META_FEC, 'U' AS URB_RUR WHERE 1=0")
 
     if "gold_vrc" not in tabelas:
         print("Aviso: gold_vrc nao encontrada. Criando mock vazio para permitir execucao da Fase 3.")
