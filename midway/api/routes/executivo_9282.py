@@ -190,8 +190,17 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
             CROSS JOIN denominador d
             """
         ).fetchone()
+        def _table_exists(c, table):
+            return c.execute(f"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{table}'").fetchone()[0] > 0
+
+        has_total = _table_exists(con, "export_sobreposicao_total_uc")
+        has_sem_uc = _table_exists(con, "adms_iqs_interrupcao_sem_uc_export")
+
+        total_from = "export_sobreposicao_total_uc e" if has_total else "(SELECT NULL AS DTHR_INICIO_INTRP_UC, NULL AS DATA_HORA_FIM_INTRP, NULL AS NUM_UC_UCI, NULL AS TIPO_PROTOC_JUSTIF_UCI WHERE 1=0) e"
+        sem_uc_from = "adms_iqs_interrupcao_sem_uc_export e" if has_sem_uc else "(SELECT NULL AS DTHR_INICIO_INTRP_UC, NULL AS DATA_HORA_FIM_INTRP, NULL AS NUM_UC_UCI, NULL AS TIPO_PROTOC_JUSTIF_UCI WHERE 1=0) e"
+
         tratamentos = con.execute(
-            """
+            f"""
             WITH denominador AS (
                 SELECT MAX(UC_FATURADA) AS total_consumidores
                 FROM gold_consumidores
@@ -205,7 +214,7 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
                     SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0' THEN 1 ELSE 0 END) AS ci_liquido_ganho,
                     SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0'
                         THEN DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0 ELSE 0 END) AS chi_liquido_ganho
-                FROM export_sobreposicao_total_uc e
+                FROM {total_from}
                 WHERE TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP) IS NOT NULL
                   AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) IS NOT NULL
                   AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) >= TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP)
@@ -251,7 +260,7 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
                     SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0' THEN 1 ELSE 0 END) AS ci_liquido_ganho,
                     SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0'
                         THEN DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0 ELSE 0 END) AS chi_liquido_ganho
-                FROM adms_iqs_interrupcao_sem_uc_export e
+                FROM {sem_uc_from}
                 WHERE TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP) IS NOT NULL
                   AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) IS NOT NULL
                   AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) >= TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP)

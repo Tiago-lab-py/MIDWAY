@@ -360,7 +360,7 @@ def _amostra_modulo_automatizado(codigo: str, limite: int) -> dict[str, object]:
 
     con, fonte_processado = _connect_processed_readonly()
     if con is None:
-        return {"codigo": codigo, "fonte": fonte_processado, "items": []}
+        return {"codigo": codigo, "fonte": fonte_processado.get("fonte", "desconhecida"), "items": []}
 
     try:
         if codigo == "INTERRUPCAO_SEM_UC" and _table_exists(con, "adms_iqs_interrupcao_sem_uc_export"):
@@ -435,7 +435,7 @@ def _amostra_modulo_automatizado(codigo: str, limite: int) -> dict[str, object]:
             ).fetchdf().to_dict(orient="records")
             return {"codigo": codigo, "fonte": "export_sobreposicao_total_uc", "items": rows}
 
-        return {"codigo": codigo, "fonte": fonte_processado, "items": []}
+        return {"codigo": codigo, "fonte": fonte_processado.get("fonte", "desconhecida"), "items": []}
     finally:
         con.close()
 
