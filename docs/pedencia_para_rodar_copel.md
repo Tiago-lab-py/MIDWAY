@@ -99,7 +99,8 @@ Executar scripts em ambiente controlado no schema `ddcq`:
 4. `SQL/postgres/ddcq/004_seed_parametros.sql`;
 5. `SQL/postgres/ddcq/006_governanca.sql`;
 6. `SQL/postgres/ddcq/007_iqs_geracao_governada.sql`;
-7. `SQL/postgres/ddcq/008_nucleo_anomalias_v7.sql`.
+7. `SQL/postgres/ddcq/008_nucleo_anomalias.sql`.
+8. `SQL/postgres/ddcq/009_propostas_tratamento.sql`.
 
 Observação: `005_views_9282.sql` deve ser tratado como suporte histórico/especializado, não como centro do produto.
 

@@ -9,7 +9,7 @@ from midway.api.routes import anomalias, executivo_9282, governanca, health, iqs
 def create_app() -> FastAPI:
     app = FastAPI(
         title="MIDWAY API",
-        version="7.0.0",
+        version="7.1.0",
         description="API operacional do MIDWAY para React, PostgreSQL ddcq e processamentos IQS.",
     )
 

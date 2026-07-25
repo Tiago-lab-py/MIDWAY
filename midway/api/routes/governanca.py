@@ -323,7 +323,7 @@ EXECUCOES_PERMITIDAS = {
         "titulo": "run.bat anomalias_setup — Atualizar Anomalias",
         "descricao": "Recarrega anomalias a partir de RAW/SILVER/GOLD.",
         "etapas": [
-            {"module": "midway.db.apply_sql", "args": ["008_nucleo_anomalias_v7.sql"], "env": {}},
+            {"module": "midway.db.apply_sql", "args": ["008_nucleo_anomalias.sql"], "env": {}},
             {"module": "midway.v7.generate_real_anomalies", "env": {}},
             {"module": "midway.db.postgres", "env": {}},
         ],

@@ -59,6 +59,27 @@ DBGUO_CONFIG_DIR=<diretorio_tns>
 
 Observação: nomes exatos de host, database, TNS e usuários devem ser definidos pela TI/DBA COPEL.
 
+## Validação Possível Fora da COPEL
+
+Em desenvolvimento residencial/local, sem rede corporativa, é possível validar:
+
+- frontend React/Vite e fluxo de navegação;
+- API FastAPI, CORS local e contrato dos endpoints;
+- PostgreSQL local no schema `ddcq`;
+- aplicação dos scripts versionados em `SQL/postgres/ddcq`;
+- bootstrap de usuário administrador;
+- geração e leitura das filas, decisões, auditoria e execuções em base local;
+- documentação operacional, checklist e comandos `run.bat`.
+
+Ficam pendentes para dentro da COPEL:
+
+- conexão real com Oracle/IQS;
+- conexão DBGUO corporativa;
+- credenciais e TNS homologados;
+- diretórios oficiais de entrada/saída;
+- volume real de dados operacionais;
+- homologação de exportação e carga IQS.
+
 ## Provisão do Banco
 
 ### 1. Criar ou liberar database
@@ -89,7 +110,8 @@ Executar nesta ordem:
 4. `SQL/postgres/ddcq/004_seed_parametros.sql`
 5. `SQL/postgres/ddcq/006_governanca.sql`
 6. `SQL/postgres/ddcq/007_iqs_geracao_governada.sql`
-7. `SQL/postgres/ddcq/008_nucleo_anomalias_v7.sql`
+7. `SQL/postgres/ddcq/008_nucleo_anomalias.sql`
+8. `SQL/postgres/ddcq/009_propostas_tratamento.sql`
 
 O arquivo `SQL/postgres/ddcq/005_views_9282.sql` é suporte histórico/especializado e não deve ser tratado como centro do produto.
 
@@ -202,4 +224,3 @@ Fazer:
 - [ ] Conexões IQS/DBGUO homologadas.
 - [ ] Diretórios corporativos de entrada/saída definidos.
 - [ ] Exportação IQS homologada com lote controlado.
-

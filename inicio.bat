@@ -14,7 +14,7 @@ if exist "D:\nodejs\node-v24.18.0-win-x64" (
 
 echo.
 echo ============================================================
-echo  MIDWAY 7.0.0 - Inicio do painel React + FastAPI
+echo  MIDWAY 7.1.0 - Inicio do painel React + FastAPI
 echo ============================================================
 echo.
 
