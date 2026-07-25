@@ -45,53 +45,74 @@ class ModuloRessarcimentoAtipico(BaseModulo):
                 return []
 
             con = duckdb.connect(str(processed_duckdb_path), read_only=True)
-            tables = {row[0] for row in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()}
-            
-            if "gold_ressarcimento_prodist" not in tables or "adms_iqs_export" not in tables or "gold_reclamacao_uc_vinculada" not in tables:
-                logger.warning(f"[{self.codigo_modulo}] Tabelas necessárias (gold_ressarcimento_prodist, adms_iqs_export, gold_reclamacao_uc_vinculada) não encontradas. Ignorando detecção.")
-                return []
+            try:
+                tables = {row[0] for row in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()}
+                
+                if "gold_ressarcimento_prodist" not in tables or "adms_iqs_export" not in tables or "gold_reclamacao_uc_vinculada" not in tables:
+                    logger.warning(f"[{self.codigo_modulo}] Tabelas necessárias (gold_ressarcimento_prodist, adms_iqs_export, gold_reclamacao_uc_vinculada) não encontradas. Ignorando detecção.")
+                    return []
 
-            query = """
-                WITH ocorrencia_ressarcimento AS (
+                query = """
+                    WITH iqs_distinto AS (
+                        SELECT DISTINCT
+                            CAST(NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
+                            CAST(NUM_SEQ_INTRP AS VARCHAR) AS NUM_SEQ_INTRP,
+                            CAST(NUM_UC_UCI AS VARCHAR) AS NUM_UC_UCI
+                        FROM adms_iqs_export
+                        WHERE NUM_OCORRENCIA_ADMS IS NOT NULL
+                          AND NUM_SEQ_INTRP IS NOT NULL
+                          AND NUM_UC_UCI IS NOT NULL
+                    ),
+                    ressarcimento_distinto AS (
+                        SELECT
+                            CAST(NUM_UC AS VARCHAR) AS NUM_UC,
+                            CAST(PID_INTRP_SRVE AS VARCHAR) AS NUM_SEQ_INTRP,
+                            SUM(COALESCE(COMP_TOTAL_PRODIST, 0)) AS COMP_TOTAL_PRODIST
+                        FROM gold_ressarcimento_prodist
+                        WHERE COALESCE(COMP_TOTAL_PRODIST, 0) > 0
+                        GROUP BY CAST(NUM_UC AS VARCHAR), CAST(PID_INTRP_SRVE AS VARCHAR)
+                    ),
+                    ocorrencia_ressarcimento AS (
+                        SELECT 
+                            r.NUM_OCORRENCIA_ADMS,
+                            r.NUM_SEQ_INTRP,
+                            COUNT(DISTINCT r.NUM_UC_UCI) AS total_ucs_afetadas,
+                            SUM(res.COMP_TOTAL_PRODIST) AS soma_compensacao
+                        FROM iqs_distinto r
+                        JOIN ressarcimento_distinto res 
+                          ON res.NUM_UC = r.NUM_UC_UCI
+                         AND res.NUM_SEQ_INTRP = r.NUM_SEQ_INTRP
+                        GROUP BY r.NUM_OCORRENCIA_ADMS, r.NUM_SEQ_INTRP
+                        HAVING SUM(res.COMP_TOTAL_PRODIST) > 1000
+                    ),
+                    ocorrencia_reclamacoes AS (
+                        SELECT 
+                            CAST(NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
+                            COUNT(DISTINCT ID_RECLAMACAO) AS qtd_reclamacoes
+                        FROM gold_reclamacao_uc_vinculada
+                        WHERE CLASSIFICACAO_VINCULO_RECLAMACAO <> 'SEM_OCORRENCIA_PROVAVEL'
+                          AND NUM_OCORRENCIA_ADMS IS NOT NULL
+                        GROUP BY CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)
+                    )
                     SELECT 
-                        r.NUM_OCORRENCIA_ADMS,
-                        r.NUM_SEQ_INTRP,
-                        COUNT(DISTINCT r.NUM_UC_UCI) AS total_ucs_afetadas,
-                        SUM(COALESCE(res.COMP_TOTAL_PRODIST, 0)) AS soma_compensacao
-                    FROM adms_iqs_export r
-                    JOIN gold_ressarcimento_prodist res 
-                      ON CAST(res.NUM_UC AS VARCHAR) = CAST(r.NUM_UC_UCI AS VARCHAR)
-                     AND CAST(res.PID_INTRP_SRVE AS VARCHAR) = CAST(r.NUM_SEQ_INTRP AS VARCHAR)
-                    GROUP BY r.NUM_OCORRENCIA_ADMS, r.NUM_SEQ_INTRP
-                ),
-                ocorrencia_reclamacoes AS (
-                    SELECT 
-                        NUM_OCORRENCIA_ADMS,
-                        COUNT(DISTINCT ID_RECLAMACAO) AS qtd_reclamacoes
-                    FROM gold_reclamacao_uc_vinculada
-                    WHERE CLASSIFICACAO_VINCULO_RECLAMACAO <> 'SEM_OCORRENCIA_PROVAVEL'
-                    GROUP BY NUM_OCORRENCIA_ADMS
-                )
-                SELECT 
-                    o.NUM_OCORRENCIA_ADMS,
-                    o.NUM_SEQ_INTRP,
-                    o.total_ucs_afetadas,
-                    o.soma_compensacao,
-                    COALESCE(rec.qtd_reclamacoes, 0) AS qtd_reclamacoes,
-                    CASE 
-                        WHEN COALESCE(rec.qtd_reclamacoes, 0) = 0 THEN 'Sem reclamações'
-                        ELSE 'Baixa proporção de reclamações (' || ROUND((COALESCE(rec.qtd_reclamacoes, 0)::double / o.total_ucs_afetadas) * 100, 2) || '%)'
-                    END AS motivo_atipico
-                FROM ocorrencia_ressarcimento o
-                LEFT JOIN ocorrencia_reclamacoes rec ON rec.NUM_OCORRENCIA_ADMS = o.NUM_OCORRENCIA_ADMS
-                WHERE o.soma_compensacao > 1000
-                  AND (
-                      COALESCE(rec.qtd_reclamacoes, 0) = 0
-                      OR (o.total_ucs_afetadas >= 10 AND (COALESCE(rec.qtd_reclamacoes, 0)::double / o.total_ucs_afetadas) < 0.02)
-                  )
-            """
+                        o.NUM_OCORRENCIA_ADMS,
+                        o.NUM_SEQ_INTRP,
+                        o.total_ucs_afetadas,
+                        o.soma_compensacao,
+                        COALESCE(rec.qtd_reclamacoes, 0) AS qtd_reclamacoes,
+                        CASE 
+                            WHEN COALESCE(rec.qtd_reclamacoes, 0) = 0 THEN 'Sem reclamações'
+                            ELSE 'Baixa proporção de reclamações (' || ROUND((COALESCE(rec.qtd_reclamacoes, 0)::double / o.total_ucs_afetadas) * 100, 2) || '%)'
+                        END AS motivo_atipico
+                    FROM ocorrencia_ressarcimento o
+                    LEFT JOIN ocorrencia_reclamacoes rec ON rec.NUM_OCORRENCIA_ADMS = o.NUM_OCORRENCIA_ADMS
+                    WHERE COALESCE(rec.qtd_reclamacoes, 0) = 0
+                       OR (o.total_ucs_afetadas >= 10 AND (COALESCE(rec.qtd_reclamacoes, 0)::double / o.total_ucs_afetadas) < 0.02)
+                """
 
-            resultados_df = con.execute(query).df()
+                resultados_df = con.execute(query).df()
+            finally:
+                con.close()
             resultados = resultados_df.to_dict('records')
             
             for row in resultados:

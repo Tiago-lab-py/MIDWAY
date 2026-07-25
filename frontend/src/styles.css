@@ -1277,6 +1277,12 @@ p {
   color: #bbf7d0;
 }
 
+.alert-processing {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: rgba(30, 64, 175, 0.22);
+  color: #bfdbfe;
+}
+
 .stat-list,
 .stacked-notes {
   display: grid;

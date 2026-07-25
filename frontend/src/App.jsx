@@ -1286,6 +1286,12 @@ function AjustesGovernadosPanel({
     })
     return latest
   }, [execucoes])
+  const activeExecution = useMemo(() => (
+    (execucoes || []).find((execucao) => ['ABERTO', 'PROCESSANDO'].includes(String(execucao.status_lote || '').toUpperCase()))
+  ), [execucoes])
+  const activeExecutionMessage = activeExecution
+    ? `${activeExecution.tipo_lote || 'processamento'} · lote ${String(activeExecution.id_lote || '').slice(0, 8)} · iniciado em ${dateTime(activeExecution.iniciado_em)}`
+    : ''
 
   const correcao9282Module = {
     codigo: 'CORRECAO_9282',
@@ -1454,7 +1460,6 @@ function AjustesGovernadosPanel({
 
   function moduleCard(module, mode) {
     const isAuto = mode === 'auto'
-    const updateDisabled = actionDisabled || !tipoExecucaoModulo(module) || runningAlgorithm === 'orquestrador'
     return (
       <article className={`module-summary-card ${module.codigo === 'CORRECAO_9282' ? 'module-summary-card-featured' : ''}`} key={`${mode}-${module.codigo}`}>
         <div>
@@ -1504,12 +1509,18 @@ function AjustesGovernadosPanel({
           <button 
             className="primary-button" 
             style={{ padding: '0.75rem 1.5rem', fontWeight: 'bold' }}
-            disabled={runningAlgorithm === 'orquestrador'} 
+            disabled={Boolean(activeExecution) || runningAlgorithm === 'orquestrador'} 
             onClick={() => onAtualizarAlgoritmo?.({ codigo: 'orquestrador', nome: 'Orquestrador Completo' })}
+            title={activeExecution ? 'Já existe processamento ativo. Aguarde concluir ou cancele pela Administração.' : 'Executar motor de anomalias'}
           >
-            {runningAlgorithm === 'orquestrador' ? 'Executando Motor...' : 'Executar Motor de Anomalias'}
+            {activeExecution ? 'Processamento em andamento' : runningAlgorithm === 'orquestrador' ? 'Executando Motor...' : 'Executar Motor de Anomalias'}
           </button>
         </div>
+        {activeExecution && (
+          <div className="alert alert-processing">
+            Existe um processamento ativo: {activeExecutionMessage}. A tela permanece disponível para consulta, mas novas execuções ficam bloqueadas para evitar lote duplicado.
+          </div>
+        )}
 
         <div className="adjustment-panel-grid">
           <div className="adjustment-lane adjustment-lane-auto">
