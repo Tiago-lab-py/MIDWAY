@@ -3263,10 +3263,41 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
   )
 }
 
+function normalizeQueueItem(item) {
+  const prioridade = String(item.prioridade || '').toUpperCase()
+  const fonte = String(item.fonte_sugestao || '').toLowerCase()
+  const evidencia = String(item.nivel_evidencia || '').toLowerCase()
+  const status = String(item.status_fila || '').toLowerCase()
+  const score = (
+    (prioridade.includes('CRIT') ? 90 : prioridade.includes('ALTA') ? 72 : prioridade.includes('MEDIA') || prioridade.includes('MÉDIA') ? 48 : 24)
+    + (fonte.includes('reclam') ? 14 : 0)
+    + (fonte.includes('serv') || fonte.includes('conflito') ? 12 : 0)
+    + (evidencia.includes('alta') ? 10 : evidencia.includes('média') || evidencia.includes('media') ? 6 : 2)
+    + (status.includes('aberto') || status.includes('pendente') ? 8 : 0)
+  )
+  const diagnostico = fonte.includes('reclam')
+    ? 'Falha processual provável'
+    : fonte.includes('serv') || fonte.includes('conflito')
+      ? 'Falha de automação provável'
+      : evidencia.includes('alta')
+        ? 'Anomalia operacional provável'
+        : 'Necessita validação humana'
+  const modulo = fonte.includes('reclam')
+    ? 'Reclamações'
+    : fonte.includes('serv') || fonte.includes('conflito')
+      ? 'Componente/Causa'
+      : 'Fila técnica'
+
+  return { ...item, score_impacto: score, diagnostico_provavel: diagnostico, modulo_analise: modulo }
+}
+
 function FilaTable({ fila, onOpenOccurrence }) {
   return (
     <DataTable
+      sortable
+      initialSort={{ key: 'score_impacto', direction: 'desc' }}
       columns={[
+        { key: 'score_impacto', label: 'Impacto', render: (item) => decimalFormat(item.score_impacto, 0) },
         { key: 'prioridade', label: 'Prioridade' },
         { key: 'num_seq_intrp', label: 'Interrupção' },
         {
@@ -3280,6 +3311,11 @@ function FilaTable({ fila, onOpenOccurrence }) {
         },
         { key: 'fonte_sugestao', label: 'Fonte' },
         { key: 'nivel_evidencia', label: 'Evidência' },
+        {
+          key: 'diagnostico_provavel',
+          label: 'Diagnóstico',
+          render: (item) => <span className="pill pill-info">{item.diagnostico_provavel}</span>,
+        },
         {
           key: 'sugestao',
           label: 'Sugestão',
@@ -3297,6 +3333,44 @@ function FilaTable({ fila, onOpenOccurrence }) {
 }
 
 function FilaPage({ fila, resumo, onOpenOccurrence, embedded = false }) {
+  const [filtros, setFiltros] = useState({
+    busca: '',
+    status: '',
+    prioridade: '',
+    diagnostico: '',
+    modulo: '',
+  })
+  const filaNormalizada = useMemo(() => (fila || []).map(normalizeQueueItem), [fila])
+  const filaFiltrada = useMemo(() => {
+    const busca = filtros.busca.trim().toLowerCase()
+    return filaNormalizada.filter((item) => {
+      const texto = [
+        item.num_ocorrencia_adms,
+        item.num_seq_intrp,
+        item.fonte_sugestao,
+        item.nivel_evidencia,
+        item.status_fila,
+        item.cod_comp_sugerido,
+        item.cod_causa_sugerida,
+        item.diagnostico_provavel,
+        item.modulo_analise,
+      ].join(' ').toLowerCase()
+      if (busca && !texto.includes(busca)) return false
+      if (filtros.status && String(item.status_fila || '') !== filtros.status) return false
+      if (filtros.prioridade && String(item.prioridade || '') !== filtros.prioridade) return false
+      if (filtros.diagnostico && item.diagnostico_provavel !== filtros.diagnostico) return false
+      if (filtros.modulo && item.modulo_analise !== filtros.modulo) return false
+      return true
+    })
+  }, [filaNormalizada, filtros])
+  const opcoesStatus = [...new Set(filaNormalizada.map((item) => item.status_fila).filter(Boolean))]
+  const opcoesPrioridade = [...new Set(filaNormalizada.map((item) => item.prioridade).filter(Boolean))]
+  const opcoesDiagnostico = [...new Set(filaNormalizada.map((item) => item.diagnostico_provavel).filter(Boolean))]
+  const opcoesModulo = [...new Set(filaNormalizada.map((item) => item.modulo_analise).filter(Boolean))]
+  const filaAlta = filaFiltrada.filter((item) => Number(item.score_impacto || 0) >= 80).length
+  const filaAutomacao = filaFiltrada.filter((item) => item.diagnostico_provavel.includes('automação')).length
+  const filaProcessual = filaFiltrada.filter((item) => item.diagnostico_provavel.includes('processual')).length
+
   return (
     <>
       {!embedded && (
@@ -3318,11 +3392,51 @@ function FilaPage({ fila, resumo, onOpenOccurrence, embedded = false }) {
       <section className="panel">
         <div className="panel-title">
           <div>
-            <h2>Itens em Aberto</h2>
-            <p>Ordenado por prioridade e data de criação.</p>
+            <h2>Fila Técnica Priorizada</h2>
+            <p>Triagem por impacto, módulo e diagnóstico provável para separar anomalia operacional de falha processual ou automação.</p>
           </div>
         </div>
-        <FilaTable fila={fila} onOpenOccurrence={onOpenOccurrence} />
+        <div className="analysis-summary-strip">
+          <span><strong>{numberFormat(filaFiltrada.length)}</strong> item(ns) filtrados</span>
+          <span><strong>{numberFormat(filaAlta)}</strong> com impacto alto</span>
+          <span><strong>{numberFormat(filaAutomacao)}</strong> provável automação</span>
+          <span><strong>{numberFormat(filaProcessual)}</strong> provável processo</span>
+        </div>
+        <div className="analysis-filter-grid occurrence-filter-grid">
+          <label>
+            Busca técnica
+            <input value={filtros.busca} onChange={(event) => setFiltros((current) => ({ ...current, busca: event.target.value }))} placeholder="Ocorrência, interrupção, fonte, componente..." />
+          </label>
+          <label>
+            Status
+            <select value={filtros.status} onChange={(event) => setFiltros((current) => ({ ...current, status: event.target.value }))}>
+              <option value="">Todos</option>
+              {opcoesStatus.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            Prioridade
+            <select value={filtros.prioridade} onChange={(event) => setFiltros((current) => ({ ...current, prioridade: event.target.value }))}>
+              <option value="">Todas</option>
+              {opcoesPrioridade.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            Diagnóstico
+            <select value={filtros.diagnostico} onChange={(event) => setFiltros((current) => ({ ...current, diagnostico: event.target.value }))}>
+              <option value="">Todos</option>
+              {opcoesDiagnostico.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            Módulo
+            <select value={filtros.modulo} onChange={(event) => setFiltros((current) => ({ ...current, modulo: event.target.value }))}>
+              <option value="">Todos</option>
+              {opcoesModulo.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+        </div>
+        <FilaTable fila={filaFiltrada} onOpenOccurrence={onOpenOccurrence} />
       </section>
     </>
   )
@@ -3507,9 +3621,224 @@ function OutlierAnomaliaPanel({ token }) {
   )
 }
 
+function GoldExplorerPanel({ anomes, token, onOpenOccurrence }) {
+  const [ocorrencia, setOcorrencia] = useState('')
+  const [camada, setCamada] = useState('resumo')
+  const [detail, setDetail] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function buscar(event) {
+    event.preventDefault()
+    if (!ocorrencia.trim()) {
+      setErro('Informe uma ocorrência para visualizar dados consolidados.')
+      return
+    }
+    try {
+      setLoading(true)
+      setErro('')
+      setDetail(null)
+      const response = await fetch(
+        `${API_URL}/api/qualidade/ocorrencias/${encodeURIComponent(ocorrencia.trim())}?anomes=${anomes || '202607'}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result?.detail || 'Falha ao carregar dados Gold da ocorrência.')
+      }
+      setDetail(result)
+    } catch (requestError) {
+      setErro(requestError.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const interrupcoes = detail?.interrupcoes || []
+  const apuracaoUc = detail?.apuracao_uc || []
+  const ocorrenciaGold = detail?.ocorrencia || {}
+  const metricasGold = {
+    ocorrencia: detail?.num_ocorrencia_adms || ocorrenciaGold.NUM_OCORRENCIA_ADMS,
+    interrupcoes: interrupcoes.length,
+    ucs_apuradas: apuracaoUc.length,
+    chi_liquido: interrupcoes.reduce((total, item) => total + Number(item.CHI_LIQUIDO || item.DIC || 0), 0),
+    ci_liquido: interrupcoes.reduce((total, item) => total + Number(item.CI_LIQUIDO || item.FIC || 0), 0),
+    ultima_carga: ocorrenciaGold.ATUALIZADO_EM || ocorrenciaGold.criado_em || detail?.atualizado_em,
+  }
+
+  return (
+    <section className="panel panel-large">
+      <div className="panel-title">
+        <div>
+          <h2>Dados Gold para novas análises</h2>
+          <p>Consulta consolidada da ocorrência com interrupções, apuração UC e campos de processamento para validar se a anomalia é operacional ou de transformação.</p>
+        </div>
+      </div>
+      <form className="search-panel occurrence-gold-search" onSubmit={buscar}>
+        <label>
+          Ocorrência
+          <input value={ocorrencia} onChange={(event) => setOcorrencia(event.target.value)} placeholder="Número da ocorrência ADMS" />
+        </label>
+        <label>
+          Camada de leitura
+          <select value={camada} onChange={(event) => setCamada(event.target.value)}>
+            <option value="resumo">Resumo Gold</option>
+            <option value="ocorrencia">Ocorrência</option>
+            <option value="interrupcoes">Interrupções</option>
+            <option value="uc">Apuração UC</option>
+          </select>
+        </label>
+        <button type="submit" disabled={loading}>{loading ? 'Carregando...' : 'Visualizar'}</button>
+      </form>
+      {erro && <div className="alert">{erro}</div>}
+      {detail && (
+        <>
+          <section className="metrics-grid compact">
+            <Card label="Ocorrência" value={textValue(metricasGold.ocorrencia)} hint="identificador Gold" tone="blue" />
+            <Card label="Interrupções" value={numberFormat(metricasGold.interrupcoes)} hint="registros associados" tone="orange" />
+            <Card label="UCs apuradas" value={numberFormat(metricasGold.ucs_apuradas)} hint="base analítica" tone="purple" />
+            <Card label="CHI / CI" value={`${decimalFormat(metricasGold.chi_liquido, 1)} / ${numberFormat(metricasGold.ci_liquido)}`} hint="liquidados no detalhe" tone="green" />
+          </section>
+          {camada === 'resumo' && (
+            <section className="comparison-grid">
+              <div className="panel panel-nested">
+                <h3>Resumo Gold</h3>
+                <KeyValueGrid data={metricasGold} />
+              </div>
+              <div className="panel panel-nested">
+                <h3>Sinais de qualidade</h3>
+                <div className="decision-step-list">
+                  <span><strong>1</strong><small>Compare quantidade de interrupções e UCs antes de classificar como outlier.</small></span>
+                  <span><strong>2</strong><small>Verifique campos de encerramento, componente, causa e validação pós-operação.</small></span>
+                  <span><strong>3</strong><small>Abra a ocorrência completa para registrar proposta governada quando houver correção.</small></span>
+                </div>
+                <button className="secondary-button" onClick={() => onOpenOccurrence(metricasGold.ocorrencia)}>Abrir ocorrência completa</button>
+              </div>
+            </section>
+          )}
+          {camada === 'ocorrencia' && <KeyValueGrid data={ocorrenciaGold} />}
+          {camada === 'interrupcoes' && (
+            <DataTable
+              sortable
+              initialSort={{ key: 'NUM_SEQ_INTRP', direction: 'asc' }}
+              columns={[
+                { key: 'NUM_SEQ_INTRP', label: 'Interrupção' },
+                { key: 'COD_COMP_INTRP', label: 'Componente' },
+                { key: 'COD_CAUSA_INTRP', label: 'Causa' },
+                { key: 'ESTADO_INTRP', label: 'Estado' },
+                { key: 'VALID_POS_OPERACAO', label: 'Pós-op.' },
+                { key: 'CHI_LIQUIDO', label: 'CHI', render: (item) => decimalFormat(item.CHI_LIQUIDO, 2) },
+                { key: 'CI_LIQUIDO', label: 'CI', render: (item) => numberFormat(item.CI_LIQUIDO) },
+              ]}
+              rows={interrupcoes}
+            />
+          )}
+          {camada === 'uc' && (
+            <DataTable
+              sortable
+              initialSort={{ key: 'NUM_UC_UCI', direction: 'asc' }}
+              columns={[
+                { key: 'NUM_UC_UCI', label: 'UC' },
+                { key: 'NUM_SEQ_INTRP', label: 'Interrupção' },
+                { key: 'INDIC_SIT_PROCES_INDIC_UCI', label: 'Situação' },
+                { key: 'NUM_MOTIVO_TRAT_DIF_UCI', label: 'Motivo' },
+                { key: 'DIC', label: 'DIC', render: (item) => decimalFormat(item.DIC, 2) },
+                { key: 'FIC', label: 'FIC', render: (item) => numberFormat(item.FIC) },
+              ]}
+              rows={apuracaoUc}
+            />
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+function ModulosOcorrenciaPanel({ anomalias, modulos, fila, onOpenOccurrence }) {
+  const filaNormalizada = useMemo(() => (fila || []).map(normalizeQueueItem), [fila])
+  const moduloRows = useMemo(() => {
+    const mapa = new Map()
+    ;(modulos || []).forEach((modulo) => {
+      const codigo = modulo.codigo || modulo.modulo_codigo || modulo.nome || 'Sem módulo'
+      mapa.set(codigo, {
+        codigo,
+        nome: modulo.nome || codigo,
+        descricao: modulo.descricao || modulo.criterio_curto || '',
+        anomalias: Number(modulo.total || modulo.qtd || modulo.quantidade || 0),
+        fila: 0,
+        impacto: Number(modulo.impacto_total || modulo.impacto || modulo.score || 0),
+        exemplos: [],
+      })
+    })
+    ;(anomalias || []).forEach((item) => {
+      const codigo = item.modulo_codigo || item.modulo?.codigo || item.categoria || item.anomalia_codigo || 'Sem módulo'
+      const atual = mapa.get(codigo) || { codigo, nome: codigo, descricao: '', anomalias: 0, fila: 0, impacto: 0, exemplos: [] }
+      atual.anomalias += 1
+      atual.impacto += Number(item.impacto?.ressarcimento || item.impacto_ressarcimento || item.score || 0)
+      if (item.ocorrencia && atual.exemplos.length < 3) atual.exemplos.push(item.ocorrencia)
+      mapa.set(codigo, atual)
+    })
+    filaNormalizada.forEach((item) => {
+      const codigo = item.modulo_analise
+      const atual = mapa.get(codigo) || { codigo, nome: codigo, descricao: '', anomalias: 0, fila: 0, impacto: 0, exemplos: [] }
+      atual.fila += 1
+      atual.impacto += Number(item.score_impacto || 0)
+      if (item.num_ocorrencia_adms && atual.exemplos.length < 3) atual.exemplos.push(item.num_ocorrencia_adms)
+      mapa.set(codigo, atual)
+    })
+    return [...mapa.values()].sort((a, b) => (b.impacto + b.anomalias + b.fila) - (a.impacto + a.anomalias + a.fila))
+  }, [anomalias, filaNormalizada, modulos])
+
+  return (
+    <section className="panel panel-large">
+      <div className="panel-title">
+        <div>
+          <h2>Mudança da ferramenta por módulo</h2>
+          <p>Mapa de onde o frontend deve apoiar o analista: outlier, falha processual, automação, integração e validação Gold.</p>
+        </div>
+      </div>
+      <div className="module-improvement-grid">
+        {moduloRows.map((modulo) => (
+          <article className="module-improvement-card" key={modulo.codigo}>
+            <div className="technical-case-head">
+              <span>
+                <small>{modulo.codigo}</small>
+                <strong>{modulo.nome}</strong>
+              </span>
+              <span className="pill pill-info">{numberFormat(modulo.anomalias + modulo.fila)} sinal(is)</span>
+            </div>
+            <p>{modulo.descricao || 'Módulo inferido pela fila técnica e anomalias disponíveis.'}</p>
+            <div className="case-metric-grid">
+              <span><small>Anomalias</small><strong>{numberFormat(modulo.anomalias)}</strong></span>
+              <span><small>Fila</small><strong>{numberFormat(modulo.fila)}</strong></span>
+              <span><small>Impacto</small><strong>{decimalFormat(modulo.impacto, 0)}</strong></span>
+              <span><small>Risco</small><strong>{modulo.fila ? 'Operacional' : 'Analítico'}</strong></span>
+            </div>
+            <div className="decision-step-list">
+              <span><strong>1</strong><small>Validar divergência entre processamento e evidência operacional.</small></span>
+              <span><strong>2</strong><small>Classificar causa: processo, automação, cadastro ou evento real.</small></span>
+              <span><strong>3</strong><small>Gerar proposta governada ou melhoria de regra do módulo.</small></span>
+            </div>
+            <div className="tag-list">
+              {[...new Set(modulo.exemplos)].map((ocorrencia) => (
+                <button className="mini-button" key={ocorrencia} onClick={() => onOpenOccurrence(ocorrencia)}>
+                  {ocorrencia}
+                </button>
+              ))}
+            </div>
+          </article>
+        ))}
+        {!moduloRows.length && <p className="muted-text">Nenhum módulo encontrado nos dados carregados.</p>}
+      </div>
+    </section>
+  )
+}
+
 function OcorrenciasPage({
   resumo,
   fila,
+  anomalias,
+  modulos,
   token,
   onOpenOccurrence,
 }) {
@@ -3519,6 +3848,8 @@ function OcorrenciasPage({
     { id: 'impacto', label: 'Priorização por Impacto' },
     { id: 'fila', label: 'Fila Técnica' },
     { id: 'outlier', label: 'Outlier' },
+    { id: 'gold', label: 'Dados Gold' },
+    { id: 'modulos', label: 'Módulos' },
   ]
 
   return (
@@ -3560,6 +3891,12 @@ function OcorrenciasPage({
         )}
         {activeOccurrenceTab === 'outlier' && (
           <OutlierAnomaliaPanel token={token} />
+        )}
+        {activeOccurrenceTab === 'gold' && (
+          <GoldExplorerPanel anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
+        )}
+        {activeOccurrenceTab === 'modulos' && (
+          <ModulosOcorrenciaPanel anomalias={anomalias} modulos={modulos} fila={fila} onOpenOccurrence={onOpenOccurrence} />
         )}
       </section>
     </>
@@ -6742,6 +7079,8 @@ export default function App() {
       <OcorrenciasPage
         resumo={resumo}
         fila={fila}
+        anomalias={anomalias}
+        modulos={anomaliasModulos}
         token={token}
         onOpenOccurrence={handleOpenOccurrence}
       />

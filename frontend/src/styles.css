@@ -1614,6 +1614,14 @@ p {
   gap: 0.7rem;
 }
 
+.occurrence-filter-grid {
+  grid-template-columns: minmax(240px, 1.4fr) repeat(4, minmax(150px, 1fr));
+}
+
+.occurrence-gold-search {
+  grid-template-columns: minmax(240px, 1fr) minmax(220px, 0.7fr) auto;
+}
+
 .analysis-summary-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1823,6 +1831,42 @@ p {
   color: #94a3b8;
   line-height: 1.45;
   margin: 0;
+}
+
+.module-improvement-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.module-improvement-card {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.28);
+  padding: 1rem;
+}
+
+.module-improvement-card p {
+  color: #94a3b8;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.module-improvement-card .technical-case-head > span:first-child {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.module-improvement-card .technical-case-head small {
+  color: #93c5fd;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .decision-step-list,
@@ -3573,6 +3617,7 @@ th {
   .result-grid,
   .analysis-filter-grid,
   .analysis-summary-strip,
+  .module-improvement-grid,
   .adjustment-panel-grid,
   .anomaly-triage-shell,
   .anomaly-support-grid {
@@ -3628,6 +3673,7 @@ th {
   .search-panel,
   .analysis-filter-grid,
   .analysis-summary-strip,
+  .module-improvement-grid,
   .adjustment-panel-grid,
   .module-summary-card,
   .module-summary-metrics,
