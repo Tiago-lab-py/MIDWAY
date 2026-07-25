@@ -1399,8 +1399,19 @@ function AjustesGovernadosPanel({
     }
   }
 
-  function sampleColumns(rows) {
-    const first = rows?.[0] || {}
+  function sampleColumns(rows, codigoModulo) {
+    if (!rows || !rows.length) return []
+    if (codigoModulo === 'RESSARCIMENTO_ATIPICO') {
+      return [
+        { key: 'num_ocorrencia', label: 'Ocorrência' },
+        { key: 'num_seq_intrp', label: 'Interrupção' },
+        { key: 'total_ucs_afetadas', label: 'UCs Afetadas', render: (row) => numberFormat(row.total_ucs_afetadas) },
+        { key: 'soma_compensacao', label: 'Compensação Total', render: (row) => currencyFormat(row.soma_compensacao) },
+        { key: 'qtd_reclamacoes', label: 'Reclamações', render: (row) => numberFormat(row.qtd_reclamacoes) },
+        { key: 'motivo_atipico', label: 'Motivo Atípico' }
+      ]
+    }
+    const first = rows[0] || {}
     return Object.keys(first).slice(0, 8).map((key) => ({
       key,
       label: key,
@@ -1529,7 +1540,7 @@ function AjustesGovernadosPanel({
                 <div className="alert">Carregando amostra do algoritmo...</div>
               ) : (
                 <DataTable
-                  columns={sampleColumns(amostraAlgoritmo?.items || []).length ? sampleColumns(amostraAlgoritmo?.items || []) : [{ key: 'mensagem', label: 'Mensagem' }]}
+                  columns={sampleColumns(amostraAlgoritmo?.items || [], algoritmoVisualizado?.codigo).length ? sampleColumns(amostraAlgoritmo?.items || [], algoritmoVisualizado?.codigo) : [{ key: 'mensagem', label: 'Mensagem' }]}
                   rows={amostraAlgoritmo?.items || []}
                   empty="Nenhuma amostra materializada para este módulo."
                   sortable

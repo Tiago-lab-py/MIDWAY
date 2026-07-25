@@ -20,11 +20,11 @@ class ModuloRessarcimentoAtipico(BaseModulo):
 
     @property
     def escopo(self) -> str:
-        return "uc"
+        return "ocorrencia"
 
     @property
     def criterio_anomalia(self) -> str:
-        return "Duplicidade de compensação para mesma UC em várias ocorrências ou valores inflados."
+        return "Ocorrências com alto valor de ressarcimento porém sem reclamações correspondentes ou com desproporção drástica."
 
     @property
     def risco_falso_positivo(self) -> str:
@@ -32,45 +32,88 @@ class ModuloRessarcimentoAtipico(BaseModulo):
 
     def detectar_anomalias(self) -> List[PropostaTratamento]:
         load_dotenv()
-        anomes = os.getenv("ANOMES", "202606")
+        anomes = os.getenv("ANOMES", "202607")
         logger = configurar_logger("modulo_ressarcimento_atipico", anomes)
         logger.info(f"[{self.codigo_modulo}] Iniciando detecção de ressarcimento atípico...")
         propostas = []
         
-        query = """
-            SELECT 
-                NUM_UC,
-                COUNT(DISTINCT PID_INTRP_SRVE) as qtd_ocorrencias,
-                SUM(COMP_TOTAL_PRODIST) as soma_compensacao
-            FROM gold_ressarcimento_prodist
-            GROUP BY NUM_UC
-            HAVING COUNT(DISTINCT PID_INTRP_SRVE) > 1 OR SUM(COMP_TOTAL_PRODIST) > 1000
-        """
-        
         try:
             base_dir = Path("data")
             processed_duckdb_path = base_dir / "processed" / f"iqs_adms_processed_{anomes}.duckdb"
+            if not processed_duckdb_path.exists():
+                logger.error(f"DuckDB processado nao encontrado: {processed_duckdb_path}")
+                return []
+
             con = duckdb.connect(str(processed_duckdb_path), read_only=True)
+            tables = {row[0] for row in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()}
+            
+            if "gold_ressarcimento_prodist" not in tables or "adms_iqs_export" not in tables or "gold_reclamacao_uc_vinculada" not in tables:
+                logger.warning(f"[{self.codigo_modulo}] Tabelas necessárias (gold_ressarcimento_prodist, adms_iqs_export, gold_reclamacao_uc_vinculada) não encontradas. Ignorando detecção.")
+                return []
+
+            query = """
+                WITH ocorrencia_ressarcimento AS (
+                    SELECT 
+                        r.NUM_OCORRENCIA_ADMS,
+                        r.NUM_SEQ_INTRP,
+                        COUNT(DISTINCT r.NUM_UC_UCI) AS total_ucs_afetadas,
+                        SUM(COALESCE(res.COMP_TOTAL_PRODIST, 0)) AS soma_compensacao
+                    FROM adms_iqs_export r
+                    JOIN gold_ressarcimento_prodist res 
+                      ON CAST(res.NUM_UC AS VARCHAR) = CAST(r.NUM_UC_UCI AS VARCHAR)
+                     AND CAST(res.PID_INTRP_SRVE AS VARCHAR) = CAST(r.NUM_SEQ_INTRP AS VARCHAR)
+                    GROUP BY r.NUM_OCORRENCIA_ADMS, r.NUM_SEQ_INTRP
+                ),
+                ocorrencia_reclamacoes AS (
+                    SELECT 
+                        NUM_OCORRENCIA_ADMS,
+                        COUNT(DISTINCT ID_RECLAMACAO) AS qtd_reclamacoes
+                    FROM gold_reclamacao_uc_vinculada
+                    WHERE CLASSIFICACAO_VINCULO_RECLAMACAO <> 'SEM_OCORRENCIA_PROVAVEL'
+                    GROUP BY NUM_OCORRENCIA_ADMS
+                )
+                SELECT 
+                    o.NUM_OCORRENCIA_ADMS,
+                    o.NUM_SEQ_INTRP,
+                    o.total_ucs_afetadas,
+                    o.soma_compensacao,
+                    COALESCE(rec.qtd_reclamacoes, 0) AS qtd_reclamacoes,
+                    CASE 
+                        WHEN COALESCE(rec.qtd_reclamacoes, 0) = 0 THEN 'Sem reclamações'
+                        ELSE 'Baixa proporção de reclamações (' || ROUND((COALESCE(rec.qtd_reclamacoes, 0)::double / o.total_ucs_afetadas) * 100, 2) || '%)'
+                    END AS motivo_atipico
+                FROM ocorrencia_ressarcimento o
+                LEFT JOIN ocorrencia_reclamacoes rec ON rec.NUM_OCORRENCIA_ADMS = o.NUM_OCORRENCIA_ADMS
+                WHERE o.soma_compensacao > 1000
+                  AND (
+                      COALESCE(rec.qtd_reclamacoes, 0) = 0
+                      OR (o.total_ucs_afetadas >= 10 AND (COALESCE(rec.qtd_reclamacoes, 0)::double / o.total_ucs_afetadas) < 0.02)
+                  )
+            """
+
             resultados_df = con.execute(query).df()
             resultados = resultados_df.to_dict('records')
             
             for row in resultados:
                 evidencias = {
-                    "num_uc": str(row["NUM_UC"]),
-                    "qtd_ocorrencias": int(row["qtd_ocorrencias"]),
-                    "soma_compensacao_estimada": round(float(row["soma_compensacao"]), 2) if row["soma_compensacao"] is not None else 0.0
+                    "num_ocorrencia": str(row["NUM_OCORRENCIA_ADMS"]),
+                    "num_seq_intrp": str(row["NUM_SEQ_INTRP"]),
+                    "total_ucs_afetadas": int(row["total_ucs_afetadas"]),
+                    "soma_compensacao": round(float(row["soma_compensacao"]), 2) if row["soma_compensacao"] is not None else 0.0,
+                    "qtd_reclamacoes": int(row["qtd_reclamacoes"]),
+                    "motivo_atipico": str(row["motivo_atipico"])
                 }
                 
-                impacto = f"Compensação alta ou múltipla detectada: R$ {evidencias['soma_compensacao_estimada']}"
-                acao = "Bloquear ranking e revisar alocação de ocorrências para a UC"
+                impacto = f"Compensação atípica/inflada detectada (R$ {evidencias['soma_compensacao']}) para {evidencias['total_ucs_afetadas']} UCs afetadas e pouca ou nenhuma reclamação ({evidencias['qtd_reclamacoes']})."
+                acao = "Bloquear ranking e auditar existência/comunicação da interrupção"
                 
                 propostas.append(
                     PropostaTratamento(
-                        chave_negocio=str(row["NUM_UC"]),
+                        chave_negocio=str(row["NUM_SEQ_INTRP"]),
                         evidencias=evidencias,
                         impacto=impacto,
                         acao_sugerida=acao,
-                        campos_iqs_afetados=[]
+                        campos_iqs_afetados=["causa", "componente"]
                     )
                 )
             
