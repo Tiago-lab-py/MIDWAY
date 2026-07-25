@@ -3754,25 +3754,139 @@ function GoldExplorerPanel({ anomes, token, onOpenOccurrence }) {
   )
 }
 
-function ModulosOcorrenciaPanel({ anomalias, modulos, fila, onOpenOccurrence }) {
+const moduleWorkflowFallback = [
+  {
+    codigo: 'DURACAO_IMPACTO',
+    nome: 'Duração e impacto atípico',
+    descricao: 'Localiza eventos fora do comportamento esperado por duração, CHI, CI ou ressarcimento.',
+    escopo: 'ocorrência/interrupção',
+    criterio_curto: 'duração alta, muitas UCs afetadas ou impacto regulatório incompatível',
+    orientacao_analista: 'Abrir Impacto, filtrar duração/CHI/CI, conferir Gold e decidir se é evento real ou erro de data/composição.',
+  },
+  {
+    codigo: 'COMPONENTE_CAUSA',
+    nome: 'Componente/causa',
+    descricao: 'Compara classificação da ocorrência com referência IQS, serviços, reclamações e regra 92/82.',
+    escopo: 'ocorrência/interrupção',
+    criterio_curto: 'par componente/causa inválido, crítico ou divergente da evidência',
+    orientacao_analista: 'Comparar código atual e sugestão, validar evidências e abrir proposta governada no detalhe da ocorrência.',
+  },
+  {
+    codigo: 'RECLAMACOES_SERVICOS',
+    nome: 'Reclamações e serviços',
+    descricao: 'Usa reclamações e serviços para explicar divergências que a ocorrência sozinha não mostra.',
+    escopo: 'reclamação/serviço/ocorrência',
+    criterio_curto: 'reclamação ou serviço sustenta, contradiz ou exige reclassificação',
+    orientacao_analista: 'Buscar ocorrência/UC, comparar atendimento e classificar se é falha processual, evidência operacional ou ajuste manual.',
+  },
+  {
+    codigo: 'INTERRUPCAO_SEM_UC',
+    nome: 'Interrupção sem UC',
+    descricao: 'Mostra lacunas de vínculo entre interrupção e UC que podem vir de integração, cadastro ou regra de apuração.',
+    escopo: 'interrupção/ocorrência',
+    criterio_curto: 'interrupção relevante sem UC associada ou sem lastro apurável',
+    orientacao_analista: 'Conferir Gold, validar origem do vínculo e encaminhar como falha de integração ou bloqueio de exportação.',
+  },
+  {
+    codigo: 'SOBREPOSICAO_UC',
+    nome: 'Sobreposição de UC',
+    descricao: 'Identifica janelas duplicadas ou sobrepostas que podem inflar DIC/FIC.',
+    escopo: 'UC/interrupção',
+    criterio_curto: 'mesma UC com janela temporal sobreposta',
+    orientacao_analista: 'Pesquisar UC, usar linha temporal, confirmar sobreposição e propor correção parcial ou cancelamento quando aplicável.',
+  },
+  {
+    codigo: 'RESSARCIMENTO_ATIPICO',
+    nome: 'Ressarcimento atípico',
+    descricao: 'Apoia análise de compensações incompatíveis, concentradas ou duplicadas.',
+    escopo: 'UC/ocorrência',
+    criterio_curto: 'ressarcimento positivo fora do padrão ou divergente da apuração',
+    orientacao_analista: 'Verificar UC faturada, filtros PRODIST/COPEL, vínculo com ocorrência e impacto antes de aprovar ajuste.',
+  },
+]
+
+function workflowActionLabel(codigo) {
+  if (codigo === 'DURACAO_IMPACTO') return 'Abrir Impacto'
+  if (codigo === 'COMPONENTE_CAUSA') return 'Filtrar comp./causa'
+  if (codigo === 'RECLAMACOES_SERVICOS') return 'Buscar ocorrência'
+  if (codigo === 'SOBREPOSICAO_UC') return 'Buscar UC'
+  if (codigo === 'RESSARCIMENTO_ATIPICO') return 'Ver Gold'
+  return 'Investigar'
+}
+
+function ModulosOcorrenciaPanel({ anomalias, modulos, fila, token, onOpenOccurrence }) {
+  const [catalogo, setCatalogo] = useState([])
+  const [catalogoErro, setCatalogoErro] = useState('')
   const filaNormalizada = useMemo(() => (fila || []).map(normalizeQueueItem), [fila])
+
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    async function carregarCatalogo() {
+      try {
+        setCatalogoErro('')
+        const response = await fetch(`${API_URL}/api/anomalias/modulos`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const result = await response.json()
+        if (!response.ok) {
+          throw new Error(result?.detail || 'Catálogo de módulos indisponível.')
+        }
+        if (!cancelled) setCatalogo(result.items || [])
+      } catch (requestError) {
+        if (!cancelled) {
+          setCatalogo([])
+          setCatalogoErro(requestError.message)
+        }
+      }
+    }
+    carregarCatalogo()
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
   const moduloRows = useMemo(() => {
     const mapa = new Map()
-    ;(modulos || []).forEach((modulo) => {
+    const baseCatalogo = catalogo.length ? catalogo : moduleWorkflowFallback
+    baseCatalogo.forEach((modulo) => {
       const codigo = modulo.codigo || modulo.modulo_codigo || modulo.nome || 'Sem módulo'
       mapa.set(codigo, {
         codigo,
         nome: modulo.nome || codigo,
         descricao: modulo.descricao || modulo.criterio_curto || '',
+        escopo: modulo.escopo || 'ocorrência',
+        criterio: modulo.criterio_curto || '',
+        orientacao: modulo.orientacao_analista || '',
+        documento: modulo.documento || '',
         anomalias: Number(modulo.total || modulo.qtd || modulo.quantidade || 0),
         fila: 0,
         impacto: Number(modulo.impacto_total || modulo.impacto || modulo.score || 0),
         exemplos: [],
       })
     })
+    ;(modulos || []).forEach((modulo) => {
+      const codigo = modulo.codigo || modulo.modulo_codigo || modulo.nome || 'Sem módulo'
+      const atual = mapa.get(codigo) || {
+        codigo,
+        nome: modulo.nome || codigo,
+        descricao: modulo.descricao || modulo.criterio_curto || '',
+        escopo: modulo.escopo || 'ocorrência',
+        criterio: modulo.criterio_curto || '',
+        orientacao: modulo.orientacao_analista || '',
+        documento: modulo.documento || '',
+        anomalias: 0,
+        fila: 0,
+        impacto: 0,
+        exemplos: [],
+      }
+      atual.anomalias += Number(modulo.total || modulo.qtd || modulo.quantidade || 0)
+      atual.impacto += Number(modulo.impacto_total || modulo.impacto || modulo.score || 0)
+      mapa.set(codigo, atual)
+    })
     ;(anomalias || []).forEach((item) => {
       const codigo = item.modulo_codigo || item.modulo?.codigo || item.categoria || item.anomalia_codigo || 'Sem módulo'
-      const atual = mapa.get(codigo) || { codigo, nome: codigo, descricao: '', anomalias: 0, fila: 0, impacto: 0, exemplos: [] }
+      const atual = mapa.get(codigo) || { codigo, nome: codigo, descricao: '', escopo: 'ocorrência', criterio: '', orientacao: '', documento: '', anomalias: 0, fila: 0, impacto: 0, exemplos: [] }
       atual.anomalias += 1
       atual.impacto += Number(item.impacto?.ressarcimento || item.impacto_ressarcimento || item.score || 0)
       if (item.ocorrencia && atual.exemplos.length < 3) atual.exemplos.push(item.ocorrencia)
@@ -3780,23 +3894,24 @@ function ModulosOcorrenciaPanel({ anomalias, modulos, fila, onOpenOccurrence }) 
     })
     filaNormalizada.forEach((item) => {
       const codigo = item.modulo_analise
-      const atual = mapa.get(codigo) || { codigo, nome: codigo, descricao: '', anomalias: 0, fila: 0, impacto: 0, exemplos: [] }
+      const atual = mapa.get(codigo) || { codigo, nome: codigo, descricao: '', escopo: 'ocorrência', criterio: '', orientacao: '', documento: '', anomalias: 0, fila: 0, impacto: 0, exemplos: [] }
       atual.fila += 1
       atual.impacto += Number(item.score_impacto || 0)
       if (item.num_ocorrencia_adms && atual.exemplos.length < 3) atual.exemplos.push(item.num_ocorrencia_adms)
       mapa.set(codigo, atual)
     })
-    return [...mapa.values()].sort((a, b) => (b.impacto + b.anomalias + b.fila) - (a.impacto + a.anomalias + a.fila))
-  }, [anomalias, filaNormalizada, modulos])
+    return [...mapa.values()].sort((a, b) => (b.fila + b.anomalias) - (a.fila + a.anomalias))
+  }, [anomalias, catalogo, filaNormalizada, modulos])
 
   return (
     <section className="panel panel-large">
       <div className="panel-title">
         <div>
-          <h2>Mudança da ferramenta por módulo</h2>
-          <p>Mapa de onde o frontend deve apoiar o analista: outlier, falha processual, automação, integração e validação Gold.</p>
+          <h2>Como resolver por módulo</h2>
+          <p>Guia operacional: qual função usar, que falha ela procura e qual decisão o analista precisa registrar.</p>
         </div>
       </div>
+      {catalogoErro && <div className="alert">Catálogo remoto indisponível; exibindo guia local. Detalhe: {catalogoErro}</div>}
       <div className="module-improvement-grid">
         {moduloRows.map((modulo) => (
           <article className="module-improvement-card" key={modulo.codigo}>
@@ -3805,19 +3920,19 @@ function ModulosOcorrenciaPanel({ anomalias, modulos, fila, onOpenOccurrence }) 
                 <small>{modulo.codigo}</small>
                 <strong>{modulo.nome}</strong>
               </span>
-              <span className="pill pill-info">{numberFormat(modulo.anomalias + modulo.fila)} sinal(is)</span>
+              <span className="pill pill-info">{modulo.escopo}</span>
             </div>
-            <p>{modulo.descricao || 'Módulo inferido pela fila técnica e anomalias disponíveis.'}</p>
+            <p>{modulo.descricao || 'Módulo de apoio investigativo para ocorrências.'}</p>
             <div className="case-metric-grid">
-              <span><small>Anomalias</small><strong>{numberFormat(modulo.anomalias)}</strong></span>
-              <span><small>Fila</small><strong>{numberFormat(modulo.fila)}</strong></span>
-              <span><small>Impacto</small><strong>{decimalFormat(modulo.impacto, 0)}</strong></span>
-              <span><small>Risco</small><strong>{modulo.fila ? 'Operacional' : 'Analítico'}</strong></span>
+              <span><small>Função</small><strong>{workflowActionLabel(modulo.codigo)}</strong></span>
+              <span><small>Sinais carregados</small><strong>{numberFormat(modulo.anomalias + modulo.fila)}</strong></span>
+              <span><small>Critério</small><strong>{modulo.criterio || 'regra do módulo'}</strong></span>
+              <span><small>Documento</small><strong>{modulo.documento || 'catálogo técnico'}</strong></span>
             </div>
             <div className="decision-step-list">
-              <span><strong>1</strong><small>Validar divergência entre processamento e evidência operacional.</small></span>
-              <span><strong>2</strong><small>Classificar causa: processo, automação, cadastro ou evento real.</small></span>
-              <span><strong>3</strong><small>Gerar proposta governada ou melhoria de regra do módulo.</small></span>
+              <span><strong>1</strong><small>{modulo.orientacao || 'Validar divergência entre processamento e evidência operacional.'}</small></span>
+              <span><strong>2</strong><small>Classificar a causa como evento real, falha processual, falha de automação, cadastro ou integração.</small></span>
+              <span><strong>3</strong><small>Abrir ocorrência/Gold e registrar proposta somente quando houver evidência suficiente.</small></span>
             </div>
             <div className="tag-list">
               {[...new Set(modulo.exemplos)].map((ocorrencia) => (
@@ -3825,10 +3940,10 @@ function ModulosOcorrenciaPanel({ anomalias, modulos, fila, onOpenOccurrence }) 
                   {ocorrencia}
                 </button>
               ))}
+              {!modulo.exemplos.length && <span className="pill">sem ocorrência selecionada</span>}
             </div>
           </article>
         ))}
-        {!moduloRows.length && <p className="muted-text">Nenhum módulo encontrado nos dados carregados.</p>}
       </div>
     </section>
   )
@@ -3844,26 +3959,25 @@ function OcorrenciasPage({
 }) {
   const [activeOccurrenceTab, setActiveOccurrenceTab] = useState('busca')
   const occurrenceTabs = [
-    { id: 'busca', label: 'Busca e Triagem' },
-    { id: 'impacto', label: 'Priorização por Impacto' },
-    { id: 'fila', label: 'Fila Técnica' },
-    { id: 'outlier', label: 'Outlier' },
-    { id: 'gold', label: 'Dados Gold' },
-    { id: 'modulos', label: 'Módulos' },
+    { id: 'busca', label: 'Busca' },
+    { id: 'impacto', label: 'Impacto' },
+    { id: 'fila', label: 'Fila' },
+    { id: 'outlier', label: 'Outliers' },
+    { id: 'gold', label: 'Gold' },
+    { id: 'modulos', label: 'Como resolver' },
   ]
 
   return (
     <>
       <PageHero
         title="Ocorrências"
-        description="Busca e investigação pontual para localizar ocorrências problemáticas por impacto, data/hora, componente, causa, alimentador, conjunto e evidências."
+        description="Bancada de investigação para localizar a ocorrência, entender a falha provável, conferir Gold e registrar a correção com evidência."
       />
 
-      <section className="metrics-grid compact occurrence-summary">
-        <Card label="Fila técnica" value={numberFormat(resumo.fila_tecnica_total)} hint={`${numberFormat(resumo.fila_aberta)} em aberto`} tone="orange" />
-        <Card label="Conflito serviço" value={numberFormat(resumo.fila_servico_conflito)} hint="revisão técnica" tone="purple" />
-        <Card label="Por reclamação" value={numberFormat(resumo.fila_reclamacao)} hint="evidência textual" tone="blue" />
-        <Card label="Ajustes IQS" value={numberFormat(resumo.ajustes_auto_9282)} hint="autorizados" tone="green" />
+      <section className="occurrence-workflow">
+        <span><strong>1</strong><small>Localizar ocorrência, UC ou interrupção.</small></span>
+        <span><strong>2</strong><small>Escolher lente: impacto, fila, outlier ou módulo.</small></span>
+        <span><strong>3</strong><small>Conferir Gold e registrar decisão no detalhe.</small></span>
       </section>
 
       <nav className="admin-tabs occurrence-tabs" aria-label="Seções da página de ocorrências">
@@ -3896,7 +4010,7 @@ function OcorrenciasPage({
           <GoldExplorerPanel anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
         )}
         {activeOccurrenceTab === 'modulos' && (
-          <ModulosOcorrenciaPanel anomalias={anomalias} modulos={modulos} fila={fila} onOpenOccurrence={onOpenOccurrence} />
+          <ModulosOcorrenciaPanel anomalias={anomalias} modulos={modulos} fila={fila} token={token} onOpenOccurrence={onOpenOccurrence} />
         )}
       </section>
     </>
