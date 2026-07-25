@@ -11,9 +11,30 @@ IQS_UID = os.getenv("IQS_UID")
 IQS_PWD = os.getenv("IQS_PWD")
 IQS_DB = os.getenv("IQS_DB")
 IQS_CONFIG_DIR = os.getenv("IQS_CONFIG_DIR")
+IQS_ORACLE_THICK_MODE = os.getenv("IQS_ORACLE_THICK_MODE")
+IQS_ORACLE_CLIENT_LIB_DIR = os.getenv("IQS_ORACLE_CLIENT_LIB_DIR")
 ANOMES = os.getenv("ANOMES", datetime.now().strftime("%Y%m"))
+_ORACLE_CLIENT_INITIALIZED = False
+
+def env_truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "s", "sim", "yes", "y"}
 
 def conectar_oracle():
+    global _ORACLE_CLIENT_INITIALIZED
+    if IQS_CONFIG_DIR and not os.path.isdir(IQS_CONFIG_DIR):
+        raise RuntimeError(f"IQS_CONFIG_DIR nao encontrado ou inacessivel: {IQS_CONFIG_DIR}")
+
+    if env_truthy(IQS_ORACLE_THICK_MODE) and not _ORACLE_CLIENT_INITIALIZED:
+        init_kwargs = {}
+        if IQS_ORACLE_CLIENT_LIB_DIR:
+            if not os.path.isdir(IQS_ORACLE_CLIENT_LIB_DIR):
+                raise RuntimeError(f"IQS_ORACLE_CLIENT_LIB_DIR nao encontrado ou inacessivel: {IQS_ORACLE_CLIENT_LIB_DIR}")
+            init_kwargs["lib_dir"] = IQS_ORACLE_CLIENT_LIB_DIR
+        if IQS_CONFIG_DIR:
+            init_kwargs["config_dir"] = IQS_CONFIG_DIR
+        oracledb.init_oracle_client(**init_kwargs)
+        _ORACLE_CLIENT_INITIALIZED = True
+
     connect_kwargs = {
         "user": IQS_UID,
         "password": IQS_PWD,
@@ -23,6 +44,14 @@ def conectar_oracle():
         connect_kwargs["config_dir"] = IQS_CONFIG_DIR
         oracledb.defaults.config_dir = IQS_CONFIG_DIR
     
+    missing = [name for name, value in {
+        "IQS_UID": IQS_UID,
+        "IQS_PWD": IQS_PWD,
+        "IQS_DB": IQS_DB,
+    }.items() if not value]
+    if missing:
+        raise RuntimeError(f"Variaveis obrigatorias ausentes: {', '.join(missing)}")
+
     return oracledb.connect(**connect_kwargs)
 
 def gerar_ressarcimento_diario(pasta_destino: str):
@@ -34,14 +63,13 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             os.makedirs(pasta_destino)
         except Exception as e:
             print(f"Erro ao criar pasta de destino {pasta_destino}: {e}")
-            print("Usando pasta atual como fallback.")
-            pasta_destino = "."
+            return 2
 
     try:
         conn = conectar_oracle()
     except Exception as e:
         print(f"Erro ao conectar no Oracle: {e}")
-        return
+        return 3
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando interrupcoes do Oracle...")
     
@@ -62,7 +90,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
         df_intrp = pd.read_sql(query_interrupcoes, conn, params={"anomes": ANOMES})
     except Exception as e:
         print(f"Erro ao buscar interrupcoes: {e}")
-        return
+        conn.close()
+        return 4
         
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes brutas no mes: {len(df_intrp)}")
 
@@ -136,7 +165,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     
     if df_violadas.empty:
         print("Nenhuma UC violou metas neste periodo.")
-        return
+        conn.close()
+        return 0
 
     # Calculo estimado bruto de compensacao
     KEI_BT = 34
@@ -165,15 +195,23 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Gerando Excel em {arquivo_saida}...")
     
-    with pd.ExcelWriter(arquivo_saida, engine='openpyxl') as writer:
-        df_resumo_ocorrencia.to_excel(writer, sheet_name='Ocorrencias_Prioritarias', index=False)
-        df_violadas.sort_values(by='RISCO_R$', ascending=False).to_excel(writer, sheet_name='UCs_Violadas_Detalhe', index=False)
+    try:
+        with pd.ExcelWriter(arquivo_saida, engine='openpyxl') as writer:
+            df_resumo_ocorrencia.to_excel(writer, sheet_name='Ocorrencias_Prioritarias', index=False)
+            df_violadas.sort_values(by='RISCO_R$', ascending=False).to_excel(writer, sheet_name='UCs_Violadas_Detalhe', index=False)
+    except Exception as e:
+        print(f"Erro ao gerar Excel: {e}")
+        conn.close()
+        return 5
+
+    conn.close()
         
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Concluido com sucesso!")
+    return 0
 
 if __name__ == "__main__":
-    pasta_destino = r"Y:\VDSED\dados_pos\ressarcimento"
+    pasta_destino = os.getenv("RESSARCIMENTO_DIARIO_DESTINO", "data/marts/ressarcimento_diario")
     if len(sys.argv) > 1:
         pasta_destino = sys.argv[1]
     
-    gerar_ressarcimento_diario(pasta_destino)
+    sys.exit(gerar_ressarcimento_diario(pasta_destino))
