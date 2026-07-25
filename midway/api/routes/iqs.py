@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+import os
 from uuid import uuid4
 
+import duckdb
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from midway.api.security import AuthUser, audit_event, require_profiles
 from midway.api.serialization import api_rows
 from midway.db.postgres import create_postgres_engine, get_config
+from midway.export.cloud_exporter import CloudExporter
+from midway.transform.tratamento import (
+    PROCESSED_DUCKDB_PATH,
+    RAW_DUCKDB_PATH,
+    criar_tabela_exportacao_iqs,
+    exportar_arquivos_iqs,
+    exportar_mapeamento_layout_iqs,
+    exportar_resumo_iqs,
+    sql_literal,
+)
 
 router = APIRouter(prefix="/api/iqs", tags=["iqs"])
 
@@ -161,4 +174,68 @@ def criar_geracao_iqs(
         "status": "APROVADA",
         "modelos": modelos_unicos,
         "justificativa": payload.justificativa.strip(),
+        "download_url": f"/api/iqs/geracoes/{id_geracao}/download"
     }
+
+
+@router.get("/geracoes/{id_geracao}/download")
+def download_geracao_iqs(
+    id_geracao: str,
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR")),
+):
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.connect() as con:
+        geracao = con.execute(
+            text(f"SELECT * FROM {schema}.midway_iqs_geracao WHERE id_geracao = :id_geracao"),
+            {"id_geracao": id_geracao}
+        ).mappings().first()
+        
+    if not geracao:
+        raise HTTPException(status_code=404, detail="Geração não encontrada.")
+        
+    anomes = geracao["anomes"]
+    
+    # Validações dos arquivos do DuckDB
+    if not RAW_DUCKDB_PATH.exists() or not PROCESSED_DUCKDB_PATH.exists():
+        raise HTTPException(
+            status_code=500, 
+            detail="Bancos de dados locais (RAW/PROCESSED) não encontrados para gerar os arquivos físicos."
+        )
+        
+    def _gerar_arquivos(tmp_path):
+        import logging
+        logger = logging.getLogger(f"export_iqs_{id_geracao}")
+        logger.setLevel(logging.INFO)
+        con_duck = duckdb.connect(str(PROCESSED_DUCKDB_PATH))
+        try:
+            con_duck.execute(f"ATTACH {sql_literal(RAW_DUCKDB_PATH.as_posix())} AS raw_db (READ_ONLY)")
+            tabelas = {linha[0] for linha in con_duck.execute("SHOW TABLES").fetchall()}
+            if "adms_iqs_alterados" not in tabelas:
+                raise RuntimeError("Tabela adms_iqs_alterados não encontrada no DuckDB processado.")
+                
+            total_export = criar_tabela_exportacao_iqs(con_duck, logger)
+            regionais = con_duck.execute(
+                "SELECT DISTINCT REGIONAL_EXPORT FROM adms_iqs_export WHERE REGIONAL_EXPORT IS NOT NULL ORDER BY REGIONAL_EXPORT"
+            ).fetchall()
+            
+            if regionais:
+                exportar_arquivos_iqs(con_duck, regionais, tmp_path, "", logger)
+                
+            exportar_mapeamento_layout_iqs(logger)
+            # Resumo será impresso no log
+        finally:
+            con_duck.close()
+
+    exporter = CloudExporter(anomes=anomes, id_geracao=id_geracao)
+    try:
+        zip_path = exporter.exportar_pacote_zip(_gerar_arquivos)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar pacote ZIP: {e}")
+        
+    return FileResponse(
+        path=zip_path,
+        filename=f"midway_iqs_{anomes}_{id_geracao}.zip",
+        media_type="application/zip"
+    )
+
