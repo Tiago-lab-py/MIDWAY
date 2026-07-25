@@ -1268,14 +1268,13 @@ function AjustesGovernadosPanel({
   const [carregandoAmostra, setCarregandoAmostra] = useState(false)
   const manualModuleCodes = new Set(['GOVERNANCA_IQS', 'AJUSTE_MANUAL_IQS'])
   const modules = (modulos || []).map((baseModule) => {
-    const pgModule = (anomalias?.modulos || []).find((m) => m.codigo === baseModule.codigo) || {}
-    const enriched = { ...baseModule, ...pgModule }
+    const enriched = { ...baseModule }
     enriched.metricas_materializadas = true
-    enriched.total = Number(pgModule.total || 0)
-    enriched.impacto_chi = Number(pgModule.impacto_dec || 0)
-    enriched.impacto_ci = Number(pgModule.impacto_fec || 0)
-    enriched.impacto_ressarcimento = Number(pgModule.impacto_ressarcimento || 0)
-    enriched.origem_metricas = 'PostgreSQL'
+    enriched.total = Number(baseModule.total || 0)
+    enriched.impacto_chi = Number(baseModule.impacto_dec || 0)
+    enriched.impacto_ci = Number(baseModule.impacto_dic || baseModule.impacto_fec || 0)
+    enriched.impacto_ressarcimento = Number(baseModule.impacto_ressarcimento || 0)
+    enriched.origem_metricas = 'PostgreSQL (Orquestrador V7)'
     return enriched
   })
   const latestExecucaoByTipo = useMemo(() => {
