@@ -2098,6 +2098,7 @@ function SaidaIqsPage({
   user,
   onCreateGeracaoIqs,
   generatingIqs,
+  token,
 }) {
   return (
     <>
@@ -2114,6 +2115,7 @@ function SaidaIqsPage({
         modelos={modelosIqs}
         geracoes={geracoesIqs}
         user={user}
+        token={token}
         onCreate={onCreateGeracaoIqs}
         generating={generatingIqs}
         title="Geração do Arquivo para IQS"
@@ -3559,6 +3561,7 @@ function IqsGenerationPanel({
   modelos,
   geracoes,
   user,
+  token,
   onCreate,
   generating,
   title = 'Modelos de Tratamento',
@@ -3580,6 +3583,41 @@ function IqsGenerationPanel({
     await onCreate({ anomes, modelos: selected, justificativa })
     setSelected([])
     setJustificativa('')
+  }
+
+  async function handleDownload(id_geracao) {
+    try {
+      const response = await fetch(`${API_URL}/api/iqs/geracoes/${id_geracao}/download`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        throw new Error('Falha ao baixar arquivo');
+      }
+      
+      let filename = `IQS_${id_geracao}.zip`;
+      const disposition = response.headers.get('content-disposition');
+      if (disposition && disposition.includes('attachment')) {
+        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+        const matches = filenameRegex.exec(disposition);
+        if (matches != null && matches[1]) { 
+          filename = matches[1].replace(/['"]/g, '');
+        }
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message);
+    }
   }
 
   return (
@@ -3649,6 +3687,21 @@ function IqsGenerationPanel({
             { key: 'modelos', label: 'Lista' },
             { key: 'aprovado_por', label: 'Aprovado por' },
             { key: 'justificativa', label: 'Justificativa' },
+            {
+              key: 'download',
+              label: 'Baixar',
+              render: (item) => {
+                const status = String(item.status_geracao || '').toUpperCase();
+                if (status === 'CONCLUIDA' || status === 'CONCLUIDO' || status === 'APROVADA' || status === 'APROVADO' || status === 'GERADO') {
+                  return (
+                    <button className="mini-button mini-button-success" onClick={() => handleDownload(item.id_geracao)}>
+                      Baixar Arquivos
+                    </button>
+                  );
+                }
+                return <span className="muted">—</span>;
+              }
+            }
           ]}
           rows={geracoes}
         />
@@ -6691,6 +6744,7 @@ export default function App() {
         geracoesIqs={geracoesIqs}
         validacaoIqs={produtoValidacaoIqs}
         user={user}
+        token={token}
         onCreateGeracaoIqs={handleCreateGeracaoIqs}
         generatingIqs={generatingIqs}
       />
