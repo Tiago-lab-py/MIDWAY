@@ -151,6 +151,35 @@ def list_anomalies() -> dict[str, object]:
     }
 
 
+def anomaly_sample_for_module(codigo: str, limit: int = 20) -> dict[str, object]:
+    schema = _schema()
+    if not _ensure_tables(schema):
+        return {"codigo": codigo, "fonte": "postgres", "items": []}
+
+    engine = create_postgres_engine()
+    with engine.connect() as con:
+        rows = con.execute(
+            text(
+                f"""
+                SELECT evidencias
+                FROM {schema}.midway_propostas_tratamento
+                WHERE codigo_modulo = :codigo
+                ORDER BY created_at DESC
+                LIMIT :limit
+                """
+            ),
+            {"codigo": codigo, "limit": limit},
+        ).fetchall()
+
+    items = []
+    for row in rows:
+        evidencia = row[0] if isinstance(row[0], dict) else {}
+        items.append(evidencia)
+
+    return {"codigo": codigo, "fonte": "postgres", "items": items}
+
+
+
 def list_outliers_raw(limit: int = 500) -> list[dict[str, object]]:
     schema = _schema()
     if not _ensure_tables(schema):

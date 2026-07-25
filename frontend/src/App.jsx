@@ -1267,58 +1267,15 @@ function AjustesGovernadosPanel({
   const [amostraAlgoritmo, setAmostraAlgoritmo] = useState({ items: [], fonte: '' })
   const [carregandoAmostra, setCarregandoAmostra] = useState(false)
   const manualModuleCodes = new Set(['GOVERNANCA_IQS', 'AJUSTE_MANUAL_IQS'])
-  const modules = (modulos || []).map((module) => {
-    const enriched = { ...module }
-    const applyTechnicalSummary = (key) => {
-      const technicalSummary = analiseTecnicaResumos?.[key]?.resumo || {}
-      const total = Number(technicalSummary.QTD_OCORRENCIAS || 0)
-      enriched.metricas_materializadas = total > 0 || Number(technicalSummary.RESSARCIMENTO_ESTIMADO_TOTAL || 0) > 0
-      enriched.total = enriched.metricas_materializadas ? total : enriched.total
-      enriched.impacto_chi = enriched.metricas_materializadas ? Number(technicalSummary.CHI_LIQUIDO_TOTAL || 0) : enriched.impacto_chi
-      enriched.impacto_ci = enriched.metricas_materializadas ? Number(technicalSummary.CI_LIQUIDO_TOTAL || 0) : enriched.impacto_ci
-      enriched.impacto_ressarcimento = enriched.metricas_materializadas
-        ? Number(technicalSummary.RESSARCIMENTO_ESTIMADO_TOTAL || 0)
-        : enriched.impacto_ressarcimento
-      enriched.origem_metricas = enriched.metricas_materializadas ? 'análise técnica' : enriched.origem_metricas
-    }
-
-    if (module.codigo === 'COMPONENTE_CAUSA') applyTechnicalSummary('violacao_componente_causa')
-    if (module.codigo === 'DURACAO_IMPACTO') applyTechnicalSummary('duracao_suspeita')
-    if (module.codigo === 'RESSARCIMENTO_ATIPICO') applyTechnicalSummary('ressarcimento')
-    if (module.codigo === 'FALHA_EQUIPAMENTO_RA') {
-      const raResumo = suspeitasRa?.resumo || {}
-      const total = Number(raResumo.equipamentos_dia || 0)
-      enriched.metricas_materializadas = Boolean(suspeitasRa?.status) || total > 0
-      enriched.total = total
-      enriched.impacto_chi = Number(raResumo.chi_liquido || 0)
-      enriched.impacto_ci = Number(raResumo.ci_liquido || 0)
-      enriched.impacto_ressarcimento = Number(raResumo.comp_fic_estimado || 0)
-      enriched.origem_metricas = 'suspeita falha RA'
-    }
-    const moduleSummary = modulosResumo?.modulos?.[module.codigo]
-    if (moduleSummary && moduleSummary.status === 'ok') {
-      enriched.metricas_materializadas = true
-      enriched.total = Number(moduleSummary.total || 0)
-      enriched.impacto_chi = Number(moduleSummary.impacto_chi || 0)
-      enriched.impacto_ci = Number(moduleSummary.impacto_ci || 0)
-      enriched.impacto_ressarcimento = Number(moduleSummary.impacto_ressarcimento || 0)
-      enriched.origem_metricas = moduleSummary.fonte || 'resumo de módulo'
-    }
-    if (module.codigo === 'RECLAMACOES_SERVICOS') {
-      enriched.metricas_materializadas = true
-      enriched.total = Number(moduleSummary?.total || resumo.fila_reclamacao || 0)
-      enriched.impacto_chi = Number(moduleSummary?.impacto_chi || 0)
-      enriched.impacto_ci = Number(moduleSummary?.impacto_ci || 0)
-      enriched.impacto_ressarcimento = Number(moduleSummary?.impacto_ressarcimento || 0)
-      enriched.origem_metricas = moduleSummary?.fonte || 'fila técnica'
-    }
-    enriched.metricas_materializadas = Boolean(
-      enriched.metricas_materializadas ||
-      Number(enriched.total || 0) > 0 ||
-      Number(enriched.impacto_chi || 0) > 0 ||
-      Number(enriched.impacto_ci || 0) > 0 ||
-      Number(enriched.impacto_ressarcimento || 0) > 0,
-    )
+  const modules = (modulos || []).map((baseModule) => {
+    const pgModule = (anomalias?.modulos || []).find((m) => m.codigo === baseModule.codigo) || {}
+    const enriched = { ...baseModule, ...pgModule }
+    enriched.metricas_materializadas = true
+    enriched.total = Number(pgModule.total || 0)
+    enriched.impacto_chi = Number(pgModule.impacto_dec || 0)
+    enriched.impacto_ci = Number(pgModule.impacto_fec || 0)
+    enriched.impacto_ressarcimento = Number(pgModule.impacto_ressarcimento || 0)
+    enriched.origem_metricas = 'PostgreSQL'
     return enriched
   })
   const latestExecucaoByTipo = useMemo(() => {
@@ -1428,7 +1385,7 @@ function AjustesGovernadosPanel({
     if (!codigo) return
     try {
       setCarregandoAmostra(true)
-      const response = await fetch(`${API_URL}/api/produto/modulos-amostra/${codigo}?limite=20`, {
+      const response = await fetch(`${API_URL}/api/anomalias/amostra/${codigo}?limit=20`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       if (response.ok) {
@@ -1822,6 +1779,7 @@ function TratativasMassaPage({
   analiseTecnicaResumos,
   modulosResumo,
   suspeitasRa,
+  anomalias,
   execucoes,
   token,
   onRefresh,
@@ -1888,6 +1846,7 @@ function TratativasMassaPage({
         analiseTecnicaResumos={analiseTecnicaResumos}
         modulosResumo={modulosResumo}
         suspeitasRa={suspeitasRa}
+        anomalias={anomalias}
         execucoes={execucoes}
         token={token}
         onAtualizarAlgoritmo={onAtualizarAlgoritmo}
@@ -6682,6 +6641,7 @@ export default function App() {
         analiseTecnicaResumos={analiseTecnicaResumos}
         modulosResumo={produtoModulosResumo}
         suspeitasRa={produtoSuspeitasRa}
+        anomalias={anomalias}
         execucoes={execucoes}
         token={token}
         onRefresh={load}
