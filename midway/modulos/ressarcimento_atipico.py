@@ -66,11 +66,10 @@ class ModuloRessarcimentoAtipico(BaseModulo):
                     ressarcimento_distinto AS (
                         SELECT
                             CAST(UC AS VARCHAR) AS NUM_UC,
-                            CAST(PID_INTRP_SRVE AS VARCHAR) AS NUM_SEQ_INTRP,
                             SUM(COALESCE(COMP_TOTAL_PRODIST, 0)) AS COMP_TOTAL_PRODIST
                         FROM gold_ressarcimento_prodist
                         WHERE COALESCE(COMP_TOTAL_PRODIST, 0) > 0
-                        GROUP BY CAST(UC AS VARCHAR), CAST(PID_INTRP_SRVE AS VARCHAR)
+                        GROUP BY CAST(UC AS VARCHAR)
                     ),
                     ocorrencia_ressarcimento AS (
                         SELECT 
@@ -81,7 +80,6 @@ class ModuloRessarcimentoAtipico(BaseModulo):
                         FROM iqs_distinto r
                         JOIN ressarcimento_distinto res 
                           ON res.NUM_UC = r.NUM_UC_UCI
-                         AND res.NUM_SEQ_INTRP = r.NUM_SEQ_INTRP
                         GROUP BY r.NUM_OCORRENCIA_ADMS, r.NUM_SEQ_INTRP
                         HAVING SUM(res.COMP_TOTAL_PRODIST) > 1000
                     ),

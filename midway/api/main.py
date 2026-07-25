@@ -31,6 +31,29 @@ def create_app() -> FastAPI:
     app.include_router(qualidade.router)
     app.include_router(anomalias.router)
     app.include_router(produto.router)
+
+    @app.on_event("startup")
+    def limpar_lotes_travados():
+        from sqlalchemy import text
+        from midway.db.postgres import create_postgres_engine
+        from midway.api.routes.governanca import _schema
+        schema = _schema()
+        engine = create_postgres_engine()
+        try:
+            with engine.begin() as con:
+                con.execute(
+                    text(
+                        f"""
+                        UPDATE {schema}.midway_execucao_lote
+                        SET status_lote = 'ERRO',
+                            mensagem = 'Execução cancelada devido ao reinício da aplicação.'
+                        WHERE status_lote IN ('ABERTO', 'PROCESSANDO')
+                        """
+                    )
+                )
+        except Exception:
+            pass
+
     return app
 
 
