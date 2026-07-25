@@ -193,10 +193,8 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
         def _table_exists(c, table):
             return c.execute(f"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{table}'").fetchone()[0] > 0
 
-        has_total = _table_exists(con, "export_sobreposicao_total_uc")
         has_sem_uc = _table_exists(con, "adms_iqs_interrupcao_sem_uc_export")
-
-        total_from = "export_sobreposicao_total_uc e" if has_total else "(SELECT NULL AS DTHR_INICIO_INTRP_UC, NULL AS DATA_HORA_FIM_INTRP, NULL AS NUM_UC_UCI, NULL AS TIPO_PROTOC_JUSTIF_UCI WHERE 1=0) e"
+        # O impacto total de sobreposicao uc usa a tabela de alterados
         sem_uc_from = "adms_iqs_interrupcao_sem_uc_export e" if has_sem_uc else "(SELECT NULL AS DTHR_INICIO_INTRP_UC, NULL AS DATA_HORA_FIM_INTRP, NULL AS NUM_UC_UCI, NULL AS TIPO_PROTOC_JUSTIF_UCI WHERE 1=0) e"
 
         tratamentos = con.execute(
@@ -206,22 +204,49 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
                 FROM gold_consumidores
                 WHERE REGIONAL_TOTAL = 'COPEL'
             ),
+            intrp_total_ucs AS (
+                SELECT 
+                    CAST(NUM_SEQ_INTRP_CHVP_HIADMS AS VARCHAR) AS NUM_SEQ_INTRP,
+                    COUNT(*) AS total_ucs
+                FROM raw_db.hiadms_raw r
+                WHERE r.DATA_HORA_INIC_INTRP_ULT_HIADMS IS NOT NULL
+                  AND r.DATA_HORA_FIM_INTRP_ULT_HIADMS IS NOT NULL
+                  AND r.DATA_HORA_FIM_INTRP_ULT_HIADMS >= r.DATA_HORA_INIC_INTRP_ULT_HIADMS
+                  AND TRIM(CAST(r.ESTADO_INTRP_ULT_HIADMS AS VARCHAR)) = '4'
+                GROUP BY CAST(r.NUM_SEQ_INTRP_CHVP_HIADMS AS VARCHAR)
+            ),
+            intrp_ucs_91_d AS (
+                SELECT 
+                    NUM_SEQ_INTRP,
+                    COUNT(*) AS ucs_91_d
+                FROM adms_iqs_alterados
+                WHERE ACAO_SOBREPOSICAO_TOTAL_UC = 'CLASSIFICAR_91_UC_CONTIDA'
+                GROUP BY NUM_SEQ_INTRP
+            ),
+            interrupcoes_sem_uc AS (
+                SELECT t.NUM_SEQ_INTRP
+                FROM intrp_total_ucs t
+                JOIN intrp_ucs_91_d a ON a.NUM_SEQ_INTRP = t.NUM_SEQ_INTRP
+                WHERE a.ucs_91_d = t.total_ucs
+            ),
             impacto_total AS (
                 SELECT
                     'Sobreposição total UC' AS tratamento,
                     COUNT(*) AS ci_bruto_ganho,
-                    SUM(DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0) AS chi_bruto_ganho,
+                    SUM(DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0) AS chi_bruto_ganho,
                     SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0' THEN 1 ELSE 0 END) AS ci_liquido_ganho,
                     SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0'
-                        THEN DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0 ELSE 0 END) AS chi_liquido_ganho
-                FROM {total_from}
-                WHERE TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP) IS NOT NULL
+                        THEN DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0 ELSE 0 END) AS chi_liquido_ganho
+                FROM adms_iqs_alterados a
+                WHERE ACAO_SOBREPOSICAO_TOTAL_UC = 'CLASSIFICAR_91_UC_CONTIDA'
+                  AND NUM_SEQ_INTRP NOT IN (SELECT NUM_SEQ_INTRP FROM interrupcoes_sem_uc)
+                  AND TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP) IS NOT NULL
                   AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) IS NOT NULL
-                  AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) >= TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP)
-                  AND DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) >= 180
+                  AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) >= TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP)
+                  AND DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) >= 180
                   AND EXISTS (
                       SELECT 1 FROM gold_uc_fatura u
-                      WHERE TRIM(CAST(u.UC AS VARCHAR)) = TRIM(CAST(e.NUM_UC_UCI AS VARCHAR))
+                      WHERE TRIM(CAST(u.UC AS VARCHAR)) = TRIM(CAST(a.NUM_UC_UCI AS VARCHAR))
                         AND TRIM(CAST(u.FATURADO AS VARCHAR)) = 'S'
                   )
             ),
@@ -256,18 +281,20 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
                 SELECT
                     'Interrupção sem UC remanescente' AS tratamento,
                     COUNT(*) AS ci_bruto_ganho,
-                    SUM(DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0) AS chi_bruto_ganho,
+                    SUM(DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0) AS chi_bruto_ganho,
                     SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0' THEN 1 ELSE 0 END) AS ci_liquido_ganho,
                     SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0'
-                        THEN DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0 ELSE 0 END) AS chi_liquido_ganho
-                FROM {sem_uc_from}
-                WHERE TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP) IS NOT NULL
+                        THEN DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0 ELSE 0 END) AS chi_liquido_ganho
+                FROM adms_iqs_alterados a
+                WHERE ACAO_SOBREPOSICAO_TOTAL_UC = 'CLASSIFICAR_91_UC_CONTIDA'
+                  AND NUM_SEQ_INTRP IN (SELECT NUM_SEQ_INTRP FROM interrupcoes_sem_uc)
+                  AND TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP) IS NOT NULL
                   AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) IS NOT NULL
-                  AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) >= TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP)
-                  AND DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) >= 180
+                  AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) >= TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP)
+                  AND DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) >= 180
                   AND EXISTS (
                       SELECT 1 FROM gold_uc_fatura u
-                      WHERE TRIM(CAST(u.UC AS VARCHAR)) = TRIM(CAST(e.NUM_UC_UCI AS VARCHAR))
+                      WHERE TRIM(CAST(u.UC AS VARCHAR)) = TRIM(CAST(a.NUM_UC_UCI AS VARCHAR))
                         AND TRIM(CAST(u.FATURADO AS VARCHAR)) = 'S'
                   )
             ),

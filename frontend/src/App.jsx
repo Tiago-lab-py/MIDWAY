@@ -2109,8 +2109,6 @@ function SaidaIqsPage({
         sideValue={user?.perfil}
       />
 
-      <IqsValidationPanel validacaoIqs={validacaoIqs} />
-
       <IqsGenerationPanel
         modelos={modelosIqs}
         geracoes={geracoesIqs}
