@@ -51,3 +51,10 @@ Se houver uma nova exigência de auditoria:
 3. Retorne uma lista de `PropostaTratamento`.
 4. Adicione sua classe no final da lista `MODULOS_ATIVOS` dentro de `midway/modulos/orquestrador.py`.
 5. Pronto. A UI Web e o sistema de aprovações/filas vão carregar os dados instantaneamente na próxima execução.
+
+## 5. Regras de Ouro e Depreciação de Tabelas Legadas (V7)
+
+Com a consolidação do Orquestrador Central e envio das anomalias para o PostgreSQL (`midway_propostas_tratamento`), o fluxo de dados foi otimizado:
+1. **Tabelas de Exportação Legadas:** As tabelas do DuckDB antigas, como `export_sobreposicao_total_uc` e `adms_iqs_interrupcao_sem_uc_export`, foram descontinuadas. Novos endpoints e relatórios não devem mais depender dessas tabelas. Os endpoints antigos da API (ex: `/api/executivo/...`) foram ajustados para utilizar CTEs vazias caso essas tabelas não existam, garantindo retrocompatibilidade sem gerar Erro 500.
+2. **Conexões com DuckDB nos Módulos:** **ATENÇÃO:** Nunca crie um banco em memória ao instanciar conexões (`duckdb.connect()`). Seus módulos analíticos DEVEM referenciar o arquivo `processed` da competência através da função oficial: `duckdb.connect(str(_processed_path(anomes)))`. Isso evita exceções de tipo `Catalog Error` causadas por conexões isoladas.
+3. **API e Falhas de Renderização Frontend:** Garanta sempre que a API devolva os tipos de dados esperados pelo frontend (React). Propriedades como `fonte` no retorno de `/modulos-amostra/` devem ser strings, nunca objetos não processados, prevenindo quebras de renderização (`Objects are not valid as a React child`).
