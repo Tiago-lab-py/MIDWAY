@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 chcp 65001 >nul
 
 cd /d "%~dp0"
@@ -14,12 +14,27 @@ echo ==============================================================
 echo [ MIDWAY ] Iniciando Rotina Diaria de Ressarcimento Preventivo
 echo ==============================================================
 
-if "%~1" == "" (
-    "%PYTHON_EXE%" -m midway.analytics.ressarcimento_diario
-) else (
-    "%PYTHON_EXE%" -m midway.analytics.ressarcimento_diario "%~1"
+set "DESTINO=%~1"
+if "%DESTINO%" == "" (
+    if not "%RESSARCIMENTO_DIARIO_DESTINO%" == "" (
+        set "DESTINO=%RESSARCIMENTO_DIARIO_DESTINO%"
+    ) else (
+        set "DESTINO=data\marts\ressarcimento_diario"
+    )
 )
 
+echo Destino: %DESTINO%
+echo Python : %PYTHON_EXE%
 echo.
-echo Processo finalizado!
-pause
+
+"%PYTHON_EXE%" -m midway.analytics.ressarcimento_diario "%DESTINO%"
+set "EXIT_CODE=%ERRORLEVEL%"
+
+echo.
+if not "%EXIT_CODE%" == "0" (
+    echo Processo finalizado com erro. Codigo: %EXIT_CODE%
+    exit /b %EXIT_CODE%
+)
+
+echo Processo finalizado com sucesso.
+exit /b 0
