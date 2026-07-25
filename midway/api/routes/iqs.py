@@ -234,7 +234,7 @@ def download_geracao_iqs(
         raise HTTPException(status_code=500, detail=f"Erro ao gerar pacote ZIP: {e}")
         
     return FileResponse(
-        path=zip_path,
+        path=str(zip_path.resolve()),
         filename=f"midway_iqs_{anomes}_{id_geracao}.zip",
         media_type="application/zip"
     )

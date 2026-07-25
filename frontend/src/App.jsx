@@ -3593,7 +3593,16 @@ function IqsGenerationPanel({
         }
       });
       if (!response.ok) {
-        throw new Error('Falha ao baixar arquivo');
+        let errorDetail = 'Falha ao baixar arquivo';
+        try {
+          const result = await response.json();
+          if (result && result.detail) {
+            errorDetail = result.detail;
+          }
+        } catch (e) {
+          // ignore parsing error
+        }
+        throw new Error(errorDetail);
       }
       
       let filename = `IQS_${id_geracao}.zip`;
