@@ -48,7 +48,9 @@ class ModuloRessarcimentoAtipico(BaseModulo):
         """
         
         try:
-            con = duckdb.connect()
+            base_dir = Path("data")
+            processed_duckdb_path = base_dir / "processed" / f"iqs_adms_processed_{anomes}.duckdb"
+            con = duckdb.connect(str(processed_duckdb_path), read_only=True)
             resultados_df = con.execute(query).df()
             resultados = resultados_df.to_dict('records')
             
