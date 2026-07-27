@@ -272,11 +272,35 @@ def _list_postgres_anomalies() -> list[dict[str, object]]:
                     acao_sugerida,
                     'alta' AS confianca_sugestao,
                     true AS requer_aprovacao,
-                    COALESCE((evidencias ->> 'impacto_dec')::numeric, 0) AS impacto_dec,
-                    COALESCE((evidencias ->> 'impacto_fec')::numeric, 0) AS impacto_fec,
-                    COALESCE((evidencias ->> 'impacto_dic')::numeric, 0) AS impacto_dic,
-                    COALESCE((evidencias ->> 'impacto_fic')::numeric, 0) AS impacto_fic,
-                    COALESCE((evidencias ->> 'impacto_ressarcimento')::numeric, 0) AS impacto_ressarcimento
+                    COALESCE(
+                        (evidencias ->> 'impacto_dec')::numeric, 
+                        (evidencias ->> 'dec_liquido')::numeric,
+                        0
+                    ) AS impacto_dec,
+                    COALESCE(
+                        (evidencias ->> 'impacto_fec')::numeric, 
+                        (evidencias ->> 'fec_liquido')::numeric,
+                        0
+                    ) AS impacto_fec,
+                    COALESCE(
+                        (evidencias ->> 'impacto_dic')::numeric, 
+                        (evidencias ->> 'dic_liquido')::numeric,
+                        (evidencias ->> 'duracao_horas')::numeric,
+                        (evidencias ->> 'chi_liquido')::numeric,
+                        (evidencias ->> 'impacto_dicri')::numeric,
+                        0
+                    ) AS impacto_dic,
+                    COALESCE(
+                        (evidencias ->> 'impacto_fic')::numeric, 
+                        (evidencias ->> 'fic_liquido')::numeric,
+                        (evidencias ->> 'ci_liquido')::numeric,
+                        0
+                    ) AS impacto_fic,
+                    COALESCE(
+                        (evidencias ->> 'impacto_ressarcimento')::numeric, 
+                        (evidencias ->> 'soma_compensacao')::numeric,
+                        0
+                    ) AS impacto_ressarcimento
                 FROM {schema}.midway_propostas_tratamento
                 ORDER BY created_at DESC
                 LIMIT 500

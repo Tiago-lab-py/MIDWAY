@@ -120,7 +120,12 @@ class ModuloRessarcimentoAtipico(BaseModulo):
                     "total_ucs_afetadas": int(row["total_ucs_afetadas"]),
                     "soma_compensacao": round(float(row["soma_compensacao"]), 2) if row["soma_compensacao"] is not None else 0.0,
                     "qtd_reclamacoes": int(row["qtd_reclamacoes"]),
-                    "motivo_atipico": str(row["motivo_atipico"])
+                    "motivo_atipico": str(row["motivo_atipico"]),
+                    "impacto_ressarcimento": round(float(row["soma_compensacao"]), 2) if row["soma_compensacao"] is not None else 0.0,
+                    "impacto_dec": 0.0,
+                    "impacto_fec": 0.0,
+                    "impacto_dic": 0.0,
+                    "impacto_fic": 0.0
                 }
                 
                 impacto = f"Compensação atípica/inflada detectada (R$ {evidencias['soma_compensacao']}) para {evidencias['total_ucs_afetadas']} UCs afetadas e pouca ou nenhuma reclamação ({evidencias['qtd_reclamacoes']})."
