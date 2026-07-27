@@ -190,11 +190,23 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_vrc['UC'] = df_vrc['UC'].astype(str)
 
     df_acumulado = df_intrp.groupby('UC').agg(
+        QTD_OCORRENCIAS=('NUM_OCORRENCIA_ADMS', 'nunique'),
         DIC_ACUMULADO=('DURACAO_MIN', lambda x: x.sum() / 60.0),
         FIC_ACUMULADO=('FREQUENCIA', 'sum')
     ).reset_index()
 
-    df_analise = df_acumulado.merge(df_metas, on='UC', how='left')
+    # Calcular as 3 maiores ocorrências (em duração) por UC
+    df_sorted_intrp = df_intrp.sort_values(by=['UC', 'DURACAO_MIN'], ascending=[True, False])
+    df_top_ocorrencias = (
+        df_sorted_intrp.groupby('UC')
+        .head(3)
+        .groupby('UC')
+        .apply(lambda g: ", ".join([f"{r.NUM_OCORRENCIA_ADMS} ({round(r.DURACAO_MIN, 1)}min)" for r in g.itertuples()]))
+        .reset_index(name='TOP_3_OCORRENCIAS')
+    )
+
+    df_analise = df_acumulado.merge(df_top_ocorrencias, on='UC', how='left')
+    df_analise = df_analise.merge(df_metas, on='UC', how='left')
     df_analise = df_analise.merge(df_vrc, on='UC', how='left')
 
     df_analise['META_DIC'] = pd.to_numeric(df_analise['META_DIC'], errors='coerce').fillna(9999)
@@ -209,7 +221,10 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     
     if df_violadas.empty:
         print("Nenhuma UC violou metas neste periodo.")
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
         return 0
 
     # Calculo estimado bruto de compensacao
@@ -239,13 +254,24 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Gerando Excel em {arquivo_saida}...")
     
+    colunas_ordenadas = [
+        'UC', 'QTD_OCORRENCIAS', 'DIC_ACUMULADO', 'FIC_ACUMULADO', 
+        'META_DIC', 'META_FIC', 'VRC', 'VIOLOU_DIC', 'VIOLOU_FIC', 
+        'RISCO_R$', 'TOP_3_OCORRENCIAS'
+    ]
+    cols_existentes = [c for c in colunas_ordenadas if c in df_violadas.columns]
+    df_violadas_export = df_violadas[cols_existentes].sort_values(by='RISCO_R$', ascending=False)
+
     try:
         with pd.ExcelWriter(arquivo_saida, engine='openpyxl') as writer:
             df_resumo_ocorrencia.to_excel(writer, sheet_name='Ocorrencias_Prioritarias', index=False)
-            df_violadas.sort_values(by='RISCO_R$', ascending=False).to_excel(writer, sheet_name='UCs_Violadas_Detalhe', index=False)
+            df_violadas_export.to_excel(writer, sheet_name='UCs_Violadas_Detalhe', index=False)
     except Exception as e:
         print(f"Erro ao gerar Excel: {e}")
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
         return 5
 
     conn.close()
