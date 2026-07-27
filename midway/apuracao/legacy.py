@@ -43,7 +43,7 @@ def _obsoleto_criar_gold_apuracao_uc_v1(con):
                 CASE
                     WHEN NULLIF(TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)), '') IS NULL
                     THEN NULL
-                    ELSE REGEXP_REPLACE(TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)), '\\.0+$', '')
+                    ELSE REGEXP_REPLACE(TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)), '\.0+$', '')
                 END AS NUM_MOTIVO_TRAT_DIF_UCI_NORM,
                 CASE
                     WHEN NULLIF(TRIM(CAST(INDIC_SIT_PROCES_INDIC_UCI AS VARCHAR)), '') IS NULL
@@ -205,7 +205,7 @@ def _obsoleto_criar_gold_apuracao_uc_v2(con):
                 CASE
                     WHEN NULLIF(TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)), '') IS NULL
                     THEN NULL
-                    ELSE REGEXP_REPLACE(TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)), '\\.0+$', '')
+                    ELSE REGEXP_REPLACE(TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)), '\.0+$', '')
                 END AS NUM_MOTIVO_TRAT_DIF_UCI_NORM,
                 CASE
                     WHEN NULLIF(TRIM(CAST(INDIC_SIT_PROCES_INDIC_UCI AS VARCHAR)), '') IS NULL
