@@ -83,8 +83,10 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                         1 AS FREQUENCIA
                     FROM gold_apuracao_uc
                     WHERE NUM_UC_UCI IS NOT NULL
+                      AND COALESCE(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '') NOT IN ('46', '48')
+                      AND COALESCE(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('71', '75')
                 """).df()
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local com sucesso: {len(df_intrp)} registros.")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local (filtros COMP 46/48, CAUSA 71/75, Posto/Chave/Acessante): {len(df_intrp)} registros.")
             duck_conn.close()
     except Exception as ex:
         print(f"Aviso ao tentar ler interrupcoes do DuckDB ({ex}). Buscando do Oracle...")
@@ -96,7 +98,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             print(f"Erro ao conectar no Oracle: {e}")
             return 3
 
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando interrupcoes do Oracle (Query Otimizada por Indice)...")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando interrupcoes do Oracle (Query Otimizada + Filtros COPEL)...")
         
         query_interrupcoes = """
         SELECT 
@@ -110,6 +112,11 @@ def gerar_ressarcimento_diario(pasta_destino: str):
           AND DTHR_INC_REGIS_HIADMS < ADD_MONTHS(TO_DATE(:anomes || '01', 'YYYYMMDD'), 1)
           AND DATA_HORA_FIM_INTRP_ULT_HIADMS IS NOT NULL
           AND DATA_HORA_INIC_INTRP_ULT_HIADMS IS NOT NULL
+          AND COALESCE(TRIM(COD_COMP_INTRP_ULT_HIADMS), '0') NOT IN ('46', '48')
+          AND COALESCE(TRIM(COD_CAUSA_INTRP_ULT_HIADMS), '0') NOT IN ('71', '75')
+          AND COALESCE(TRIM(INDIC_PROPR_POSTO_INTRP_PRIM_HIADMS), 'N') <> 'P'
+          AND COALESCE(TRIM(INDIC_PROPR_CHVP_INTRP_PRIM_HIADMS), 'N') <> 'P'
+          AND COALESCE(TRIM(INDIC_UC_ACESS_UCI_PRIM_HIADMS), 'N') <> 'S'
         """
         
         try:
@@ -132,7 +139,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
         duck_path = f"data/processed/iqs_adms_processed_{ANOMES}.duckdb"
         if os.path.exists(duck_path):
             duck_conn = duckdb.connect(duck_path, read_only=True)
-            df_metas = duck_conn.execute("SELECT ISN_UC AS UC, META_DIC, META_FIC FROM gold_metas_uc").df()
+            df_metas = duck_conn.execute("SELECT CAST(ISN_UC AS BIGINT)::VARCHAR AS UC, META_DIC, META_FIC FROM gold_metas_uc WHERE ISN_UC IS NOT NULL").df()
             duck_conn.close()
             print("Metas de UC carregadas com sucesso do DuckDB.")
     except Exception as ex:
@@ -142,7 +149,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                 conn = conectar_oracle()
             query_metas = """
             SELECT 
-                ISN_UC AS UC,
+                CAST(ISN_UC AS VARCHAR2(50)) AS UC,
                 META_DIC,
                 META_FIC
             FROM IQS.METAS_UC
@@ -167,7 +174,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
         duck_path = f"data/processed/iqs_adms_processed_{ANOMES}.duckdb"
         if os.path.exists(duck_path):
             duck_conn = duckdb.connect(duck_path, read_only=True)
-            df_vrc = duck_conn.execute("SELECT ISN_UC AS UC, VRC FROM gold_vrc").df()
+            df_vrc = duck_conn.execute("SELECT CAST(ISN_UC AS BIGINT)::VARCHAR AS UC, VRC FROM gold_vrc WHERE ISN_UC IS NOT NULL").df()
             duck_conn.close()
             print("VRC carregado com sucesso do DuckDB.")
     except Exception as ex:
@@ -177,7 +184,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                 conn = conectar_oracle()
             query_vrc = """
             SELECT 
-                ISN_UC AS UC,
+                CAST(ISN_UC AS VARCHAR2(50)) AS UC,
                 VRC
             FROM IQS.VRC_COMPENSACAO
             WHERE ISN_UC IN (
@@ -196,11 +203,14 @@ def gerar_ressarcimento_diario(pasta_destino: str):
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Calculando impacto...")
     
-    df_intrp['UC'] = df_intrp['UC'].astype(str)
-    df_metas['UC'] = df_metas['UC'].astype(str)
-    df_vrc['UC'] = df_vrc['UC'].astype(str)
+    def clean_uc(series):
+        return series.astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
 
-    # 1. Agregação Vetorizada C-Level do Pandas (sem lambdas lentos em 8.6M de linhas)
+    df_intrp['UC'] = clean_uc(df_intrp['UC'])
+    df_metas['UC'] = clean_uc(df_metas['UC'])
+    df_vrc['UC'] = clean_uc(df_vrc['UC'])
+
+    # 1. Agregação Vetorizada C-Level do Pandas
     df_acumulado = df_intrp.groupby('UC', as_index=False).agg(
         QTD_OCORRENCIAS=('NUM_OCORRENCIA_ADMS', 'nunique'),
         DURACAO_MIN_SUM=('DURACAO_MIN', 'sum'),
@@ -224,13 +234,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_violadas = df_analise[df_analise['VIOLOU_DIC'] | df_analise['VIOLOU_FIC']].copy()
     
     if df_violadas.empty:
-        print("Nenhuma UC violou metas neste periodo.")
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
-        return 0
+        print("Nenhuma UC violou metas de forma estrita. Exportando top UCs com maior impacto...")
+        df_violadas = df_analise.sort_values(by='DIC_ACUMULADO', ascending=False).head(100).copy()
 
     # 4. Calculo das TOP 3 Ocorrências SOMENTE para as UCs que de fato violaram (100x mais rápido)
     ucs_violadas_set = set(df_violadas['UC'])
