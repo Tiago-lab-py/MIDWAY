@@ -88,8 +88,8 @@ A base de indicadores realizados preserva rastreabilidade operacional, mas a bas
 
 | Filtro | Campo |
 | --- | --- |
-| Componente 52 | `COD_COMP_INTRP = '52'` |
-| Causa 71 | `COD_CAUSA_INTRP = '71'` |
+| Componentes 46 e 48 | `COD_COMP_INTRP = '46', '48'` |
+| Causas 71 e 75 | `COD_CAUSA_INTRP = '71', '75'` |
 | Posto particular | `INDIC_PROPR_POSTO_INTRP = 'P'` |
 | Chave particular/acessante | `INDIC_PROPR_CHVP_INTRP = 'P'` e `UC_ACESSANTE = 'S'` |
 | UC acessante | `UC_ACESSANTE = 'S'` |
