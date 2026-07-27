@@ -17,6 +17,8 @@ def listar_arquivos(user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "
     
     arquivos = []
     for f in EXPORT_DIR.glob("*.xlsx"):
+        if f.name.startswith("~$"):
+            continue
         stat = f.stat()
         arquivos.append({
             "nome": f.name,
@@ -52,8 +54,8 @@ def download_arquivo(
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA"))
 ):
     file_path = EXPORT_DIR / nome_arquivo
-    # Sanitização básica contra Path Traversal
-    if ".." in nome_arquivo or "/" in nome_arquivo or "\\" in nome_arquivo:
+    # Sanitização básica contra Path Traversal e arquivos temporários do Excel (~$)
+    if nome_arquivo.startswith("~$") or ".." in nome_arquivo or "/" in nome_arquivo or "\\" in nome_arquivo:
         raise HTTPException(status_code=400, detail="Nome de arquivo inválido.")
         
     if not file_path.exists():
@@ -75,9 +77,9 @@ def gerar_e_baixar_relatorio(user: AuthUser = Depends(require_profiles("ADM", "G
         if status_code != 0:
             raise HTTPException(status_code=500, detail="A rotina de geração retornou código de erro.")
             
-        # Localiza o arquivo recém-gerado (mais recente com padrão do mês)
+        # Localiza o arquivo recém-gerado (mais recente com padrão do mês, ignorando temporários do Excel)
         from midway.analytics.ressarcimento_diario import ANOMES
-        arquivos = list(EXPORT_DIR.glob(f"Relatorio_Ressarcimento_Preventivo_{ANOMES}_*.xlsx"))
+        arquivos = [f for f in EXPORT_DIR.glob(f"Relatorio_Ressarcimento_Preventivo_{ANOMES}_*.xlsx") if not f.name.startswith("~$")]
         if not arquivos:
             raise HTTPException(status_code=404, detail="Relatório gerado mas o arquivo correspondente não foi encontrado.")
             
