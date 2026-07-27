@@ -56,8 +56,10 @@ Para base financeira de compensação, o módulo separa indicadores realizados d
 
 Exclusões da base compensável:
 
-- `COD_COMP_INTRP = '46', '48'`;
-- `COD_CAUSA_INTRP = '71', '75'`;
+- `COD_COMP_INTRP = '46', '48', '52', '54'`;
+- `COD_CAUSA_INTRP = '22', '71', '75'`;
+- `COD_AREA_ELET_INTRP = '7', '8', '9'`;
+- `ESTADO_INTRP = '7'`;
 - posto particular;
 - chave particular/acessante;
 - UC acessante.

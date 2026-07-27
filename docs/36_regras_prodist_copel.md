@@ -88,8 +88,10 @@ A base de indicadores realizados preserva rastreabilidade operacional, mas a bas
 
 | Filtro | Campo |
 | --- | --- |
-| Componentes 46 e 48 | `COD_COMP_INTRP = '46', '48'` |
-| Causas 71 e 75 | `COD_CAUSA_INTRP = '71', '75'` |
+| Componentes 46, 48, 52 e 54 | `COD_COMP_INTRP = '46', '48', '52', '54'` |
+| Causas 22, 71 e 75 | `COD_CAUSA_INTRP = '22', '71', '75'` |
+| Áreas Elétricas 7, 8 e 9 | `COD_AREA_ELET_INTRP = '7', '8', '9'` |
+| Estado da Interrupção 7 | `ESTADO_INTRP = '7'` |
 | Posto particular | `INDIC_PROPR_POSTO_INTRP = 'P'` |
 | Chave particular/acessante | `INDIC_PROPR_CHVP_INTRP = 'P'` e `UC_ACESSANTE = 'S'` |
 | UC acessante | `UC_ACESSANTE = 'S'` |

@@ -86,10 +86,12 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                       AND COALESCE(DURACAO_HORA, 0) * 60 >= 3.0
                       AND COALESCE(TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), '0') IN ('0', '0.0', '')
                       AND (NUM_MOTIVO_TRAT_DIF_UCI IS NULL OR TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)) IN ('', '0', '0.0', 'NONE', 'NULL'))
-                      AND COALESCE(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '') NOT IN ('46', '48')
-                      AND COALESCE(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('71', '75')
+                      AND COALESCE(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '') NOT IN ('46', '48', '52', '54')
+                      AND COALESCE(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('22', '71', '75')
+                      AND COALESCE(TRIM(CAST(COD_AREA_ELET_INTRP AS VARCHAR)), '') NOT IN ('7', '8', '9')
+                      AND COALESCE(TRIM(CAST(ESTADO_INTRP AS VARCHAR)), '') NOT IN ('7')
                 """).df()
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local (apenas apuraveis/sem PTP/expurgo): {len(df_intrp)} registros.")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local (filtros COPEL COMP/CAUSA/AREA/ESTADO/PTP): {len(df_intrp)} registros.")
             duck_conn.close()
     except Exception as ex:
         print(f"Aviso ao tentar ler interrupcoes do DuckDB ({ex}). Buscando do Oracle...")
@@ -117,8 +119,10 @@ def gerar_ressarcimento_diario(pasta_destino: str):
           AND DATA_HORA_INIC_INTRP_ULT_HIADMS IS NOT NULL
           AND (DATA_HORA_FIM_INTRP_ULT_HIADMS - DATA_HORA_INIC_INTRP_ULT_HIADMS) * 24 * 60 >= 3.0
           AND COALESCE(TRIM(TIPO_PROTOC_JUSTIF_INTRP_ULT_HIADMS), '0') = '0'
-          AND COALESCE(TRIM(COD_COMP_INTRP_ULT_HIADMS), '0') NOT IN ('46', '48')
-          AND COALESCE(TRIM(COD_CAUSA_INTRP_ULT_HIADMS), '0') NOT IN ('71', '75')
+          AND COALESCE(TRIM(COD_COMP_INTRP_ULT_HIADMS), '0') NOT IN ('46', '48', '52', '54')
+          AND COALESCE(TRIM(COD_CAUSA_INTRP_ULT_HIADMS), '0') NOT IN ('22', '71', '75')
+          AND COALESCE(TRIM(COD_AREA_ELET_INTRP_ULT_HIADMS), '0') NOT IN ('7', '8', '9')
+          AND COALESCE(TRIM(ESTADO_INTRP_ULT_HIADMS), '0') NOT IN ('7')
           AND COALESCE(TRIM(INDIC_PROPR_POSTO_INTRP_PRIM_HIADMS), 'N') <> 'P'
           AND COALESCE(TRIM(INDIC_PROPR_CHVP_INTRP_PRIM_HIADMS), 'N') <> 'P'
           AND COALESCE(TRIM(INDIC_UC_ACESS_UCI_PRIM_HIADMS), 'N') <> 'S'
