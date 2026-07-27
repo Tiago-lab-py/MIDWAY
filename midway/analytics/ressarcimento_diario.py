@@ -65,33 +65,62 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             print(f"Erro ao criar pasta de destino {pasta_destino}: {e}")
             return 2
 
+    df_intrp = None
     try:
-        conn = conectar_oracle()
-    except Exception as e:
-        print(f"Erro ao conectar no Oracle: {e}")
-        return 3
+        import duckdb
+        duck_path = f"data/processed/iqs_adms_processed_{ANOMES}.duckdb"
+        if os.path.exists(duck_path):
+            duck_conn = duckdb.connect(duck_path, read_only=True)
+            tabelas = {row[0] for row in duck_conn.execute("SHOW TABLES").fetchall()}
+            if "gold_apuracao_uc" in tabelas:
+                df_intrp = duck_conn.execute("""
+                    SELECT 
+                        NUM_OCORRENCIA_ADMS,
+                        CAST(NUM_UC_UCI AS VARCHAR) AS UC,
+                        DATA_HORA_INIC_INTRP AS DATA_REGISTRO,
+                        COALESCE(DURACAO_HORA, 0) * 60 AS DURACAO_MIN,
+                        1 AS FREQUENCIA
+                    FROM gold_apuracao_uc
+                    WHERE NUM_UC_UCI IS NOT NULL
+                """).df()
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local com sucesso: {len(df_intrp)} registros.")
+            duck_conn.close()
+    except Exception as ex:
+        print(f"Aviso ao tentar ler interrupcoes do DuckDB ({ex}). Buscando do Oracle...")
 
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando interrupcoes do Oracle...")
-    
-    query_interrupcoes = """
-    SELECT 
-        PID_OCOR_INTRP_ULT_HIADMS AS NUM_OCORRENCIA_ADMS,
-        NUM_UC_UCI_CHVP_HIADMS AS UC,
-        DTHR_INC_REGIS_HIADMS AS DATA_REGISTRO,
-        (DATA_HORA_FIM_INTRP_ULT_HIADMS - DATA_HORA_INIC_INTRP_ULT_HIADMS) * 24 * 60 AS DURACAO_MIN,
-        1 AS FREQUENCIA
-    FROM IQS.HIST_INTEGRACAO_ADMS
-    WHERE TO_CHAR(DTHR_INC_REGIS_HIADMS, 'yyyymm') = :anomes
-      AND DATA_HORA_FIM_INTRP_ULT_HIADMS IS NOT NULL
-      AND DATA_HORA_INIC_INTRP_ULT_HIADMS IS NOT NULL
-    """
-    
-    try:
-        df_intrp = pd.read_sql(query_interrupcoes, conn, params={"anomes": ANOMES})
-    except Exception as e:
-        print(f"Erro ao buscar interrupcoes: {e}")
-        conn.close()
-        return 4
+    if df_intrp is None or df_intrp.empty:
+        try:
+            conn = conectar_oracle()
+        except Exception as e:
+            print(f"Erro ao conectar no Oracle: {e}")
+            return 3
+
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando interrupcoes do Oracle (Query Otimizada por Indice)...")
+        
+        query_interrupcoes = """
+        SELECT 
+            PID_OCOR_INTRP_ULT_HIADMS AS NUM_OCORRENCIA_ADMS,
+            NUM_UC_UCI_CHVP_HIADMS AS UC,
+            DTHR_INC_REGIS_HIADMS AS DATA_REGISTRO,
+            (DATA_HORA_FIM_INTRP_ULT_HIADMS - DATA_HORA_INIC_INTRP_ULT_HIADMS) * 24 * 60 AS DURACAO_MIN,
+            1 AS FREQUENCIA
+        FROM IQS.HIST_INTEGRACAO_ADMS
+        WHERE DTHR_INC_REGIS_HIADMS >= TO_DATE(:anomes || '01', 'YYYYMMDD')
+          AND DTHR_INC_REGIS_HIADMS < ADD_MONTHS(TO_DATE(:anomes || '01', 'YYYYMMDD'), 1)
+          AND DATA_HORA_FIM_INTRP_ULT_HIADMS IS NOT NULL
+          AND DATA_HORA_INIC_INTRP_ULT_HIADMS IS NOT NULL
+        """
+        
+        try:
+            df_intrp = pd.read_sql(query_interrupcoes, conn, params={"anomes": ANOMES})
+            conn.close()
+        except Exception as e:
+            print(f"Erro ao buscar interrupcoes do Oracle: {e}")
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return 4
         
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes brutas no mes: {len(df_intrp)}")
 

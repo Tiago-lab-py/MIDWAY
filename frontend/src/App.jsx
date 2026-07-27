@@ -7481,7 +7481,7 @@ export default function App() {
 
         {error && <div className="alert">Erro: {error}</div>}
         {actionMessage && <div className="alert alert-success">{actionMessage}</div>}
-        {loading && <div className="alert">Carregando indicadores da API...</div>}
+        {loading && activePage !== 'exportacoes' && <div className="alert">Carregando indicadores da API...</div>}
 
         {pages[activePage] || pages.dashboard}
         {occurrenceDetail && (
