@@ -83,10 +83,11 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                         1 AS FREQUENCIA
                     FROM gold_apuracao_uc
                     WHERE NUM_UC_UCI IS NOT NULL
+                      AND COALESCE(TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), '0') = '0'
                       AND COALESCE(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '') NOT IN ('46', '48')
                       AND COALESCE(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('71', '75')
                 """).df()
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local (filtros COMP 46/48, CAUSA 71/75, Posto/Chave/Acessante): {len(df_intrp)} registros.")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local (apenas apuraveis/sem expurgo): {len(df_intrp)} registros.")
             duck_conn.close()
     except Exception as ex:
         print(f"Aviso ao tentar ler interrupcoes do DuckDB ({ex}). Buscando do Oracle...")
@@ -98,7 +99,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             print(f"Erro ao conectar no Oracle: {e}")
             return 3
 
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando interrupcoes do Oracle (Query Otimizada + Filtros COPEL)...")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando interrupcoes do Oracle (Query Otimizada + Filtros COPEL + Sem Expurgos)...")
         
         query_interrupcoes = """
         SELECT 
@@ -112,6 +113,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
           AND DTHR_INC_REGIS_HIADMS < ADD_MONTHS(TO_DATE(:anomes || '01', 'YYYYMMDD'), 1)
           AND DATA_HORA_FIM_INTRP_ULT_HIADMS IS NOT NULL
           AND DATA_HORA_INIC_INTRP_ULT_HIADMS IS NOT NULL
+          AND COALESCE(TRIM(TIPO_PROTOC_JUSTIF_INTRP_ULT_HIADMS), '0') = '0'
           AND COALESCE(TRIM(COD_COMP_INTRP_ULT_HIADMS), '0') NOT IN ('46', '48')
           AND COALESCE(TRIM(COD_CAUSA_INTRP_ULT_HIADMS), '0') NOT IN ('71', '75')
           AND COALESCE(TRIM(INDIC_PROPR_POSTO_INTRP_PRIM_HIADMS), 'N') <> 'P'
