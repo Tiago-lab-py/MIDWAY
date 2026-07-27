@@ -60,8 +60,6 @@ def criar_gold_ressarcimento_prodist(con):
                 *,
                 CASE
                     WHEN FATURADA = 'S'
-                     AND COALESCE(COMP52, 'N') <> 'S'
-                     AND COALESCE(CAUSA71, 'N') <> 'S'
                      AND COALESCE(VRC, 0) > 0
                      AND COALESCE(META_DIC, 0) > 0
                      AND COALESCE(DIC_BASE_COMPENSACAO, 0) > META_DIC
@@ -70,8 +68,6 @@ def criar_gold_ressarcimento_prodist(con):
                 END AS COMP_DIC_BRUTA_PRODIST,
                 CASE
                     WHEN FATURADA = 'S'
-                     AND COALESCE(COMP52, 'N') <> 'S'
-                     AND COALESCE(CAUSA71, 'N') <> 'S'
                      AND COALESCE(VRC, 0) > 0
                      AND COALESCE(META_FIC, 0) > 0
                      AND COALESCE(META_DIC, 0) > 0
@@ -81,8 +77,6 @@ def criar_gold_ressarcimento_prodist(con):
                 END AS COMP_FIC_BRUTA_PRODIST,
                 CASE
                     WHEN FATURADA = 'S'
-                     AND COALESCE(COMP52, 'N') <> 'S'
-                     AND COALESCE(CAUSA71, 'N') <> 'S'
                      AND COALESCE(VRC, 0) > 0
                      AND COALESCE(META_DMIC, 0) > 0
                      AND COALESCE(DMIC_BASE_COMPENSACAO, 0) > META_DMIC
@@ -91,8 +85,6 @@ def criar_gold_ressarcimento_prodist(con):
                 END AS COMP_DMIC_BRUTA_PRODIST,
                 CASE
                     WHEN FATURADA = 'S'
-                     AND COALESCE(COMP52, 'N') <> 'S'
-                     AND COALESCE(CAUSA71, 'N') <> 'S'
                      AND COALESCE(VRC, 0) > 0
                      AND COALESCE(META_DICRI, 0) > 0
                      AND COALESCE(DICRI_BASE_COMPENSACAO, 0) > META_DICRI
@@ -101,8 +93,6 @@ def criar_gold_ressarcimento_prodist(con):
                 END AS COMP_DICRI_BRUTA_PRODIST,
                 CASE
                     WHEN FATURADA = 'S'
-                     AND COALESCE(COMP52, 'N') <> 'S'
-                     AND COALESCE(CAUSA71, 'N') <> 'S'
                      AND COALESCE(VRC, 0) > 0
                      AND COALESCE(META_DISE, 0) > 0
                      AND COALESCE(DISE_BASE_COMPENSACAO, 0) > META_DISE
