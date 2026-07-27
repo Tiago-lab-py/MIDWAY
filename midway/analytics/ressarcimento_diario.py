@@ -74,7 +74,9 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             duck_conn = duckdb.connect(duck_path, read_only=True)
             tabelas = {row[0] for row in duck_conn.execute("SHOW TABLES").fetchall()}
             if "gold_apuracao_uc" in tabelas:
-                df_intrp = duck_conn.execute("""
+                cols = {r[0].upper() for r in duck_conn.execute("DESCRIBE gold_apuracao_uc").fetchall()}
+                area_filter = "AND COALESCE(TRIM(CAST(COD_AREA_ELET_INTRP AS VARCHAR)), '') NOT IN ('7', '8', '9')" if "COD_AREA_ELET_INTRP" in cols else ""
+                df_intrp = duck_conn.execute(f"""
                     SELECT 
                         NUM_OCORRENCIA_ADMS,
                         CAST(NUM_UC_UCI AS VARCHAR) AS UC,
@@ -88,7 +90,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                       AND (NUM_MOTIVO_TRAT_DIF_UCI IS NULL OR TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)) IN ('', '0', '0.0', 'NONE', 'NULL'))
                       AND COALESCE(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '') NOT IN ('46', '48', '52', '54')
                       AND COALESCE(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('22', '71', '75', '83', '85', '88')
-                      AND COALESCE(TRIM(CAST(COD_AREA_ELET_INTRP AS VARCHAR)), '') NOT IN ('7', '8', '9')
+                      {area_filter}
                       AND COALESCE(TRIM(CAST(ESTADO_INTRP AS VARCHAR)), '') NOT IN ('7')
                 """).df()
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local (filtros COPEL COMP/CAUSA/AREA/ESTADO/PTP): {len(df_intrp)} registros.")

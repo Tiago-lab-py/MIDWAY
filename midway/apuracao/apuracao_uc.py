@@ -87,6 +87,7 @@ def criar_gold_apuracao_uc_base(
             COD_CONJTO_ELET_ANEEL_INTRP,
             COD_CAUSA_INTRP,
             COD_COMP_INTRP,
+            COD_AREA_ELET_INTRP,
             COD_TIPO_INTRP,
             DTHR_INICIO_INTRP_TS AS DATA_HORA_INIC_INTRP,
             DTHR_FIM_INTRP_TS AS DATA_HORA_FIM_INTRP,
