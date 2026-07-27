@@ -64,3 +64,28 @@ def download_arquivo(
         filename=nome_arquivo,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+
+@router.get("/ressarcimento/gerar-e-baixar")
+def gerar_e_baixar_relatorio(user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA"))):
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        # Executa de forma síncrona (otimizada)
+        status_code = gerar_ressarcimento_diario(str(EXPORT_DIR))
+        if status_code != 0:
+            raise HTTPException(status_code=500, detail="A rotina de geração retornou código de erro.")
+            
+        # Localiza o arquivo recém-gerado (mais recente com padrão do mês)
+        from midway.analytics.ressarcimento_diario import ANOMES
+        arquivos = list(EXPORT_DIR.glob(f"Relatorio_Ressarcimento_Preventivo_{ANOMES}_*.xlsx"))
+        if not arquivos:
+            raise HTTPException(status_code=404, detail="Relatório gerado mas o arquivo correspondente não foi encontrado.")
+            
+        ultimo_arquivo = max(arquivos, key=lambda f: f.stat().st_mtime)
+        return FileResponse(
+            path=str(ultimo_arquivo.resolve()),
+            filename=ultimo_arquivo.name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar e baixar o relatório: {e}")

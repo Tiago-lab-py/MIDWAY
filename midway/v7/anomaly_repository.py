@@ -492,7 +492,19 @@ def _summary_from_rows(rows: list[dict[str, object]], source: str) -> dict[str, 
     }
 
 
+import time
+
+_AGG_CACHE = None
+_AGG_CACHE_TIME = 0
+CACHE_TTL = 30  # 30 seconds TTL
+
+
 def _get_module_aggregations() -> dict[str, dict[str, Any]]:
+    global _AGG_CACHE, _AGG_CACHE_TIME
+    now = time.time()
+    if _AGG_CACHE is not None and (now - _AGG_CACHE_TIME) < CACHE_TTL:
+        return _AGG_CACHE
+
     schema = _schema()
     engine = create_postgres_engine()
     with engine.connect() as con:
@@ -514,7 +526,7 @@ def _get_module_aggregations() -> dict[str, dict[str, Any]]:
             )
         ).mappings().all()
         
-        return {
+        aggs = {
             row["codigo_modulo"]: {
                 "total": row["total"],
                 "pendentes": row["pendentes"],
@@ -526,6 +538,10 @@ def _get_module_aggregations() -> dict[str, dict[str, Any]]:
             }
             for row in query_rows
         }
+        
+        _AGG_CACHE = aggs
+        _AGG_CACHE_TIME = now
+        return aggs
 
 def _modules_with_counts(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     aggs = _get_module_aggregations()

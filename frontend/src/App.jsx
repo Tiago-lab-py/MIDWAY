@@ -2150,6 +2150,7 @@ function ExportacoesPage({ token, user }) {
   const [arquivos, setArquivos] = useState([])
   const [loading, setLoading] = useState(false)
   const [gerando, setGerando] = useState(false)
+  const [baixando, setBaixando] = useState(false)
   const [erro, setErro] = useState('')
   const [sucesso, setSucesso] = useState('')
 
@@ -2190,6 +2191,48 @@ function ExportacoesPage({ token, user }) {
       setErro(err.message)
     } finally {
       setGerando(false)
+    }
+  }
+
+  async function handleGerarEBaixar() {
+    try {
+      setBaixando(true)
+      setErro('')
+      setSucesso('')
+      const response = await fetch(`${API_URL}/api/exportacoes/ressarcimento/gerar-e-baixar`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (!response.ok) {
+        const errorDetail = await response.json().catch(() => null)
+        throw new Error(errorDetail?.detail || 'Falha ao processar e baixar o relatório.')
+      }
+      
+      let filename = 'Relatorio_Ressarcimento.xlsx'
+      const disposition = response.headers.get('content-disposition')
+      if (disposition && disposition.includes('attachment')) {
+        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/
+        const matches = filenameRegex.exec(disposition)
+        if (matches != null && matches[1]) { 
+          filename = matches[1].replace(/['"]/g, '')
+        }
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      
+      setSucesso('Relatório gerado e baixado com sucesso!')
+      fetchArquivos()
+    } catch (err) {
+      setErro(err.message)
+    } finally {
+      setBaixando(false)
     }
   }
 
@@ -2244,10 +2287,18 @@ function ExportacoesPage({ token, user }) {
         <div className="form-actions" style={{ marginBottom: '20px' }}>
           <button 
             className="primary-button" 
-            onClick={handleGerar} 
-            disabled={gerando}
+            onClick={handleGerarEBaixar} 
+            disabled={baixando || gerando}
           >
-            {gerando ? 'Iniciando Processamento...' : 'Gerar Novo Relatório de Ressarcimento'}
+            {baixando ? 'Processando e Baixando...' : 'Exportar e Baixar Relatório Atual'}
+          </button>
+          <button 
+            className="secondary-button" 
+            onClick={handleGerar} 
+            disabled={baixando || gerando}
+            style={{ marginLeft: '10px' }}
+          >
+            Iniciar Geração em 2º Plano
           </button>
           <button 
             className="secondary-button" 
