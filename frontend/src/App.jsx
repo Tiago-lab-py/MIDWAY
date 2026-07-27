@@ -9,6 +9,7 @@ const menuItems = [
   { id: 'ocorrencias', label: 'Ocorrências', icon: 'O' },
   { id: 'alteracoes_manuais', label: 'Ajustes Manuais', icon: 'M' },
   { id: 'executivo', label: 'Saída IQS', icon: 'I', profiles: ['GESTOR', 'ADM'] },
+  { id: 'exportacoes', label: 'Exportações', icon: 'E' },
   { id: 'administracao', label: 'Administração', icon: 'G', profiles: ['ADM'] },
 ]
 
@@ -2141,6 +2142,153 @@ function SaidaIqsPage({
         title="Geração do Arquivo para IQS"
         description="Gere somente após aprovação governada das tratativas. O pacote físico deve respeitar layout, encoding, datas e quebras exigidas pelo IQS."
       />
+    </>
+  )
+}
+
+function ExportacoesPage({ token, user }) {
+  const [arquivos, setArquivos] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [gerando, setGerando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [sucesso, setSucesso] = useState('')
+
+  const fetchArquivos = useCallback(async () => {
+    try {
+      setLoading(true)
+      const response = await fetch(`${API_URL}/api/exportacoes/ressarcimento/arquivos`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (!response.ok) throw new Error('Falha ao listar arquivos de relatório.')
+      const data = await response.json()
+      setArquivos(data)
+    } catch (err) {
+      setErro(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => {
+    fetchArquivos()
+  }, [fetchArquivos])
+
+  async function handleGerar() {
+    try {
+      setGerando(true)
+      setErro('')
+      setSucesso('')
+      const response = await fetch(`${API_URL}/api/exportacoes/ressarcimento/gerar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (!response.ok) throw new Error('Falha ao iniciar geração do relatório.')
+      const result = await response.json()
+      setSucesso(result.mensagem || 'Geração iniciada com sucesso. Atualize a lista em alguns instantes.')
+      setTimeout(fetchArquivos, 3000)
+    } catch (err) {
+      setErro(err.message)
+    } finally {
+      setGerando(false)
+    }
+  }
+
+  async function handleDownload(nomeArquivo) {
+    try {
+      const response = await fetch(`${API_URL}/api/exportacoes/ressarcimento/download/${nomeArquivo}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (!response.ok) throw new Error('Falha ao baixar o arquivo.')
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = nomeArquivo
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  return (
+    <>
+      <PageHero
+        title="Relatórios e Exportações"
+        description="Área para geração e download de relatórios consolidados a partir das tabelas Gold e processamento analítico."
+        sideLabel="Perfil"
+        sideValue={user?.perfil}
+      />
+
+      <section className="panel">
+        <div className="panel-title">
+          <div>
+            <h2>Ressarcimento Preventivo (Diário)</h2>
+            <p>Exportação de relatórios com impacto de risco estimado e UCs violadas. Baseado na rotina `run_ressarcimento_diario.bat`.</p>
+          </div>
+        </div>
+
+        {erro && <div className="alert alert-danger">{erro}</div>}
+        {sucesso && <div className="alert alert-success">{sucesso}</div>}
+
+        <div className="form-actions" style={{ marginBottom: '20px' }}>
+          <button 
+            className="primary-button" 
+            onClick={handleGerar} 
+            disabled={gerando}
+          >
+            {gerando ? 'Iniciando Processamento...' : 'Gerar Novo Relatório de Ressarcimento'}
+          </button>
+          <button 
+            className="secondary-button" 
+            onClick={fetchArquivos} 
+            disabled={loading}
+            style={{ marginLeft: '10px' }}
+          >
+            Atualizar Lista
+          </button>
+        </div>
+
+        <h3>Relatórios Gerados</h3>
+        {loading && <div className="loading">Carregando lista de arquivos...</div>}
+        
+        {!loading && arquivos.length === 0 && (
+          <p className="panel-footnote">Nenhum relatório gerado no diretório de saída ainda.</p>
+        )}
+
+        {arquivos.length > 0 && (
+          <DataTable
+            columns={[
+              { key: 'nome', label: 'Nome do Arquivo' },
+              { key: 'tamanho', label: 'Tamanho', render: (item) => formatBytes(item.tamanho) },
+              { key: 'criado_em', label: 'Gerado em', render: (item) => dateTime(item.criado_em) },
+              {
+                key: 'acoes',
+                label: 'Ações',
+                render: (item) => (
+                  <button 
+                    className="mini-button mini-button-success" 
+                    onClick={() => handleDownload(item.nome)}
+                  >
+                    Baixar (.xlsx)
+                  </button>
+                )
+              }
+            ]}
+            rows={arquivos}
+          />
+        )}
+      </section>
     </>
   )
 }
@@ -7229,6 +7377,12 @@ export default function App() {
         token={token}
         onCreateGeracaoIqs={handleCreateGeracaoIqs}
         generatingIqs={generatingIqs}
+      />
+    ),
+    exportacoes: (
+      <ExportacoesPage
+        user={user}
+        token={token}
       />
     ),
     administracao: (

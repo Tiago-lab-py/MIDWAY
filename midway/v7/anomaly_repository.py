@@ -492,18 +492,56 @@ def _summary_from_rows(rows: list[dict[str, object]], source: str) -> dict[str, 
     }
 
 
+def _get_module_aggregations() -> dict[str, dict[str, Any]]:
+    schema = _schema()
+    engine = create_postgres_engine()
+    with engine.connect() as con:
+        query_rows = con.execute(
+            text(
+                f"""
+                SELECT 
+                    codigo_modulo,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status_governanca = 'pendente' THEN 1 ELSE 0 END) as pendentes,
+                    SUM(CASE WHEN status_governanca IN ('alta', 'crítica') THEN 1 ELSE 0 END) as alto_risco,
+                    SUM(COALESCE((evidencias ->> 'impacto_ressarcimento')::numeric, 0)) as impacto_ressarcimento,
+                    SUM(COALESCE((evidencias ->> 'impacto_dec')::numeric, (evidencias ->> 'dec_liquido')::numeric, 0)) as impacto_dec,
+                    SUM(COALESCE((evidencias ->> 'impacto_dic')::numeric, (evidencias ->> 'dic_liquido')::numeric, (evidencias ->> 'duracao_horas')::numeric, (evidencias ->> 'chi_liquido')::numeric, 0)) as impacto_dic,
+                    SUM(COALESCE((evidencias ->> 'impacto_fic')::numeric, (evidencias ->> 'fic_liquido')::numeric, (evidencias ->> 'ci_liquido')::numeric, 0)) as impacto_fic
+                FROM {schema}.midway_propostas_tratamento
+                GROUP BY codigo_modulo
+                """
+            )
+        ).mappings().all()
+        
+        return {
+            row["codigo_modulo"]: {
+                "total": row["total"],
+                "pendentes": row["pendentes"],
+                "alto_risco": row["alto_risco"],
+                "impacto_ressarcimento": round(float(row["impacto_ressarcimento"] or 0), 2),
+                "impacto_dec": round(float(row["impacto_dec"] or 0), 4),
+                "impacto_dic": round(float(row["impacto_dic"] or 0), 4),
+                "impacto_fic": round(float(row["impacto_fic"] or 0), 4)
+            }
+            for row in query_rows
+        }
+
 def _modules_with_counts(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    aggs = _get_module_aggregations()
     modules = []
     for module in ANOMALY_MODULES:
-        module_rows = [row for row in rows if row.get("modulo_codigo") == module["codigo"]]
+        agg = aggs.get(module["codigo"], {})
         modules.append(
             {
                 **module,
-                "total": len(module_rows),
-                "pendentes": sum(1 for row in module_rows if row.get("status") == "pendente"),
-                "alto_risco": sum(1 for row in module_rows if row.get("severidade") in {"alta", "crítica"}),
-                "impacto_ressarcimento": round(sum(float(row.get("impacto_ressarcimento") or 0) for row in module_rows), 2),
-                "impacto_dec": round(sum(float(row.get("impacto_dec") or 0) for row in module_rows), 4),
+                "total": agg.get("total", 0),
+                "pendentes": agg.get("pendentes", 0),
+                "alto_risco": agg.get("alto_risco", 0),
+                "impacto_ressarcimento": agg.get("impacto_ressarcimento", 0.0),
+                "impacto_dec": agg.get("impacto_dec", 0.0),
+                "impacto_dic": agg.get("impacto_dic", 0.0),
+                "impacto_fic": agg.get("impacto_fic", 0.0),
             }
         )
     return modules
@@ -512,6 +550,9 @@ def _modules_with_counts(rows: list[dict[str, object]]) -> list[dict[str, object
 def _module_for(code: str | None, category: str | None) -> dict[str, object]:
     normalized_code = str(code or "").upper()
     normalized_category = str(category or "").lower()
+    for module in ANOMALY_MODULES:
+        if normalized_code == str(module["codigo"]).upper():
+            return module
     for module in ANOMALY_MODULES:
         if normalized_code in {str(item).upper() for item in module["codigos_anomalia"]}:
             return module

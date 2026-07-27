@@ -96,47 +96,62 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes brutas no mes: {len(df_intrp)}")
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando Metas de UC...")
-    # Oracle IQS might not have a simple METAS_UC table like that.
-    # The metas extraction script reads from IQS.METAS_UC or similar. Let's assume we can fetch it, 
-    # but if it fails, we fall back to duckdb if available.
+    df_metas = None
     try:
-        query_metas = """
-        SELECT 
-            ISN_UC AS UC,
-            META_DIC,
-            META_FIC
-        FROM IQS.METAS_UC
-        """
-        df_metas = pd.read_sql(query_metas, conn)
-    except Exception as e:
-        print(f"Metas_UC nao encontrado no oracle: {e}. Lendo do DuckDB Processado...")
+        import duckdb
+        duck_conn = duckdb.connect(f"data/processed/iqs_adms_processed_{ANOMES}.duckdb")
+        df_metas = duck_conn.execute("SELECT ISN_UC AS UC, META_DIC, META_FIC FROM gold_metas_uc").df()
+        duck_conn.close()
+        print("Metas de UC carregadas com sucesso do DuckDB.")
+    except Exception as ex:
+        print(f"Nao foi possivel ler metas do DuckDB ({ex}). Buscando do Oracle...")
         try:
-            import duckdb
-            duck_conn = duckdb.connect(f"data/processed/iqs_adms_processed_{ANOMES}.duckdb")
-            df_metas = duck_conn.execute("SELECT ISN_UC AS UC, META_DIC, META_FIC FROM gold_metas_uc").df()
-            duck_conn.close()
-        except Exception as ex:
-            print(f"Erro ao ler duckdb: {ex}. Prosseguindo sem metas.")
+            query_metas = """
+            SELECT 
+                ISN_UC AS UC,
+                META_DIC,
+                META_FIC
+            FROM IQS.METAS_UC
+            WHERE ISN_UC IN (
+                SELECT DISTINCT NUM_UC_UCI_CHVP_HIADMS
+                FROM IQS.HIST_INTEGRACAO_ADMS
+                WHERE TO_CHAR(DTHR_INC_REGIS_HIADMS, 'yyyymm') = :anomes
+                  AND DATA_HORA_FIM_INTRP_ULT_HIADMS IS NOT NULL
+                  AND DATA_HORA_INIC_INTRP_ULT_HIADMS IS NOT NULL
+            )
+            """
+            df_metas = pd.read_sql(query_metas, conn, params={"anomes": ANOMES})
+        except Exception as e:
+            print(f"Erro ao buscar Metas do Oracle: {e}. Prosseguindo sem metas.")
             df_metas = pd.DataFrame(columns=["UC", "META_DIC", "META_FIC"])
         
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando VRC...")
+    df_vrc = None
     try:
-        query_vrc = """
-        SELECT 
-            ISN_UC AS UC,
-            VRC
-        FROM IQS.VRC_COMPENSACAO
-        """
-        df_vrc = pd.read_sql(query_vrc, conn)
-    except Exception as e:
-        print(f"VRC nao encontrado no oracle: {e}. Lendo do DuckDB Processado...")
+        import duckdb
+        duck_conn = duckdb.connect(f"data/processed/iqs_adms_processed_{ANOMES}.duckdb")
+        df_vrc = duck_conn.execute("SELECT ISN_UC AS UC, VRC FROM gold_vrc").df()
+        duck_conn.close()
+        print("VRC carregado com sucesso do DuckDB.")
+    except Exception as ex:
+        print(f"Nao foi possivel ler VRC do DuckDB ({ex}). Buscando do Oracle...")
         try:
-            import duckdb
-            duck_conn = duckdb.connect(f"data/processed/iqs_adms_processed_{ANOMES}.duckdb")
-            df_vrc = duck_conn.execute("SELECT ISN_UC AS UC, VRC FROM gold_vrc").df()
-            duck_conn.close()
-        except Exception as ex:
-            print(f"Erro ao ler duckdb: {ex}. Prosseguindo sem VRC.")
+            query_vrc = """
+            SELECT 
+                ISN_UC AS UC,
+                VRC
+            FROM IQS.VRC_COMPENSACAO
+            WHERE ISN_UC IN (
+                SELECT DISTINCT NUM_UC_UCI_CHVP_HIADMS
+                FROM IQS.HIST_INTEGRACAO_ADMS
+                WHERE TO_CHAR(DTHR_INC_REGIS_HIADMS, 'yyyymm') = :anomes
+                  AND DATA_HORA_FIM_INTRP_ULT_HIADMS IS NOT NULL
+                  AND DATA_HORA_INIC_INTRP_ULT_HIADMS IS NOT NULL
+            )
+            """
+            df_vrc = pd.read_sql(query_vrc, conn, params={"anomes": ANOMES})
+        except Exception as e:
+            print(f"Erro ao buscar VRC do Oracle: {e}. Prosseguindo sem VRC.")
             df_vrc = pd.DataFrame(columns=["UC", "VRC"])
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Calculando impacto...")
