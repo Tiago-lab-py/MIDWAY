@@ -87,7 +87,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                       AND COALESCE(TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), '0') IN ('0', '0.0', '')
                       AND (NUM_MOTIVO_TRAT_DIF_UCI IS NULL OR TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)) IN ('', '0', '0.0', 'NONE', 'NULL'))
                       AND COALESCE(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '') NOT IN ('46', '48', '52', '54')
-                      AND COALESCE(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('22', '71', '75')
+                      AND COALESCE(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('22', '71', '75', '83', '85', '88')
                       AND COALESCE(TRIM(CAST(COD_AREA_ELET_INTRP AS VARCHAR)), '') NOT IN ('7', '8', '9')
                       AND COALESCE(TRIM(CAST(ESTADO_INTRP AS VARCHAR)), '') NOT IN ('7')
                 """).df()
@@ -120,7 +120,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
           AND (DATA_HORA_FIM_INTRP_ULT_HIADMS - DATA_HORA_INIC_INTRP_ULT_HIADMS) * 24 * 60 >= 3.0
           AND COALESCE(TRIM(TIPO_PROTOC_JUSTIF_INTRP_ULT_HIADMS), '0') = '0'
           AND COALESCE(TRIM(COD_COMP_INTRP_ULT_HIADMS), '0') NOT IN ('46', '48', '52', '54')
-          AND COALESCE(TRIM(COD_CAUSA_INTRP_ULT_HIADMS), '0') NOT IN ('22', '71', '75')
+          AND COALESCE(TRIM(COD_CAUSA_INTRP_ULT_HIADMS), '0') NOT IN ('22', '71', '75', '83', '85', '88')
           AND COALESCE(TRIM(COD_AREA_ELET_INTRP_ULT_HIADMS), '0') NOT IN ('7', '8', '9')
           AND COALESCE(TRIM(ESTADO_INTRP_ULT_HIADMS), '0') NOT IN ('7')
           AND COALESCE(TRIM(INDIC_PROPR_POSTO_INTRP_PRIM_HIADMS), 'N') <> 'P'
