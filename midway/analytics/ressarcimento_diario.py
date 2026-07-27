@@ -76,6 +76,10 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             if "gold_apuracao_uc" in tabelas:
                 cols = {r[0].upper() for r in duck_conn.execute("DESCRIBE gold_apuracao_uc").fetchall()}
                 area_filter = "AND COALESCE(TRIM(CAST(COD_AREA_ELET_INTRP AS VARCHAR)), '') NOT IN ('7', '8', '9')" if "COD_AREA_ELET_INTRP" in cols else ""
+                posto_filter = "AND COALESCE(TRIM(CAST(INDIC_PROPR_POSTO_INTRP AS VARCHAR)), 'N') <> 'P'" if "INDIC_PROPR_POSTO_INTRP" in cols else ""
+                chvp_filter = "AND COALESCE(TRIM(CAST(INDIC_PROPR_CHVP_INTRP AS VARCHAR)), 'N') <> 'P'" if "INDIC_PROPR_CHVP_INTRP" in cols else ""
+                acess_filter = "AND COALESCE(TRIM(CAST(UC_ACESSANTE AS VARCHAR)), 'N') <> 'S'" if "UC_ACESSANTE" in cols else ""
+
                 df_intrp = duck_conn.execute(f"""
                     SELECT 
                         NUM_OCORRENCIA_ADMS,
@@ -91,9 +95,12 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                       AND COALESCE(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '') NOT IN ('46', '48', '52', '54')
                       AND COALESCE(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('22', '71', '75', '83', '85', '88')
                       {area_filter}
+                      {posto_filter}
+                      {chvp_filter}
+                      {acess_filter}
                       AND COALESCE(TRIM(CAST(ESTADO_INTRP AS VARCHAR)), '') NOT IN ('7')
                 """).df()
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local (filtros COPEL COMP/CAUSA/AREA/ESTADO/PTP): {len(df_intrp)} registros.")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local (filtros COPEL COMP/CAUSA/AREA/ESTADO/POSTO_PART/PTP): {len(df_intrp)} registros.")
             duck_conn.close()
     except Exception as ex:
         print(f"Aviso ao tentar ler interrupcoes do DuckDB ({ex}). Buscando do Oracle...")
