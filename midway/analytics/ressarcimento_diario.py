@@ -229,11 +229,11 @@ def gerar_ressarcimento_diario(pasta_destino: str):
         if os.path.exists(duck_path):
             duck_conn = duckdb.connect(duck_path, read_only=True)
             tables = [row[0] for row in duck_conn.execute("SHOW TABLES").fetchall()]
-            target_table = "gold_continuidade_uc" if "gold_continuidade_uc" in tables else "gold_uc_fatura" if "gold_uc_fatura" in tables else None
+            target_table = "gold_vrc" if "gold_vrc" in tables else "gold_consumidores" if "gold_consumidores" in tables else None
             if target_table:
                 cols = [c[1].upper() for c in duck_conn.execute(f"PRAGMA table_info('{target_table}')").fetchall()]
                 uc_col = "UC" if "UC" in cols else "ISN_UC" if "ISN_UC" in cols else "NUM_UC_UCI"
-                urb_col = "URB_RUR" if "URB_RUR" in cols else "TIPO_URB_RUR" if "TIPO_URB_RUR" in cols else "'N/I'"
+                urb_col = "URB_RUR" if "URB_RUR" in cols else "TIPO_URB_RUR" if "TIPO_URB_RUR" in cols else "'U'"
                 grupo_col = "COD_GRUPO_NIVEL_TENSAO_UC" if "COD_GRUPO_NIVEL_TENSAO_UC" in cols else "'N/I'"
                 nivel_col = "COD_NIVEL_TENSAO_UC" if "COD_NIVEL_TENSAO_UC" in cols else "'N/I'"
                 
@@ -273,6 +273,11 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_acumulado['DIC_ACUMULADO'] = df_acumulado['DURACAO_MIN_SUM'] / 60.0
     df_acumulado['DMIC_ACUMULADO'] = df_acumulado['DMIC_MIN_MAX'] / 60.0
     df_acumulado.drop(columns=['DURACAO_MIN_SUM', 'DMIC_MIN_MAX'], inplace=True)
+
+    # Identificar a ocorrência DMIC (aquela que causou a maior duração contínua)
+    idx_dmic = df_intrp.groupby('UC')['DURACAO_MIN'].idxmax()
+    df_dmic_ocor = df_intrp.loc[idx_dmic, ['UC', 'NUM_OCORRENCIA_ADMS']].rename(columns={'NUM_OCORRENCIA_ADMS': 'DMIC_OCORRENCIA'})
+    df_acumulado = df_acumulado.merge(df_dmic_ocor, on='UC', how='left')
 
     # 2. Merge com Metas, VRC e Atributos de UC
     df_analise = df_acumulado.merge(df_metas, on='UC', how='left')
@@ -361,7 +366,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     
     colunas_ordenadas = [
         'UC', 'URB_RUR', 'COD_GRUPO_NIVEL_TENSAO_UC', 'COD_NIVEL_TENSAO_UC',
-        'QTD_OCORRENCIAS', 'DIC_ACUMULADO', 'FIC_ACUMULADO', 'DMIC_ACUMULADO',
+        'QTD_OCORRENCIAS', 'DIC_ACUMULADO', 'FIC_ACUMULADO', 'DMIC_ACUMULADO', 'DMIC_OCORRENCIA',
         'META_DIC', 'META_FIC', 'META_DMIC', 'VRC', 'VIOLOU_DIC', 'VIOLOU_FIC', 'VIOLOU_DMIC',
         'VIOLOU_DICRI', 'VIOLOU_DISE', 'RISCO_R$', 'TOP_3_OCORRENCIAS'
     ]
