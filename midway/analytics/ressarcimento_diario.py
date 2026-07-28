@@ -323,16 +323,24 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_violadas = df_violadas.merge(df_top_ocorrencias, on='UC', how='left')
 
     # 5. Calculo estimado bruto de compensacao (PRODIST: MAX(DIC, FIC, DMIC) + DICRI + DISE)
-    KEI_BT = 34
+    grupo = df_violadas['COD_GRUPO_NIVEL_TENSAO_UC'].astype(str).str.strip().str.upper()
+    nivel = df_violadas['COD_NIVEL_TENSAO_UC'].astype(str).str.strip().str.upper()
+    
+    cond_a_108 = (grupo == 'A') & (nivel.isin(['1', '2', '3']))
+    cond_a_40 = (grupo == 'A') & (nivel.isin(['3A', '4', 'S']))
+    
+    # 34 é o padrão (Grupo B e demais não identificados)
+    df_violadas['KEI'] = np.select([cond_a_108, cond_a_40], [108, 40], default=34)
+
     KEI2_DICRI = 14
     KEI3_DISE = 14
     df_violadas['RISCO_R$'] = 0.0
     df_violadas['COMP_DICRI'] = 0.0
     df_violadas['COMP_DISE'] = 0.0
     
-    comp_dic = np.where(df_violadas['VIOLOU_DIC'], (df_violadas['DIC_ACUMULADO'] * df_violadas['VRC'] / 730.0) * KEI_BT, 0.0)
-    comp_fic = np.where(df_violadas['VIOLOU_FIC'], ((df_violadas['FIC_ACUMULADO'] / df_violadas['META_FIC']) * df_violadas['META_DIC'] * df_violadas['VRC'] / 730.0) * KEI_BT, 0.0)
-    comp_dmic = np.where(df_violadas.get('VIOLOU_DMIC', False), ((df_violadas.get('DMIC_ACUMULADO', 0) / df_violadas.get('META_DMIC', 1)) * df_violadas['VRC'] / 730.0) * KEI_BT, 0.0)
+    comp_dic = np.where(df_violadas['VIOLOU_DIC'], (df_violadas['DIC_ACUMULADO'] * df_violadas['VRC'] / 730.0) * df_violadas['KEI'], 0.0)
+    comp_fic = np.where(df_violadas['VIOLOU_FIC'], ((df_violadas['FIC_ACUMULADO'] / df_violadas['META_FIC']) * df_violadas['META_DIC'] * df_violadas['VRC'] / 730.0) * df_violadas['KEI'], 0.0)
+    comp_dmic = np.where(df_violadas.get('VIOLOU_DMIC', False), ((df_violadas.get('DMIC_ACUMULADO', 0) / df_violadas.get('META_DMIC', 1)) * df_violadas['VRC'] / 730.0) * df_violadas['KEI'], 0.0)
 
     comp_regular_max = np.maximum(comp_dic, np.maximum(comp_fic, comp_dmic))
 
