@@ -99,13 +99,18 @@ def painel_9282(anomes: str | None = None) -> list[dict[str, object]]:
 def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
     db_path = _processed_path(anomes)
     raw_path = _raw_path(anomes)
-    if not db_path.exists():
-        raise HTTPException(status_code=404, detail=f"DuckDB processado não encontrado: {db_path}")
-    if not raw_path.exists():
-        raise HTTPException(status_code=404, detail=f"DuckDB RAW não encontrado: {raw_path}")
+    if not db_path.exists() or not raw_path.exists():
+        return {
+            "anomes": anomes,
+            "denominador_copel": 0,
+            "raw": {"dec_bruto": 0, "fec_bruto": 0, "dec_liquido": 0, "fec_liquido": 0},
+            "pos": {"dec_bruto": 0, "fec_bruto": 0, "dec_liquido": 0, "fec_liquido": 0},
+            "ganho": {"dec_bruto_ganho": 0, "fec_bruto_ganho": 0, "dec_liquido_ganho": 0, "fec_liquido_ganho": 0},
+        }
 
-    with duckdb.connect(str(db_path), read_only=True) as con:
-        con.execute(f"ATTACH {_sql_literal(raw_path)} AS raw_db (READ_ONLY)")
+    try:
+        with duckdb.connect(str(db_path), read_only=True) as con:
+            con.execute(f"ATTACH {_sql_literal(raw_path)} AS raw_db (READ_ONLY)")
         row = con.execute(
             """
             WITH denominador AS (
@@ -409,88 +414,99 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
             """
         ).fetchdf().to_dict(orient="records")
 
-    keys = [
-        "dec_bruto_antes",
-        "fec_bruto_antes",
-        "dec_bruto_depois",
-        "fec_bruto_depois",
-        "dec_liquido_antes",
-        "fec_liquido_antes",
-        "dec_liquido_depois",
-        "fec_liquido_depois",
-        "chi_bruto_antes",
-        "ci_bruto_antes",
-        "chi_bruto_depois",
-        "ci_bruto_depois",
-        "chi_liquido_antes",
-        "ci_liquido_antes",
-        "chi_liquido_depois",
-        "ci_liquido_depois",
-        "ocorrencias_raw",
-        "interrupcoes_raw",
-        "ucs_raw",
-        "linhas_raw",
-        "linhas_bdo",
-        "total_consumidores",
-    ]
-    result = dict(zip(keys, row, strict=True))
-    result["anomes"] = anomes
-    result["metodo"] = "raw_vs_apuracao_previa"
-    result["fonte"] = "raw_db.hiadms_raw vs gold_apuracao_previa"
-    result["premissa"] = (
-        "Antes usa RAW hiadms_raw com ESTADO_INTRP=4, duração >= 3 min e UC faturada. "
-        "Depois usa gold_apuracao_previa após correções de sobreposição e demais tratativas. "
-        "Bruto usa todos os protocolos; líquido usa TIPO_PROTOC_JUSTIF_UCI = 0."
-    )
-    for indicador in ("dec_bruto", "fec_bruto", "dec_liquido", "fec_liquido", "chi_bruto", "ci_bruto", "chi_liquido", "ci_liquido"):
-        antes = float(result.get(f"{indicador}_antes") or 0)
-        depois = float(result.get(f"{indicador}_depois") or 0)
-        result[f"{indicador}_ganho"] = antes - depois
-        result[f"{indicador}_ganho_pct"] = (antes - depois) / antes * 100 if antes else 0
+        keys = [
+            "dec_bruto_antes",
+            "fec_bruto_antes",
+            "dec_bruto_depois",
+            "fec_bruto_depois",
+            "dec_liquido_antes",
+            "fec_liquido_antes",
+            "dec_liquido_depois",
+            "fec_liquido_depois",
+            "chi_bruto_antes",
+            "ci_bruto_antes",
+            "chi_bruto_depois",
+            "ci_bruto_depois",
+            "chi_liquido_antes",
+            "ci_liquido_antes",
+            "chi_liquido_depois",
+            "ci_liquido_depois",
+            "ocorrencias_raw",
+            "interrupcoes_raw",
+            "ucs_raw",
+            "linhas_raw",
+            "linhas_bdo",
+            "total_consumidores",
+        ]
+        result = dict(zip(keys, row, strict=True))
+        result["anomes"] = anomes
+        result["metodo"] = "raw_vs_apuracao_previa"
+        result["fonte"] = "raw_db.hiadms_raw vs gold_apuracao_previa"
+        result["premissa"] = (
+            "Antes usa RAW hiadms_raw com ESTADO_INTRP=4, duração >= 3 min e UC faturada. "
+            "Depois usa gold_apuracao_previa após correções de sobreposição e demais tratativas. "
+            "Bruto usa todos os protocolos; líquido usa TIPO_PROTOC_JUSTIF_UCI = 0."
+        )
+        for indicador in ("dec_bruto", "fec_bruto", "dec_liquido", "fec_liquido", "chi_bruto", "ci_bruto", "chi_liquido", "ci_liquido"):
+            antes = float(result.get(f"{indicador}_antes") or 0)
+            depois = float(result.get(f"{indicador}_depois") or 0)
+            result[f"{indicador}_ganho"] = antes - depois
+            result[f"{indicador}_ganho_pct"] = (antes - depois) / antes * 100 if antes else 0
 
-    result["dec_antes"] = result["dec_bruto_antes"]
-    result["dec_depois"] = result["dec_bruto_depois"]
-    result["dec_ganho"] = result["dec_bruto_ganho"]
-    result["dec_ganho_pct"] = result["dec_bruto_ganho_pct"]
-    result["fec_antes"] = result["fec_bruto_antes"]
-    result["fec_depois"] = result["fec_bruto_depois"]
-    result["fec_ganho"] = result["fec_bruto_ganho"]
-    result["fec_ganho_pct"] = result["fec_bruto_ganho_pct"]
+        result["dec_antes"] = result["dec_bruto_antes"]
+        result["dec_depois"] = result["dec_bruto_depois"]
+        result["dec_ganho"] = result["dec_bruto_ganho"]
+        result["dec_ganho_pct"] = result["dec_bruto_ganho_pct"]
+        result["fec_antes"] = result["fec_bruto_antes"]
+        result["fec_depois"] = result["fec_bruto_depois"]
+        result["fec_ganho"] = result["fec_bruto_ganho"]
+        result["fec_ganho_pct"] = result["fec_bruto_ganho_pct"]
 
-    colunas_ganho = (
-        "dec_bruto_ganho",
-        "fec_bruto_ganho",
-        "dec_liquido_ganho",
-        "fec_liquido_ganho",
-        "chi_bruto_ganho",
-        "ci_bruto_ganho",
-        "chi_liquido_ganho",
-        "ci_liquido_ganho",
-    )
-    tratamentos_fechados = [dict(item) for item in tratamentos]
-    soma_identificada = {
-        coluna: sum(float(item.get(coluna) or 0) for item in tratamentos_fechados)
-        for coluna in colunas_ganho
-    }
-    residual = {
-        "tratamento": "Demais filtros/ajustes da apuração",
-        **{
-            coluna: float(result.get(coluna) or 0) - soma_identificada[coluna]
+        colunas_ganho = (
+            "dec_bruto_ganho",
+            "fec_bruto_ganho",
+            "dec_liquido_ganho",
+            "fec_liquido_ganho",
+            "chi_bruto_ganho",
+            "ci_bruto_ganho",
+            "chi_liquido_ganho",
+            "ci_liquido_ganho",
+        )
+        tratamentos_fechados = [dict(item) for item in tratamentos]
+        soma_identificada = {
+            coluna: sum(float(item.get(coluna) or 0) for item in tratamentos_fechados)
             for coluna in colunas_ganho
-        },
-    }
-    total = {
-        "tratamento": "TOTAL GANHO",
-        **{coluna: float(result.get(coluna) or 0) for coluna in colunas_ganho},
-    }
-    result["tratamentos"] = api_rows([*tratamentos_fechados, residual, total])
-    result["filtros_apuracao"] = api_rows(filtros_apuracao)
-    result["observacao_filtros_apuracao"] = (
-        "Abertura diagnóstica do RAW com duração >= 3 min e ESTADO_INTRP=4. "
-        "Não faturados ficam fora do DEC/FEC oficial; demais filtros ajudam a explicar "
-        "a linha residual, mas não substituem o fechamento validado."
-    )
-    return api_row(result)
+        }
+        residual = {
+            "tratamento": "Demais filtros/ajustes da apuração",
+            **{
+                coluna: float(result.get(coluna) or 0) - soma_identificada[coluna]
+                for coluna in colunas_ganho
+            },
+        }
+        total = {
+            "tratamento": "TOTAL GANHO",
+            **{coluna: float(result.get(coluna) or 0) for coluna in colunas_ganho},
+        }
+        result["tratamentos"] = api_rows([*tratamentos_fechados, residual, total])
+        result["filtros_apuracao"] = api_rows(filtros_apuracao)
+        result["observacao_filtros_apuracao"] = (
+            "Abertura diagnóstica do RAW com duração >= 3 min e ESTADO_INTRP=4. "
+            "Não faturados ficam fora do DEC/FEC oficial; demais filtros ajudam a explicar "
+            "a linha residual, mas não substituem o fechamento validado."
+        )
+        return api_row(result)
+    except Exception as error:
+        return {
+            "anomes": anomes,
+            "denominador_copel": 0,
+            "raw": {"dec_bruto": 0, "fec_bruto": 0, "dec_liquido": 0, "fec_liquido": 0},
+            "pos": {"dec_bruto": 0, "fec_bruto": 0, "dec_liquido": 0, "fec_liquido": 0},
+            "ganho": {"dec_bruto_ganho": 0, "fec_bruto_ganho": 0, "dec_liquido_ganho": 0, "fec_liquido_ganho": 0},
+            "tratamentos": [],
+            "filtros_apuracao": [],
+            "erro": str(error),
+        }
 
 
 @router.get("/ajustes-auto")

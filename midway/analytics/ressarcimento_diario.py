@@ -158,7 +158,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
         duck_path = f"data/processed/iqs_adms_processed_{ANOMES}.duckdb"
         if os.path.exists(duck_path):
             duck_conn = duckdb.connect(duck_path, read_only=True)
-            df_metas = duck_conn.execute("SELECT CAST(ISN_UC AS BIGINT)::VARCHAR AS UC, META_DIC, META_FIC FROM gold_metas_uc WHERE ISN_UC IS NOT NULL").df()
+            df_metas = duck_conn.execute("SELECT CAST(ISN_UC AS BIGINT)::VARCHAR AS UC, META_DIC, META_FIC, META_DMIC FROM gold_metas_uc WHERE ISN_UC IS NOT NULL").df()
             duck_conn.close()
             print("Metas de UC carregadas com sucesso do DuckDB.")
     except Exception as ex:
@@ -170,7 +170,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             SELECT 
                 CAST(ISN_UC AS VARCHAR2(50)) AS UC,
                 META_DIC,
-                META_FIC
+                META_FIC,
+                META_DMIC
             FROM IQS.METAS_UC
             WHERE ISN_UC IN (
                 SELECT DISTINCT NUM_UC_UCI_CHVP_HIADMS
@@ -184,7 +185,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             df_metas = pd.read_sql(query_metas, conn, params={"anomes": ANOMES})
         except Exception as e:
             print(f"Erro ao buscar Metas do Oracle: {e}. Prosseguindo sem metas.")
-            df_metas = pd.DataFrame(columns=["UC", "META_DIC", "META_FIC"])
+            df_metas = pd.DataFrame(columns=["UC", "META_DIC", "META_FIC", "META_DMIC"])
         
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando VRC...")
     df_vrc = None
@@ -220,6 +221,38 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             print(f"Erro ao buscar VRC do Oracle: {e}. Prosseguindo sem VRC.")
             df_vrc = pd.DataFrame(columns=["UC", "VRC"])
 
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Buscando atributos de tipo/tensão de UC...")
+    df_atributos_uc = None
+    try:
+        import duckdb
+        duck_path = f"data/processed/iqs_adms_processed_{ANOMES}.duckdb"
+        if os.path.exists(duck_path):
+            duck_conn = duckdb.connect(duck_path, read_only=True)
+            tables = [row[0] for row in duck_conn.execute("SHOW TABLES").fetchall()]
+            target_table = "gold_continuidade_uc" if "gold_continuidade_uc" in tables else "gold_uc_fatura" if "gold_uc_fatura" in tables else None
+            if target_table:
+                cols = [c[1].upper() for c in duck_conn.execute(f"PRAGMA table_info('{target_table}')").fetchall()]
+                uc_col = "UC" if "UC" in cols else "ISN_UC" if "ISN_UC" in cols else "NUM_UC_UCI"
+                urb_col = "URB_RUR" if "URB_RUR" in cols else "TIPO_URB_RUR" if "TIPO_URB_RUR" in cols else "'N/I'"
+                grupo_col = "COD_GRUPO_NIVEL_TENSAO_UC" if "COD_GRUPO_NIVEL_TENSAO_UC" in cols else "'N/I'"
+                nivel_col = "COD_NIVEL_TENSAO_UC" if "COD_NIVEL_TENSAO_UC" in cols else "'N/I'"
+                
+                df_atributos_uc = duck_conn.execute(f"""
+                    SELECT DISTINCT
+                        CAST({uc_col} AS BIGINT)::VARCHAR AS UC,
+                        CAST({urb_col} AS VARCHAR) AS URB_RUR,
+                        CAST({grupo_col} AS VARCHAR) AS COD_GRUPO_NIVEL_TENSAO_UC,
+                        CAST({nivel_col} AS VARCHAR) AS COD_NIVEL_TENSAO_UC
+                    FROM {target_table}
+                    WHERE {uc_col} IS NOT NULL
+                """).df()
+            duck_conn.close()
+    except Exception as ex:
+        print(f"Nao foi possivel ler atributos de UC do DuckDB ({ex}).")
+
+    if df_atributos_uc is None or df_atributos_uc.empty:
+        df_atributos_uc = pd.DataFrame(columns=["UC", "URB_RUR", "COD_GRUPO_NIVEL_TENSAO_UC", "COD_NIVEL_TENSAO_UC"])
+
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Calculando impacto...")
     
     def clean_uc(series):
@@ -228,31 +261,41 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_intrp['UC'] = clean_uc(df_intrp['UC'])
     df_metas['UC'] = clean_uc(df_metas['UC'])
     df_vrc['UC'] = clean_uc(df_vrc['UC'])
+    df_atributos_uc['UC'] = clean_uc(df_atributos_uc['UC'])
 
     # 1. Agregação Vetorizada C-Level do Pandas
     df_acumulado = df_intrp.groupby('UC', as_index=False).agg(
         QTD_OCORRENCIAS=('NUM_OCORRENCIA_ADMS', 'nunique'),
         DURACAO_MIN_SUM=('DURACAO_MIN', 'sum'),
+        DMIC_MIN_MAX=('DURACAO_MIN', 'max'),
         FIC_ACUMULADO=('FREQUENCIA', 'sum')
     )
     df_acumulado['DIC_ACUMULADO'] = df_acumulado['DURACAO_MIN_SUM'] / 60.0
-    df_acumulado.drop(columns=['DURACAO_MIN_SUM'], inplace=True)
+    df_acumulado['DMIC_ACUMULADO'] = df_acumulado['DMIC_MIN_MAX'] / 60.0
+    df_acumulado.drop(columns=['DURACAO_MIN_SUM', 'DMIC_MIN_MAX'], inplace=True)
 
-    # 2. Merge com Metas e VRC
+    # 2. Merge com Metas, VRC e Atributos de UC
     df_analise = df_acumulado.merge(df_metas, on='UC', how='left')
     df_analise = df_analise.merge(df_vrc, on='UC', how='left')
+    df_analise = df_analise.merge(df_atributos_uc, on='UC', how='left')
+
+    df_analise['URB_RUR'] = np.where(df_analise['URB_RUR'].astype(str).str.upper().str.strip() == 'R', 'R', 'U')
+    df_analise['COD_GRUPO_NIVEL_TENSAO_UC'] = df_analise['COD_GRUPO_NIVEL_TENSAO_UC'].fillna('N/I')
+    df_analise['COD_NIVEL_TENSAO_UC'] = df_analise['COD_NIVEL_TENSAO_UC'].fillna('N/I')
 
     df_analise['META_DIC'] = pd.to_numeric(df_analise['META_DIC'], errors='coerce').fillna(9999)
     df_analise['META_FIC'] = pd.to_numeric(df_analise['META_FIC'], errors='coerce').fillna(9999)
+    df_analise['META_DMIC'] = pd.to_numeric(df_analise['META_DMIC'], errors='coerce').fillna(9999)
     df_analise['VRC'] = pd.to_numeric(df_analise['VRC'], errors='coerce').fillna(0)
 
     # 3. Identificando violacoes
     df_analise['VIOLOU_DIC'] = df_analise['DIC_ACUMULADO'] > df_analise['META_DIC']
     df_analise['VIOLOU_FIC'] = df_analise['FIC_ACUMULADO'] > df_analise['META_FIC']
+    df_analise['VIOLOU_DMIC'] = df_analise['DMIC_ACUMULADO'] > df_analise['META_DMIC']
     df_analise['VIOLOU_DICRI'] = (df_analise['DICRI_ACUMULADO'] > df_analise['META_DICRI']) if ('META_DICRI' in df_analise.columns and 'DICRI_ACUMULADO' in df_analise.columns) else False
     df_analise['VIOLOU_DISE'] = (df_analise['DISE_ACUMULADO'] > df_analise['META_DISE']) if ('META_DISE' in df_analise.columns and 'DISE_ACUMULADO' in df_analise.columns) else False
     
-    df_violadas = df_analise[df_analise['VIOLOU_DIC'] | df_analise['VIOLOU_FIC'] | df_analise['VIOLOU_DICRI'] | df_analise['VIOLOU_DISE']].copy()
+    df_violadas = df_analise[df_analise['VIOLOU_DIC'] | df_analise['VIOLOU_FIC'] | df_analise['VIOLOU_DMIC'] | df_analise['VIOLOU_DICRI'] | df_analise['VIOLOU_DISE']].copy()
     
     if df_violadas.empty:
         print("Nenhuma UC violou metas de forma estrita. Exportando top UCs com maior impacto...")
@@ -317,8 +360,9 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Gerando Excel em {arquivo_saida}...")
     
     colunas_ordenadas = [
-        'UC', 'QTD_OCORRENCIAS', 'DIC_ACUMULADO', 'FIC_ACUMULADO', 
-        'META_DIC', 'META_FIC', 'VRC', 'VIOLOU_DIC', 'VIOLOU_FIC', 
+        'UC', 'URB_RUR', 'COD_GRUPO_NIVEL_TENSAO_UC', 'COD_NIVEL_TENSAO_UC',
+        'QTD_OCORRENCIAS', 'DIC_ACUMULADO', 'FIC_ACUMULADO', 'DMIC_ACUMULADO',
+        'META_DIC', 'META_FIC', 'META_DMIC', 'VRC', 'VIOLOU_DIC', 'VIOLOU_FIC', 'VIOLOU_DMIC',
         'VIOLOU_DICRI', 'VIOLOU_DISE', 'RISCO_R$', 'TOP_3_OCORRENCIAS'
     ]
     cols_existentes = [c for c in colunas_ordenadas if c in df_violadas.columns]
