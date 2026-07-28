@@ -3502,43 +3502,136 @@ function normalizeQueueItem(item) {
 }
 
 function FilaTable({ fila, onOpenOccurrence }) {
+  const exportCSV = () => {
+    if (!fila || fila.length === 0) return
+    const headers = [
+      'Regional', 'Conjunto', 'UC', 'Ocorrencia', 'Problema Suspeito no Registro',
+      'Qtd. Reclamacoes', 'Severidade', 'CHI Liquido (h)', 'Ressarcimento (R$)',
+      'Duracao Max (h)', 'CI Liq.'
+    ]
+    const csvRows = [headers.join(';')]
+
+    fila.forEach(row => {
+      const line = [
+        `"${row.regional || row.sigla_regional || ''}"`,
+        `"${row.conjunto || row.cod_conjto_elet_aneel_intrp || ''}"`,
+        `"${row.uc || row.num_uc_uci || ''}"`,
+        `"${row.num_ocorrencia_adms || row.ocorrencia || ''}"`,
+        `"${String(row.diagnostico_provavel || row.fonte_sugestao || row.nome || '').replace(/"/g, '""')}"`,
+        row.qtd_reclamacoes || row.qtd_reclamacoes_vinculadas || 0,
+        `"${row.prioridade || row.severidade || ''}"`,
+        (row.chi_liquido || row.impacto_chi_liquido || 0).toFixed(2).replace('.', ','),
+        (row.ressarcimento_estimado || row.impacto_ressarc || 0).toFixed(2).replace('.', ','),
+        (row.duracao_max_hora || row.duracao_horas || row.impacto_duracao_maxima || 0).toFixed(2).replace('.', ','),
+        row.ci_liquido || row.qtd_ucs || 0
+      ]
+      csvRows.push(line.join(';'))
+    })
+
+    const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `fila_tecnica_ocorrencias_${new Date().toISOString().slice(0, 10)}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const columns = [
+    { key: 'regional', label: 'Regional', render: (item) => item.regional || item.sigla_regional || '—' },
+    { key: 'conjunto', label: 'Conjunto', render: (item) => item.conjunto || item.cod_conjto_elet_aneel_intrp || '—' },
+    { key: 'uc', label: 'UC', render: (item) => item.uc || item.num_uc_uci || '—' },
+    {
+      key: 'num_ocorrencia_adms',
+      label: 'Ocorrência',
+      render: (item) => (
+        <button className="link-button" onClick={() => onOpenOccurrence(item.num_ocorrencia_adms || item.ocorrencia)}>
+          {item.num_ocorrencia_adms || item.ocorrencia || '—'}
+        </button>
+      ),
+    },
+    { 
+      key: 'diagnostico_provavel', 
+      label: 'Problema Suspeito no Registro',
+      render: (item) => item.diagnostico_provavel || item.fonte_sugestao || item.nome || '—'
+    },
+    { 
+      key: 'qtd_reclamacoes', 
+      label: 'Qtd. Reclamações', 
+      render: (item) => {
+        const val = item.qtd_reclamacoes ?? item.qtd_reclamacoes_vinculadas ?? 0
+        return <strong style={{ color: val > 0 ? '#1890ff' : '#8c8c8c' }}>{numberFormat(val)}</strong>
+      } 
+    },
+    { key: 'prioridade', label: 'Severidade', render: (item) => item.prioridade || item.severidade || '—' },
+    { 
+      key: 'chi_liquido', 
+      label: 'CHI Líquido (h)', 
+      render: (item) => {
+        const val = item.chi_liquido ?? item.impacto_chi_liquido ?? 0
+        return <strong style={{ color: val > 50 ? '#ff4d4f' : 'inherit' }}>{decimalFormat(val, 2)}</strong>
+      } 
+    },
+    { 
+      key: 'ressarcimento', 
+      label: 'Ressarcimento (R$)', 
+      render: (item) => {
+        const val = item.ressarcimento_estimado ?? item.impacto_ressarc ?? item.ressarcimento ?? 0
+        return <strong style={{ color: val > 0 ? '#ff4d4f' : '#52c41a' }}>{currencyFormat(val)}</strong>
+      } 
+    },
+    { 
+      key: 'duracao_maxima', 
+      label: 'Duração Máx. (h)', 
+      render: (item) => {
+        const val = item.duracao_max_hora ?? item.duracao_horas ?? item.impacto_duracao_maxima ?? 0
+        return `${decimalFormat(val, 2)} h`
+      } 
+    },
+    { 
+      key: 'ci_liquido', 
+      label: 'Quant. UC', 
+      render: (item) => {
+        const val = item.ci_liquido ?? item.qtd_ucs ?? 0
+        return numberFormat(val)
+      } 
+    },
+    {
+      key: 'acoes',
+      label: 'Ação',
+      render: (item) => (
+        <button 
+          className="btn btn-sm btn-primary"
+          onClick={() => onOpenOccurrence(item.num_ocorrencia_adms || item.ocorrencia)}
+          style={{ whiteSpace: 'nowrap' }}
+        >
+          Investigar / Corrigir
+        </button>
+      ),
+    },
+  ]
+
   return (
-    <DataTable
-      sortable
-      initialSort={{ key: 'score_impacto', direction: 'desc' }}
-      columns={[
-        { key: 'score_impacto', label: 'Impacto', render: (item) => decimalFormat(item.score_impacto, 0) },
-        { key: 'prioridade', label: 'Prioridade' },
-        { key: 'num_seq_intrp', label: 'Interrupção' },
-        {
-          key: 'num_ocorrencia_adms',
-          label: 'Ocorrência',
-          render: (item) => (
-            <button className="link-button" onClick={() => onOpenOccurrence(item.num_ocorrencia_adms)}>
-              {item.num_ocorrencia_adms || '—'}
-            </button>
-          ),
-        },
-        { key: 'fonte_sugestao', label: 'Fonte' },
-        { key: 'nivel_evidencia', label: 'Evidência' },
-        {
-          key: 'diagnostico_provavel',
-          label: 'Diagnóstico',
-          render: (item) => <span className="pill pill-info">{item.diagnostico_provavel}</span>,
-        },
-        {
-          key: 'sugestao',
-          label: 'Sugestão',
-          render: (item) => `${item.cod_comp_sugerido || '—'}/${item.cod_causa_sugerida || '—'}`,
-        },
-        {
-          key: 'status_fila',
-          label: 'Status',
-          render: (item) => <span className="pill">{item.status_fila}</span>,
-        },
-      ]}
-      rows={fila}
-    />
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
+        <button 
+          className="btn btn-sm btn-success" 
+          onClick={exportCSV} 
+          disabled={!fila || fila.length === 0}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+        >
+          <span>📥 Baixar Tabela (CSV)</span>
+        </button>
+      </div>
+      <DataTable
+        sortable
+        initialSort={{ key: 'score_impacto', direction: 'desc' }}
+        columns={columns}
+        rows={fila}
+      />
+    </div>
   )
 }
 
@@ -3726,7 +3819,7 @@ function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
         
         const processedData = json.map(row => {
           let impactoDec = 0, impactoDic = 0, impactoFec = 0, impactoFic = 0, impactoRessarc = 0, impactoDuracaoMaxima = 0
-          let impactoChiLiquido = 0, impactoCiLiquido = 0, impactoChiBruto = 0, impactoCiBruto = 0
+          let impactoChiLiquido = 0, impactoCiLiquido = 0, impactoChiBruto = 0, impactoCiBruto = 0, qtdReclamacoes = 0
           if (row.impacto) {
             try {
               const imp = typeof row.impacto === 'string' ? JSON.parse(row.impacto) : row.impacto
@@ -3744,6 +3837,14 @@ function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
               }
             } catch (e) {}
           }
+          if (row.dados_originais) {
+            try {
+              const orig = typeof row.dados_originais === 'string' ? JSON.parse(row.dados_originais) : row.dados_originais
+              if (orig && orig.qtd_reclamacoes !== undefined) {
+                qtdReclamacoes = Number(orig.qtd_reclamacoes) || 0
+              }
+            } catch (e) {}
+          }
           return {
             ...row,
             impacto_dec: impactoDec,
@@ -3756,6 +3857,7 @@ function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
             impacto_ci_liquido: impactoCiLiquido,
             impacto_chi_bruto: impactoChiBruto,
             impacto_ci_bruto: impactoCiBruto,
+            qtd_reclamacoes: qtdReclamacoes,
           }
         })
 
@@ -3777,6 +3879,7 @@ function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
     if (problemaFiltro === 'chi' && (row.impacto_chi_liquido || 0) <= 0) return false
     if (problemaFiltro === 'ressarcimento' && (row.impacto_ressarc || 0) <= 0) return false
     if (problemaFiltro === 'duracao' && (row.impacto_duracao_maxima || 0) < 24) return false
+    if (problemaFiltro === 'reclamacao' && row.anomalia_codigo !== 'BAIXA_RECLAMACAO_ALTO_IMPACTO' && (row.impacto_ci_liquido || 0) < 100) return false
 
     if (!filter) return true
     const term = filter.toLowerCase()
@@ -3795,6 +3898,43 @@ function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
   const totalRessarcimento = filteredData.reduce((acc, r) => acc + (r.impacto_ressarc || 0), 0)
   const maiorDuracao = Math.max(0, ...filteredData.map(r => r.impacto_duracao_maxima || 0))
 
+  const exportCSV = () => {
+    if (!filteredData || filteredData.length === 0) return
+    const headers = [
+      'Regional', 'Conjunto', 'UC', 'Ocorrencia', 'Problema Suspeito no Registro',
+      'Qtd. Reclamacoes', 'Severidade', 'CHI Liquido (h)', 'Ressarcimento (R$)',
+      'Duracao Max (h)', 'Quant. UC'
+    ]
+    const csvRows = [headers.join(';')]
+
+    filteredData.forEach(row => {
+      const line = [
+        `"${row.regional || ''}"`,
+        `"${row.conjunto || ''}"`,
+        `"${row.uc || ''}"`,
+        `"${row.ocorrencia || ''}"`,
+        `"${String(row.nome || '').replace(/"/g, '""')}"`,
+        row.qtd_reclamacoes || 0,
+        `"${row.severidade || ''}"`,
+        (row.impacto_chi_liquido || 0).toFixed(2).replace('.', ','),
+        (row.impacto_ressarc || 0).toFixed(2).replace('.', ','),
+        (row.impacto_duracao_maxima || 0).toFixed(2).replace('.', ','),
+        row.impacto_ci_liquido || 0
+      ]
+      csvRows.push(line.join(';'))
+    })
+
+    const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `outliers_alto_impacto_${new Date().toISOString().slice(0, 10)}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   const columns = [
     { key: 'regional', label: 'Regional' },
     { key: 'conjunto', label: 'Conjunto' },
@@ -3812,13 +3952,13 @@ function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
         </button>
       )
     },
-    { key: 'anomalia_codigo', label: 'Cód. Anomalia' },
     { key: 'nome', label: 'Problema Suspeito no Registro' },
+    { key: 'qtd_reclamacoes', label: 'Qtd. Reclamações', render: (item) => <strong style={{ color: item.qtd_reclamacoes > 0 ? '#1890ff' : '#8c8c8c' }}>{numberFormat(item.qtd_reclamacoes || 0)}</strong> },
     { key: 'severidade', label: 'Severidade' },
     { key: 'impacto_chi_liquido', label: 'CHI Líquido (h)', render: (item) => <strong style={{ color: item.impacto_chi_liquido > 50 ? '#ff4d4f' : 'inherit' }}>{decimalFormat(item.impacto_chi_liquido, 2)}</strong> },
     { key: 'impacto_ressarc', label: 'Ressarcimento (R$)', render: (item) => <strong style={{ color: item.impacto_ressarc > 0 ? '#ff4d4f' : '#52c41a' }}>{currencyFormat(item.impacto_ressarc)}</strong> },
     { key: 'impacto_duracao_maxima', label: 'Duração Máx. (h)', render: (item) => `${decimalFormat(item.impacto_duracao_maxima, 2)} h` },
-    { key: 'impacto_ci_liquido', label: 'CI Líq.', render: (item) => numberFormat(item.impacto_ci_liquido) },
+    { key: 'impacto_ci_liquido', label: 'Quant. UC', render: (item) => numberFormat(item.impacto_ci_liquido) },
     { 
       key: 'acoes', 
       label: 'Ação', 
@@ -3868,6 +4008,7 @@ function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
           <div className="button-group" style={{ display: 'flex', gap: '0.25rem' }}>
             <button className={`btn btn-sm ${problemaFiltro === 'todos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setProblemaFiltro('todos')}>Todos</button>
             <button className={`btn btn-sm ${problemaFiltro === 'chi' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setProblemaFiltro('chi')}>CHI Inflado</button>
+            <button className={`btn btn-sm ${problemaFiltro === 'reclamacao' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setProblemaFiltro('reclamacao')}>Baixa Reclamação</button>
             <button className={`btn btn-sm ${problemaFiltro === 'ressarcimento' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setProblemaFiltro('ressarcimento')}>Ressarcimento R$</button>
             <button className={`btn btn-sm ${problemaFiltro === 'duracao' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setProblemaFiltro('duracao')}>Duração &gt; 24h</button>
           </div>
@@ -3878,6 +4019,14 @@ function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
             onChange={e => setFilter(e.target.value)} 
             style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #333', background: '#111', color: '#fff' }}
           />
+          <button 
+            className="btn btn-sm btn-success" 
+            onClick={exportCSV} 
+            disabled={!filteredData || filteredData.length === 0}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+          >
+            <span>📥 Baixar Tabela (CSV)</span>
+          </button>
         </div>
       </div>
 
@@ -5511,32 +5660,34 @@ function GovernancaPage({
             <div className="panel-title">
               <div>
                 <h2>Fila de Execuções</h2>
-                <p>Status dos lotes executados pelo backend.</p>
+                <p>Status dos lotes executados pelo backend (últimos 20 registros).</p>
               </div>
             </div>
-            <DataTable
-              columns={[
-                { key: 'tipo_lote', label: 'Tipo' },
-                { key: 'anomes', label: 'ANOMES' },
-                { key: 'status_lote', label: 'Status', render: (item) => <StatusPill value={item.status_lote} /> },
-                { key: 'criado_por', label: 'Solicitado por' },
-                { key: 'iniciado_em', label: 'Início', render: (item) => dateTime(item.iniciado_em) },
-                { key: 'finalizado_em', label: 'Fim', render: (item) => dateTime(item.finalizado_em) },
-                { key: 'mensagem', label: 'Mensagem', render: (item) => String(item.mensagem || '—').slice(0, 180) },
-                ...(isAdmin ? [{
-                  key: 'acoes',
-                  label: 'Ações',
-                  render: (item) => (
-                    ['ABERTO', 'PROCESSANDO'].includes(String(item.status_lote || '').toUpperCase()) ? (
-                      <button className="mini-button mini-button-danger" disabled={savingGovernanca} onClick={() => cancelarExecucao(item.id_lote)}>
-                        Cancelar
-                      </button>
-                    ) : '—'
-                  ),
-                }] : []),
-              ]}
-              rows={execucoes}
-            />
+            <div style={{ maxHeight: '450px', overflowY: 'auto' }}>
+              <DataTable
+                columns={[
+                  { key: 'tipo_lote', label: 'Tipo' },
+                  { key: 'anomes', label: 'ANOMES' },
+                  { key: 'status_lote', label: 'Status', render: (item) => <StatusPill value={item.status_lote} /> },
+                  { key: 'criado_por', label: 'Solicitado por' },
+                  { key: 'iniciado_em', label: 'Início', render: (item) => dateTime(item.iniciado_em) },
+                  { key: 'finalizado_em', label: 'Fim', render: (item) => dateTime(item.finalizado_em) },
+                  { key: 'mensagem', label: 'Mensagem', render: (item) => String(item.mensagem || '—').slice(0, 180) },
+                  ...(isAdmin ? [{
+                    key: 'acoes',
+                    label: 'Ações',
+                    render: (item) => (
+                      ['ABERTO', 'PROCESSANDO'].includes(String(item.status_lote || '').toUpperCase()) ? (
+                        <button className="mini-button mini-button-danger" disabled={savingGovernanca} onClick={() => cancelarExecucao(item.id_lote)}>
+                          Cancelar
+                        </button>
+                      ) : '—'
+                    ),
+                  }] : []),
+                ]}
+                rows={(execucoes || []).slice(0, 20)}
+              />
+            </div>
           </article>
         </section>
       </>

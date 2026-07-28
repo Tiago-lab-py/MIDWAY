@@ -39,6 +39,18 @@ ANOMALY_MODULES: list[dict[str, object]] = [
         "categorias": ["integridade"],
     },
     {
+        "codigo": "BAIXA_RECLAMACAO",
+        "nome": "Baixa Reclamação x Alto Impacto",
+        "descricao": "Ocorrências de grande abrangência de UCs ou CHI elevado sem reclamações proporcionais de consumidores.",
+        "escopo": "ocorrência/interrupção",
+        "criterio_curto": "Qtd. UCs >= 100 ou CHI >= 30h com 0 ou pouquíssimas reclamações (< 1%)",
+        "impacto": ["CHI", "DEC/FEC", "qualidade"],
+        "orientacao_analista": "Verificar no ADMS se a manobra foi sobrestimada ou se houve erro cadastral no lote de UCs atingidas.",
+        "documento": "docs/modulos/baixa_reclamacao.md",
+        "codigos_anomalia": ["BAIXA_RECLAMACAO_ALTO_IMPACTO"],
+        "categorias": ["integridade"],
+    },
+    {
         "codigo": "COMPONENTE_CAUSA",
         "nome": "Componente/causa",
         "descricao": "Divergência de grupo, componente e causa frente à referência IQS, serviços e reclamações.",
@@ -199,6 +211,10 @@ def list_outliers_raw(limit: int = 500) -> list[dict[str, object]]:
                     dados_sugeridos, impacto, linha_tempo, criado_por, criado_em, 
                     atualizado_por, atualizado_em
                 FROM {schema}.midway_anomalia
+                ORDER BY
+                    COALESCE(CAST(impacto->>'chi_liquido' AS NUMERIC), 0) DESC,
+                    COALESCE(CAST(impacto->>'duracao_maxima' AS NUMERIC), 0) DESC,
+                    atualizado_em DESC
                 LIMIT :limit
                 """
             ),

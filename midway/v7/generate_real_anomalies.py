@@ -56,31 +56,66 @@ def _collect_duckdb_anomalies(processed_path: Path) -> list[dict[str, object]]:
             anomalies.extend(_estado_7_anomalies(con))
         if "gold_analise_tecnica_impacto_base" in tables:
             anomalies.extend(_technical_impact_anomalies(con))
+        if "gold_interrupcao_tratada" in tables:
+            anomalies.extend(_low_complaint_high_impact_anomalies(con))
     return anomalies
 
 
 def _outlier_anomalies(con: duckdb.DuckDBPyConnection) -> list[dict[str, object]]:
+    tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
+    has_silver = "silver_interrupcao_tratada" in tables
+    has_ressarc = "gold_ressarcimento_prodist" in tables
+    has_vrc = "gold_vrc" in tables
+
+    vrc_join = ("LEFT JOIN gold_ressarcimento_prodist r ON CAST(r.UC AS VARCHAR) = CAST(s.NUM_UC_UCI AS VARCHAR)\n" if has_ressarc else "") + \
+               ("LEFT JOIN gold_vrc v ON CAST(v.ISN_UC AS VARCHAR) = CAST(s.NUM_UC_UCI AS VARCHAR)\n" if has_vrc else "")
+
+    ressarc_expr = "COALESCE(r.COMP_TOTAL_PRODIST, 0)" if has_ressarc else "0"
+    vrc_expr = "COALESCE(v.VRC, 0)" if has_vrc else "0"
+
+    if has_ressarc or has_vrc:
+        uc_expr = f"ARGMAX(CAST(s.NUM_UC_UCI AS VARCHAR), ({ressarc_expr}) * 1000000.0 + ({vrc_expr}))"
+    else:
+        uc_expr = "FIRST(CAST(s.NUM_UC_UCI AS VARCHAR))"
+
+    join_sql = f"""
+        LEFT JOIN (
+            SELECT
+                CAST(s.NUM_SEQ_INTRP AS VARCHAR) AS NUM_SEQ_INTRP,
+                FIRST(s.SIGLA_REGIONAL) AS SIGLA_REGIONAL,
+                FIRST(s.COD_CONJTO_ELET_ANEEL_INTRP) AS COD_CONJTO_ELET_ANEEL_INTRP,
+                {uc_expr} AS NUM_UC_UCI
+            FROM silver_interrupcao_tratada s
+            {vrc_join}
+            GROUP BY CAST(s.NUM_SEQ_INTRP AS VARCHAR)
+        ) s ON s.NUM_SEQ_INTRP = CAST(a.NUM_SEQ_INTRP AS VARCHAR)
+    """ if has_silver else ""
+    select_fields = """
+            a.NUM_OCORRENCIA_ADMS,
+            a.NUM_SEQ_INTRP,
+            a.DATA_HORA_INIC_INTRP,
+            a.DATA_HORA_FIM_INTRP,
+            a.COD_CAUSA_INTRP,
+            a.COD_COMP_INTRP,
+            a.COD_TIPO_INTRP,
+            a.TIPO_PROTOC_JUSTIF_UCI,
+            a.NUM_PROTOC_JUSTIF_RESP_UCI,
+            a.QTD_UCS,
+            a.DURACAO_HORAS,
+            a.QTD_INTRP_CONTIDAS,
+            a.QTD_UCS_AFETADAS,
+            """ + ("s.SIGLA_REGIONAL AS REGIONAL, s.COD_CONJTO_ELET_ANEEL_INTRP AS CONJUNTO, s.NUM_UC_UCI AS UC" if has_silver else "NULL AS REGIONAL, NULL AS CONJUNTO, NULL AS UC")
+
     rows = con.execute(
-        """
+        f"""
         SELECT
-            NUM_OCORRENCIA_ADMS,
-            NUM_SEQ_INTRP,
-            DATA_HORA_INIC_INTRP,
-            DATA_HORA_FIM_INTRP,
-            COD_CAUSA_INTRP,
-            COD_COMP_INTRP,
-            COD_TIPO_INTRP,
-            TIPO_PROTOC_JUSTIF_UCI,
-            NUM_PROTOC_JUSTIF_RESP_UCI,
-            QTD_UCS,
-            DURACAO_HORAS,
-            QTD_INTRP_CONTIDAS,
-            QTD_UCS_AFETADAS
-        FROM auditoria_outliers_bruto
+            {select_fields}
+        FROM auditoria_outliers_bruto a
+        {join_sql}
         ORDER BY
-            COALESCE(DURACAO_HORAS, 0) DESC,
-            COALESCE(QTD_UCS, 0) DESC,
-            COALESCE(QTD_UCS_AFETADAS, 0) DESC
+            COALESCE(a.DURACAO_HORAS, 0) DESC,
+            COALESCE(a.QTD_UCS, 0) DESC,
+            COALESCE(a.QTD_UCS_AFETADAS, 0) DESC
         LIMIT ?
         """,
         [PAGE_LIMIT_PER_RULE],
@@ -99,9 +134,9 @@ def _outlier_anomalies(con: duckdb.DuckDBPyConnection) -> list[dict[str, object]
                 origin="RAW/SILVER",
                 occurrence=row.get("NUM_OCORRENCIA_ADMS"),
                 interruption=row.get("NUM_SEQ_INTRP"),
-                regional=None,
-                uc=None,
-                equipment=None,
+                regional=row.get("REGIONAL"),
+                uc=row.get("UC"),
+                equipment=row.get("CONJUNTO"),
                 description="Registro real sinalizado pela auditoria preventiva do RAW.",
                 simple=(
                     "O registro veio do RAW e foi sinalizado por duração, quantidade de UCs, "
@@ -357,17 +392,48 @@ def _estado_7_anomalies(con: duckdb.DuckDBPyConnection) -> list[dict[str, object
 
 
 def _technical_impact_anomalies(con: duckdb.DuckDBPyConnection) -> list[dict[str, object]]:
+    tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
+    has_silver = "silver_interrupcao_tratada" in tables
+    has_ressarc = "gold_ressarcimento_prodist" in tables
+    has_vrc = "gold_vrc" in tables
+
+    vrc_join = ("LEFT JOIN gold_ressarcimento_prodist r ON CAST(r.UC AS VARCHAR) = CAST(s.NUM_UC_UCI AS VARCHAR)\n" if has_ressarc else "") + \
+               ("LEFT JOIN gold_vrc v ON CAST(v.ISN_UC AS VARCHAR) = CAST(s.NUM_UC_UCI AS VARCHAR)\n" if has_vrc else "")
+
+    ressarc_expr = "COALESCE(r.COMP_TOTAL_PRODIST, 0)" if has_ressarc else "0"
+    vrc_expr = "COALESCE(v.VRC, 0)" if has_vrc else "0"
+
+    if has_ressarc or has_vrc:
+        uc_expr = f"ARGMAX(CAST(s.NUM_UC_UCI AS VARCHAR), ({ressarc_expr}) * 1000000.0 + ({vrc_expr}))"
+    else:
+        uc_expr = "FIRST(CAST(s.NUM_UC_UCI AS VARCHAR))"
+
+    join_sql = f"""
+        LEFT JOIN (
+            SELECT
+                CAST(s.NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
+                FIRST(s.SIGLA_REGIONAL) AS SIGLA_REGIONAL,
+                FIRST(s.COD_CONJTO_ELET_ANEEL_INTRP) AS COD_CONJTO_ELET_ANEEL_INTRP,
+                {uc_expr} AS NUM_UC_UCI
+            FROM silver_interrupcao_tratada s
+            {vrc_join}
+            GROUP BY CAST(s.NUM_OCORRENCIA_ADMS AS VARCHAR)
+        ) s ON s.NUM_OCORRENCIA_ADMS = CAST(b.NUM_OCORRENCIA_ADMS AS VARCHAR)
+    """ if has_silver else ""
+    select_fields = "b.*, " + ("s.SIGLA_REGIONAL AS REGIONAL, s.COD_CONJTO_ELET_ANEEL_INTRP AS CONJUNTO, s.NUM_UC_UCI AS UC" if has_silver else "NULL AS REGIONAL, NULL AS CONJUNTO, NULL AS UC")
+
     rows = con.execute(
-        """
-        SELECT *
-        FROM gold_analise_tecnica_impacto_base
-        WHERE COALESCE(QTD_VIOLACAO_COMP_CAUSA, 0) > 0
-           OR COALESCE(TEM_9282, 0) = 1
-           OR COALESCE(RESSARCIMENTO_ESTIMADO, 0) > 0
+        f"""
+        SELECT {select_fields}
+        FROM gold_analise_tecnica_impacto_base b
+        {join_sql}
+        WHERE COALESCE(b.QTD_VIOLACAO_COMP_CAUSA, 0) > 0
+           OR COALESCE(b.TEM_9282, 0) = 1
+           OR COALESCE(b.RESSARCIMENTO_ESTIMADO, 0) > 0
         ORDER BY
-            COALESCE(RESSARCIMENTO_ESTIMADO, 0) DESC,
-            COALESCE(CHI_LIQUIDO, 0) DESC,
-            COALESCE(QTD_RECLAMACOES, 0) DESC
+            COALESCE(b.RESSARCIMENTO_ESTIMADO, 0) DESC,
+            COALESCE(b.CHI_LIQUIDO, 0) DESC,
+            COALESCE(b.QTD_RECLAMACOES, 0) DESC
         LIMIT ?
         """,
         [PAGE_LIMIT_PER_RULE],
@@ -387,9 +453,9 @@ def _technical_impact_anomalies(con: duckdb.DuckDBPyConnection) -> list[dict[str
                 origin="GOLD",
                 occurrence=row.get("NUM_OCORRENCIA_ADMS"),
                 interruption=None,
-                regional=None,
-                uc=None,
-                equipment=None,
+                regional=row.get("REGIONAL"),
+                uc=row.get("UC"),
+                equipment=row.get("CONJUNTO"),
                 description="Ocorrência real priorizada por impacto técnico, reclamação, ressarcimento ou causa/componente.",
                 simple="A ocorrência tem impacto técnico relevante e pode exigir correção antes do envio final ao IQS.",
                 technical="Fonte: gold_analise_tecnica_impacto_base materializada a partir de GOLD, reclamações e ressarcimento.",
@@ -432,6 +498,176 @@ def _technical_impact_anomalies(con: duckdb.DuckDBPyConnection) -> list[dict[str
             )
         )
     return anomalies
+
+
+def _low_complaint_high_impact_anomalies(con: duckdb.DuckDBPyConnection) -> list[dict[str, object]]:
+    tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
+    if "gold_interrupcao_tratada" not in tables:
+        return []
+
+    has_ressarc = "gold_ressarcimento_prodist" in tables
+    has_vrc = "gold_vrc" in tables
+
+    vrc_join = ("LEFT JOIN gold_ressarcimento_prodist r ON CAST(r.UC AS VARCHAR) = CAST(i.NUM_UC_UCI AS VARCHAR)\n" if has_ressarc else "") + \
+               ("LEFT JOIN gold_vrc v ON CAST(v.ISN_UC AS VARCHAR) = CAST(i.NUM_UC_UCI AS VARCHAR)\n" if has_vrc else "")
+
+    ressarc_expr = "COALESCE(r.COMP_TOTAL_PRODIST, 0)" if has_ressarc else "0"
+    vrc_expr = "COALESCE(v.VRC, 0)" if has_vrc else "0"
+
+    if has_ressarc or has_vrc:
+        uc_expr = f"ARGMAX(CAST(i.NUM_UC_UCI AS VARCHAR), ({ressarc_expr}) * 1000000.0 + ({vrc_expr}))"
+    else:
+        uc_expr = "FIRST(CAST(i.NUM_UC_UCI AS VARCHAR))"
+
+    has_rec = "gold_reclamacao_ocorrencia_resumo" in tables
+    rec_join = """
+        LEFT JOIN (
+            SELECT
+                TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                SUM(COALESCE(QTD_RECLAMACOES, 0)) AS QTD_RECLAMACOES
+            FROM gold_reclamacao_ocorrencia_resumo
+            WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+            GROUP BY 1
+        ) r ON r.NUM_OCORRENCIA_ADMS = i.NUM_OCORRENCIA_ADMS
+    """ if has_rec else ""
+    rec_select = "COALESCE(r.QTD_RECLAMACOES, 0) AS QTD_RECLAMACOES" if has_rec else "0 AS QTD_RECLAMACOES"
+
+    query = f"""
+        WITH interrupcoes AS (
+            SELECT
+                TRIM(CAST(i.NUM_SEQ_INTRP AS VARCHAR)) AS NUM_SEQ_INTRP,
+                MAX(TRIM(CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR))) AS NUM_OCORRENCIA_ADMS,
+                MAX(TRIM(CAST(i.SIGLA_REGIONAL AS VARCHAR))) AS SIGLA_REGIONAL,
+                MAX(TRIM(CAST(i.COD_CONJTO_ELET_ANEEL_INTRP AS VARCHAR))) AS COD_CONJTO_ELET_ANEEL_INTRP,
+                {uc_expr} AS NUM_UC_UCI,
+                MIN(i.DTHR_INICIO_INTRP_UC) AS DATA_HORA_INIC_INTRP,
+                MAX(i.DATA_HORA_FIM_INTRP) AS DATA_HORA_FIM_INTRP,
+                COUNT(DISTINCT NULLIF(TRIM(CAST(i.NUM_UC_UCI AS VARCHAR)), '')) AS QTD_UCS,
+                MAX(COALESCE(DATE_DIFF('second', i.DTHR_INICIO_INTRP_UC, i.DATA_HORA_FIM_INTRP)/3600.0, 0)) AS DURACAO_HORAS,
+                SUM(COALESCE(DATE_DIFF('second', i.DTHR_INICIO_INTRP_UC, i.DATA_HORA_FIM_INTRP)/3600.0, 0)) AS CHI_LIQUIDO
+            FROM gold_interrupcao_tratada i
+            {vrc_join}
+            WHERE NULLIF(TRIM(CAST(i.NUM_SEQ_INTRP AS VARCHAR)), '') IS NOT NULL
+              AND i.DATA_HORA_FIM_INTRP IS NOT NULL
+              AND i.DTHR_INICIO_INTRP_UC IS NOT NULL
+            GROUP BY 1
+            HAVING COUNT(DISTINCT NULLIF(TRIM(CAST(i.NUM_UC_UCI AS VARCHAR)), '')) >= 100
+                OR SUM(COALESCE(DATE_DIFF('second', i.DTHR_INICIO_INTRP_UC, i.DATA_HORA_FIM_INTRP)/3600.0, 0)) >= 30.0
+        )
+        SELECT
+            i.NUM_OCORRENCIA_ADMS,
+            i.NUM_SEQ_INTRP,
+            i.SIGLA_REGIONAL AS REGIONAL,
+            i.COD_CONJTO_ELET_ANEEL_INTRP AS CONJUNTO,
+            i.NUM_UC_UCI AS UC,
+            i.DATA_HORA_INIC_INTRP,
+            i.DATA_HORA_FIM_INTRP,
+            i.QTD_UCS,
+            i.DURACAO_HORAS,
+            i.CHI_LIQUIDO,
+            {rec_select}
+        FROM interrupcoes i
+        {rec_join}
+        WHERE COALESCE(r.QTD_RECLAMACOES, 0) = 0
+           OR (COALESCE(r.QTD_RECLAMACOES, 0) * 100.0 / NULLIF(i.QTD_UCS, 0)) < 1.0
+        ORDER BY i.CHI_LIQUIDO DESC, i.QTD_UCS DESC
+        LIMIT ?
+    """
+    rows = con.execute(query, [PAGE_LIMIT_PER_RULE]).fetchdf().to_dict(orient="records")
+    anomalies = []
+    for row in rows:
+        qtd_ucs = int(row.get("QTD_UCS") or 0)
+        chi = float(row.get("CHI_LIQUIDO") or 0)
+        qtd_rec = int(row.get("QTD_RECLAMACOES") or 0)
+        duracao = float(row.get("DURACAO_HORAS") or 0)
+
+        anomalies.append(
+            _anomaly(
+                key=f"BAIXA_RECLAMACAO:{row['NUM_SEQ_INTRP']}",
+                code="BAIXA_RECLAMACAO_ALTO_IMPACTO",
+                name="Baixa reclamação para alto volume de UCs afetadas / CHI",
+                category="integridade",
+                severity="alta" if qtd_ucs >= 500 or chi >= 100 else "média",
+                confidence=0.88,
+                status="PENDENTE",
+                origin="GOLD",
+                occurrence=row.get("NUM_OCORRENCIA_ADMS"),
+                interruption=row.get("NUM_SEQ_INTRP"),
+                regional=row.get("REGIONAL"),
+                uc=row.get("UC"),
+                equipment=row.get("CONJUNTO"),
+                description=f"Ocorrência afetou {qtd_ucs} UCs ({round(chi, 2)}h CHI), porém registrou apenas {qtd_rec} reclamação(ões).",
+                simple=(
+                    f"Ocorrência de grande porte ({qtd_ucs} UCs afetadas, {round(chi, 1)}h CHI) "
+                    f"com apenas {qtd_rec} reclamação(ões) de consumidor registradas. Suspeita de manobra sobrestimada no ADMS."
+                ),
+                technical=(
+                    "Cruzamento entre gold_interrupcao_tratada e gold_reclamacao_ocorrencia_resumo. "
+                    "Identifica eventos de grande impacto com taxa de reclamação de consumidor < 1% ou nula."
+                ),
+                rule="baixa_reclamacao_alto_impacto",
+                impact_text="Volume elevado de UCs/CHI pode estar inflando o DEC/FEC por sobreposição ou erro de abrangência no ADMS.",
+                fields=["QTD_UCS", "CHI_LIQUIDO", "QTD_RECLAMACOES"],
+                original={
+                    "qtd_ucs": qtd_ucs,
+                    "chi_liquido": chi,
+                    "qtd_reclamacoes": qtd_rec,
+                    "duracao_horas": duracao,
+                },
+                suggested={
+                    "acao": "revisar_abrangencia_manobra_adms",
+                    "status": "revisão operacional",
+                    "origem_correcao": "analise_reclamacoes_x_ucs",
+                },
+                impact={
+                    "dic": duracao * 60,
+                    "fic": 0,
+                    "dec": 0,
+                    "fec": 0,
+                    "ressarcimento": 0,
+                    "duracao_maxima": duracao,
+                    "chi_liquido": chi,
+                    "ci_liquido": qtd_ucs,
+                    "chi_bruto": chi,
+                    "ci_bruto": qtd_ucs,
+                },
+                evidence=[
+                    ("QTD_UCS", qtd_ucs, "gold_interrupcao_tratada"),
+                    ("CHI_LIQUIDO", round(chi, 2), "gold_interrupcao_tratada"),
+                    ("QTD_RECLAMACOES", qtd_rec, "gold_reclamacao_ocorrencia_resumo"),
+                ],
+                suggestion_action="revisar_abrangencia_adms",
+                suggestion_original=f"{qtd_ucs} UCs / {qtd_rec} reclamações",
+                suggestion_value="Verificar no ADMS se a chave operada realmente desligou esse contingente de UCs",
+                suggestion_reason="Desproporção entre consumidores afetados e chamados de falta de energia registrados no canal de atendimento.",
+            )
+        )
+    return anomalies
+
+
+def _map_regional(val: object) -> str | None:
+    if val is None or val == "":
+        return None
+    s = str(val).strip().upper()
+    if s in ("", "NONE", "NAN", "<NA>", "NULL"):
+        return None
+    mapping = {
+        "V": "CEL",
+        "OES": "CEL",
+        "CEL": "CEL",
+        "C": "LES",
+        "LES": "LES",
+        "P": "PGO",
+        "CSL": "PGO",
+        "PGO": "PGO",
+        "M": "MGA",
+        "NRO": "MGA",
+        "MGA": "MGA",
+        "L": "LNA",
+        "NRT": "LNA",
+        "LNA": "LNA",
+    }
+    return mapping.get(s, s)
 
 
 def _anomaly(
@@ -477,8 +713,8 @@ def _anomaly(
         "confianca": confidence,
         "status_anomalia": status,
         "origem": origin,
-        "regional": _str_or_none(regional),
-        "conjunto": None,
+        "regional": _map_regional(regional),
+        "conjunto": _str_or_none(equipment),
         "equipamento": _str_or_none(equipment),
         "uc": _str_or_none(uc),
         "ocorrencia": _str_or_none(occurrence),
@@ -556,7 +792,11 @@ def _upsert_anomaly(pg, schema: str, anomaly: dict[str, object], anomes: str) ->
             ON CONFLICT (id_anomalia) DO UPDATE
             SET
                 status_anomalia = EXCLUDED.status_anomalia,
+                severidade = EXCLUDED.severidade,
                 confianca = EXCLUDED.confianca,
+                regional = EXCLUDED.regional,
+                conjunto = EXCLUDED.conjunto,
+                uc = EXCLUDED.uc,
                 descricao = EXCLUDED.descricao,
                 explicacao_simples = EXCLUDED.explicacao_simples,
                 explicacao_tecnica = EXCLUDED.explicacao_tecnica,
