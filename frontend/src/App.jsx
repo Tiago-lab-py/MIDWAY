@@ -3464,7 +3464,9 @@ function FilaTable({ fila, onOpenOccurrence }) {
       'QTD_SERVICOS',
       'QTD_RECLAMACOES',
       'CHI_LIQUIDO',
-      'RESSARCIMENTO',
+      'RESSARCIMENTO_TOTAL',
+      'COMP_DICRI',
+      'COMP_DISE',
       'DURACAO_MAXIMA',
       'QUANT_UC',
     ]
@@ -3482,6 +3484,8 @@ function FilaTable({ fila, onOpenOccurrence }) {
         row.qtd_reclamacoes ?? 0,
         (row.chi_liquido || 0).toFixed(2).replace('.', ','),
         (row.ressarcimento || 0).toFixed(2).replace('.', ','),
+        (row.comp_dicri || 0).toFixed(2).replace('.', ','),
+        (row.comp_dise || 0).toFixed(2).replace('.', ','),
         (row.duracao_maxima || 0).toFixed(2).replace('.', ','),
         row.quant_uc || 0,
       ]

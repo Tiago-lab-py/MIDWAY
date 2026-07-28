@@ -62,27 +62,37 @@ def list_pos_operacao_queue(limit: int = 10000) -> list[dict[str, object]]:
                 reclamacao_select = "COALESCE(rec.QTD_RECLAMACOES, 0) AS QTD_RECLAMACOES,"
 
             prodist_join = ""
-            prodist_select = "0 AS RESSARCIMENTO,"
+            prodist_select = "0 AS RESSARCIMENTO, 0 AS COMP_DICRI, 0 AS COMP_DISE,"
             if has_prodist:
                 prodist_cols = [c[1].upper() for c in con.execute("PRAGMA table_info('gold_ressarcimento_prodist')").fetchall()]
                 has_comp_detail = all(col in prodist_cols for col in ["COMP_DIC", "COMP_FIC", "COMP_DMIC", "COMP_DICRI", "COMP_DISE"])
                 
                 if has_comp_detail:
                     ressarc_calc = "GREATEST(COALESCE(r.COMP_DIC, 0), COALESCE(r.COMP_FIC, 0), COALESCE(r.COMP_DMIC, 0)) + COALESCE(r.COMP_DICRI, 0) + COALESCE(r.COMP_DISE, 0)"
+                    dicri_calc = "COALESCE(r.COMP_DICRI, 0)"
+                    dise_calc = "COALESCE(r.COMP_DISE, 0)"
+                elif "COMP_DICRI_PRODIST" in prodist_cols and "COMP_DISE_PRODIST" in prodist_cols:
+                    ressarc_calc = "COALESCE(r.COMP_TOTAL_PRODIST, 0)"
+                    dicri_calc = "COALESCE(r.COMP_DICRI_PRODIST, 0)"
+                    dise_calc = "COALESCE(r.COMP_DISE_PRODIST, 0)"
                 else:
                     ressarc_calc = "COALESCE(r.COMP_TOTAL_PRODIST, 0)"
+                    dicri_calc = "0"
+                    dise_calc = "0"
 
                 prodist_join = f"""
                 LEFT JOIN (
                     SELECT
                         TRIM(CAST(r.NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
-                        SUM({ressarc_calc}) AS RESSARCIMENTO
+                        SUM({ressarc_calc}) AS RESSARCIMENTO,
+                        SUM({dicri_calc}) AS COMP_DICRI,
+                        SUM({dise_calc}) AS COMP_DISE
                     FROM gold_ressarcimento_prodist r
                     WHERE NULLIF(TRIM(CAST(r.NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
                     GROUP BY 1
                 ) res ON res.NUM_OCORRENCIA_ADMS = b.NUM_OCORRENCIA_ADMS
                 """
-                prodist_select = "COALESCE(res.RESSARCIMENTO, 0) AS RESSARCIMENTO,"
+                prodist_select = "COALESCE(res.RESSARCIMENTO, 0) AS RESSARCIMENTO, COALESCE(res.COMP_DICRI, 0) AS COMP_DICRI, COALESCE(res.COMP_DISE, 0) AS COMP_DISE,"
 
             cols_interrupcao = [c[1].upper() for c in con.execute("PRAGMA table_info('gold_interrupcao_tratada')").fetchall()]
             has_pos_col = "VALID_POS_OPERACAO" in cols_interrupcao
