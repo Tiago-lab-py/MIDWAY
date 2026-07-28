@@ -134,6 +134,11 @@ def _outlier_anomalies(con: duckdb.DuckDBPyConnection) -> list[dict[str, object]
                     "dec": 0,
                     "fec": 0,
                     "ressarcimento": 0,
+                    "duracao_maxima": float(row.get("DURACAO_HORAS") or 0),
+                    "chi_liquido": float(row.get("DURACAO_HORAS") or 0) * float(row.get("QTD_UCS") or 0),
+                    "ci_liquido": float(row.get("QTD_UCS") or 0),
+                    "chi_bruto": float(row.get("DURACAO_HORAS") or 0) * float(row.get("QTD_UCS") or 0),
+                    "ci_bruto": float(row.get("QTD_UCS") or 0),
                 },
                 evidence=[
                     ("DURACAO_HORAS", row.get("DURACAO_HORAS"), "auditoria_outliers_bruto"),

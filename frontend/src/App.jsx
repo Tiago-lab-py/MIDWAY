@@ -3707,9 +3707,10 @@ function AjustesPage({ ajustes, resumo, onOpenOccurrence, embedded = false }) {
   )
 }
 
-function OutlierAnomaliaPanel({ token }) {
+function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
   const [data, setData] = useState([])
   const [filter, setFilter] = useState('')
+  const [problemaFiltro, setProblemaFiltro] = useState('todos')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -3757,6 +3758,8 @@ function OutlierAnomaliaPanel({ token }) {
             impacto_ci_bruto: impactoCiBruto,
           }
         })
+
+        processedData.sort((a, b) => (b.impacto_chi_liquido || 0) - (a.impacto_chi_liquido || 0) || (b.impacto_ressarc || 0) - (a.impacto_ressarc || 0))
         setData(processedData)
       } catch (err) {
         setError(err.message)
@@ -3767,10 +3770,14 @@ function OutlierAnomaliaPanel({ token }) {
     load()
   }, [token])
 
-  if (loading) return <div className="alert">Carregando outliers...</div>
+  if (loading) return <div className="alert">Carregando outliers de alto impacto...</div>
   if (error) return <div className="alert alert-danger">{error}</div>
 
   const filteredData = data.filter(row => {
+    if (problemaFiltro === 'chi' && (row.impacto_chi_liquido || 0) <= 0) return false
+    if (problemaFiltro === 'ressarcimento' && (row.impacto_ressarc || 0) <= 0) return false
+    if (problemaFiltro === 'duracao' && (row.impacto_duracao_maxima || 0) < 24) return false
+
     if (!filter) return true
     const term = filter.toLowerCase()
     return (
@@ -3779,53 +3786,107 @@ function OutlierAnomaliaPanel({ token }) {
       String(row.uc || '').toLowerCase().includes(term) ||
       String(row.ocorrencia || '').toLowerCase().includes(term) ||
       String(row.anomalia_codigo || '').toLowerCase().includes(term) ||
-      String(row.nome || '').toLowerCase().includes(term)
+      String(row.nome || '').toLowerCase().includes(term) ||
+      String(row.descricao || '').toLowerCase().includes(term)
     )
   })
+
+  const totalChiLiquido = filteredData.reduce((acc, r) => acc + (r.impacto_chi_liquido || 0), 0)
+  const totalRessarcimento = filteredData.reduce((acc, r) => acc + (r.impacto_ressarc || 0), 0)
+  const maiorDuracao = Math.max(0, ...filteredData.map(r => r.impacto_duracao_maxima || 0))
 
   const columns = [
     { key: 'regional', label: 'Regional' },
     { key: 'conjunto', label: 'Conjunto' },
     { key: 'uc', label: 'UC' },
-    { key: 'ocorrencia', label: 'Ocorrência' },
-    { key: 'interrupcao', label: 'Interrupção' },
+    { 
+      key: 'ocorrencia', 
+      label: 'Ocorrência',
+      render: (item) => (
+        <button 
+          className="link-button" 
+          onClick={() => item.ocorrencia && onOpenOccurrence && onOpenOccurrence(item.ocorrencia)}
+          title="Clique para abrir detalhe da ocorrência"
+        >
+          {item.ocorrencia || '-'}
+        </button>
+      )
+    },
     { key: 'anomalia_codigo', label: 'Cód. Anomalia' },
-    { key: 'nome', label: 'Nome Anomalia' },
-    { key: 'categoria', label: 'Categoria' },
+    { key: 'nome', label: 'Problema Suspeito no Registro' },
     { key: 'severidade', label: 'Severidade' },
-    { key: 'status_anomalia', label: 'Status' },
-    { key: 'impacto_duracao_maxima', label: 'Duração Máx.', render: (item) => `${decimalFormat(item.impacto_duracao_maxima, 2)} h` },
-    { key: 'impacto_chi_liquido', label: 'CHI Liq.', render: (item) => decimalFormat(item.impacto_chi_liquido, 2) },
-    { key: 'impacto_ci_liquido', label: 'CI Liq.', render: (item) => numberFormat(item.impacto_ci_liquido) },
-    { key: 'impacto_chi_bruto', label: 'CHI Bruto', render: (item) => decimalFormat(item.impacto_chi_bruto, 2) },
-    { key: 'impacto_ci_bruto', label: 'CI Bruto', render: (item) => numberFormat(item.impacto_ci_bruto) },
-    { key: 'impacto_ressarc', label: 'Ressarc.', render: (item) => currencyFormat(item.impacto_ressarc) },
-    { key: 'criado_em', label: 'Criado Em', render: (item) => dateTime(item.criado_em) },
+    { key: 'impacto_chi_liquido', label: 'CHI Líquido (h)', render: (item) => <strong style={{ color: item.impacto_chi_liquido > 50 ? '#ff4d4f' : 'inherit' }}>{decimalFormat(item.impacto_chi_liquido, 2)}</strong> },
+    { key: 'impacto_ressarc', label: 'Ressarcimento (R$)', render: (item) => <strong style={{ color: item.impacto_ressarc > 0 ? '#ff4d4f' : '#52c41a' }}>{currencyFormat(item.impacto_ressarc)}</strong> },
+    { key: 'impacto_duracao_maxima', label: 'Duração Máx. (h)', render: (item) => `${decimalFormat(item.impacto_duracao_maxima, 2)} h` },
+    { key: 'impacto_ci_liquido', label: 'CI Líq.', render: (item) => numberFormat(item.impacto_ci_liquido) },
+    { 
+      key: 'acoes', 
+      label: 'Ação', 
+      render: (item) => (
+        <button 
+          className="btn btn-sm btn-primary"
+          onClick={() => item.ocorrencia && onOpenOccurrence && onOpenOccurrence(item.ocorrencia)}
+          style={{ whiteSpace: 'nowrap' }}
+        >
+          Investigar / Corrigir
+        </button>
+      ) 
+    },
   ]
 
   return (
     <div className="panel">
-      <div className="panel-title" style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h2>Outliers</h2>
-          <p>Visão limpa das anomalias com os impactos extraídos ({filteredData.length} registros exibidos).</p>
+      <div className="metrics-grid" style={{ marginBottom: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+        <div className="metric-card highlight">
+          <label>Total CHI Líquido Afetado</label>
+          <div className="value">{decimalFormat(totalChiLiquido, 2)} h</div>
+          <small>Soma de horas de interrupção x cons. nos outliers</small>
         </div>
+        <div className="metric-card warning">
+          <label>Total Ressarcimento em Risco</label>
+          <div className="value">{currencyFormat(totalRessarcimento)}</div>
+          <small>Risco financeiro acumulado para correção</small>
+        </div>
+        <div className="metric-card">
+          <label>Outliers com Problema Suspeito</label>
+          <div className="value">{numberFormat(filteredData.length)}</div>
+          <small>Registros pendentes de auditoria</small>
+        </div>
+        <div className="metric-card">
+          <label>Maior Duração Suspeita</label>
+          <div className="value">{decimalFormat(maiorDuracao, 1)} h</div>
+          <small>Pico máximo de duração nos registros</small>
+        </div>
+      </div>
+
+      <div className="panel-title" style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <div>
+          <h2>Outliers de Alto Impacto (Foco em CHI & Ressarcimento R$)</h2>
+          <p>Visão priorizada de ocorrências e registros com anomalias suspeitas pendentes de correção.</p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="button-group" style={{ display: 'flex', gap: '0.25rem' }}>
+            <button className={`btn btn-sm ${problemaFiltro === 'todos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setProblemaFiltro('todos')}>Todos</button>
+            <button className={`btn btn-sm ${problemaFiltro === 'chi' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setProblemaFiltro('chi')}>CHI Inflado</button>
+            <button className={`btn btn-sm ${problemaFiltro === 'ressarcimento' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setProblemaFiltro('ressarcimento')}>Ressarcimento R$</button>
+            <button className={`btn btn-sm ${problemaFiltro === 'duracao' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setProblemaFiltro('duracao')}>Duração &gt; 24h</button>
+          </div>
           <input 
             type="search" 
-            placeholder="Filtrar anomalias..." 
+            placeholder="Filtrar por UC, ocorrência ou anomalia..." 
             value={filter} 
             onChange={e => setFilter(e.target.value)} 
-            style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+            style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #333', background: '#111', color: '#fff' }}
           />
         </div>
       </div>
+
       <DataTable
         columns={columns}
         rows={filteredData}
         sortable
-        initialSort={{ key: 'criado_em', direction: 'desc' }}
-        empty="Nenhum outlier encontrado com este filtro."
+        initialSort={{ key: 'impacto_chi_liquido', direction: 'desc' }}
+        empty="Nenhum outlier com problema suspeito encontrado para os filtros selecionados."
       />
     </div>
   )
@@ -4214,7 +4275,7 @@ function OcorrenciasPage({
           <FilaPage fila={fila} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
         )}
         {activeOccurrenceTab === 'outlier' && (
-          <OutlierAnomaliaPanel token={token} />
+          <OutlierAnomaliaPanel token={token} onOpenOccurrence={onOpenOccurrence} />
         )}
         {activeOccurrenceTab === 'gold' && (
           <GoldExplorerPanel anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
