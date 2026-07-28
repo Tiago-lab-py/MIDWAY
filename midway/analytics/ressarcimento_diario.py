@@ -1,6 +1,7 @@
 import os
 import sys
 import pandas as pd
+import numpy as np
 import oracledb
 from datetime import datetime
 from dotenv import load_dotenv
@@ -248,8 +249,10 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     # 3. Identificando violacoes
     df_analise['VIOLOU_DIC'] = df_analise['DIC_ACUMULADO'] > df_analise['META_DIC']
     df_analise['VIOLOU_FIC'] = df_analise['FIC_ACUMULADO'] > df_analise['META_FIC']
+    df_analise['VIOLOU_DICRI'] = (df_analise['DICRI_ACUMULADO'] > df_analise['META_DICRI']) if ('META_DICRI' in df_analise.columns and 'DICRI_ACUMULADO' in df_analise.columns) else False
+    df_analise['VIOLOU_DISE'] = (df_analise['DISE_ACUMULADO'] > df_analise['META_DISE']) if ('META_DISE' in df_analise.columns and 'DISE_ACUMULADO' in df_analise.columns) else False
     
-    df_violadas = df_analise[df_analise['VIOLOU_DIC'] | df_analise['VIOLOU_FIC']].copy()
+    df_violadas = df_analise[df_analise['VIOLOU_DIC'] | df_analise['VIOLOU_FIC'] | df_analise['VIOLOU_DICRI'] | df_analise['VIOLOU_DISE']].copy()
     
     if df_violadas.empty:
         print("Nenhuma UC violou metas de forma estrita. Exportando top UCs com maior impacto...")
@@ -271,15 +274,30 @@ def gerar_ressarcimento_diario(pasta_destino: str):
 
     df_violadas = df_violadas.merge(df_top_ocorrencias, on='UC', how='left')
 
-    # 5. Calculo estimado bruto de compensacao
+    # 5. Calculo estimado bruto de compensacao (PRODIST: MAX(DIC, FIC, DMIC) + DICRI + DISE)
     KEI_BT = 34
+    KEI2_DICRI = 14
+    KEI3_DISE = 14
     df_violadas['RISCO_R$'] = 0.0
+    df_violadas['COMP_DICRI'] = 0.0
+    df_violadas['COMP_DISE'] = 0.0
     
-    mask_dic = df_violadas['VIOLOU_DIC']
-    df_violadas.loc[mask_dic, 'RISCO_R$'] = (df_violadas.loc[mask_dic, 'DIC_ACUMULADO'] * df_violadas.loc[mask_dic, 'VRC'] / 730.0) * KEI_BT
+    comp_dic = np.where(df_violadas['VIOLOU_DIC'], (df_violadas['DIC_ACUMULADO'] * df_violadas['VRC'] / 730.0) * KEI_BT, 0.0)
+    comp_fic = np.where(df_violadas['VIOLOU_FIC'], ((df_violadas['FIC_ACUMULADO'] / df_violadas['META_FIC']) * df_violadas['META_DIC'] * df_violadas['VRC'] / 730.0) * KEI_BT, 0.0)
+    comp_dmic = np.where(df_violadas.get('VIOLOU_DMIC', False), ((df_violadas.get('DMIC_ACUMULADO', 0) / df_violadas.get('META_DMIC', 1)) * df_violadas['VRC'] / 730.0) * KEI_BT, 0.0)
 
-    mask_fic = df_violadas['VIOLOU_FIC'] & ~df_violadas['VIOLOU_DIC']
-    df_violadas.loc[mask_fic, 'RISCO_R$'] = ((df_violadas.loc[mask_fic, 'FIC_ACUMULADO'] / df_violadas.loc[mask_fic, 'META_FIC']) * df_violadas.loc[mask_fic, 'META_DIC'] * df_violadas.loc[mask_fic, 'VRC'] / 730.0) * KEI_BT
+    comp_regular_max = np.maximum(comp_dic, np.maximum(comp_fic, comp_dmic))
+
+    if 'DICRI_ACUMULADO' in df_violadas.columns and 'META_DICRI' in df_violadas.columns:
+        mask_dicri = df_violadas['VIOLOU_DICRI']
+        df_violadas.loc[mask_dicri, 'COMP_DICRI'] = (df_violadas.loc[mask_dicri, 'DICRI_ACUMULADO'] * df_violadas.loc[mask_dicri, 'VRC'] / 730.0) * KEI2_DICRI
+
+    if 'DISE_ACUMULADO' in df_violadas.columns and 'META_DISE' in df_violadas.columns:
+        mask_dise = df_violadas['VIOLOU_DISE']
+        df_violadas.loc[mask_dise, 'COMP_DISE'] = (df_violadas.loc[mask_dise, 'DISE_ACUMULADO'] * df_violadas.loc[mask_dise, 'VRC'] / 730.0) * KEI3_DISE
+
+    # RISCO_R$ total: MAX(DIC, FIC, DMIC) + DICRI + DISE
+    df_violadas['RISCO_R$'] = comp_regular_max + df_violadas['COMP_DICRI'] + df_violadas['COMP_DISE']
 
     ucs_violadas_list = df_violadas['UC'].tolist()
     df_ocorrencias_violadas = df_intrp[df_intrp['UC'].isin(ucs_violadas_list)].copy()
@@ -301,7 +319,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     colunas_ordenadas = [
         'UC', 'QTD_OCORRENCIAS', 'DIC_ACUMULADO', 'FIC_ACUMULADO', 
         'META_DIC', 'META_FIC', 'VRC', 'VIOLOU_DIC', 'VIOLOU_FIC', 
-        'RISCO_R$', 'TOP_3_OCORRENCIAS'
+        'VIOLOU_DICRI', 'VIOLOU_DISE', 'RISCO_R$', 'TOP_3_OCORRENCIAS'
     ]
     cols_existentes = [c for c in colunas_ordenadas if c in df_violadas.columns]
     df_violadas_export = df_violadas[cols_existentes].sort_values(by='RISCO_R$', ascending=False)

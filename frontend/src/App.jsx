@@ -3506,7 +3506,19 @@ function FilaTable({ fila, onOpenOccurrence }) {
   const columns = [
     { key: 'regional', label: 'Regional', render: (item) => item.regional || '—' },
     { key: 'conjunto', label: 'Conjunto', render: (item) => item.conjunto || '—' },
-    { key: 'uc', label: 'UC', render: (item) => item.uc || '—' },
+    {
+      key: 'uc',
+      label: 'UC',
+      render: (item) => (
+        <button
+          className="link-button"
+          onClick={() => item.uc && onOpenUC && onOpenUC(item.uc)}
+          title="Clique para pesquisar/visualizar dados da UC"
+        >
+          {item.uc || '—'}
+        </button>
+      ),
+    },
     {
       key: 'num_ocorrencia_adms',
       label: 'Ocorrência',
@@ -3777,7 +3789,7 @@ function AjustesPage({ ajustes, resumo, onOpenOccurrence, embedded = false }) {
   )
 }
 
-function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
+function OutlierAnomaliaPanel({ token, onOpenOccurrence, onOpenUC }) {
   const [data, setData] = useState([])
   const [filter, setFilter] = useState('')
   const [problemaFiltro, setProblemaFiltro] = useState('todos')
@@ -3915,7 +3927,19 @@ function OutlierAnomaliaPanel({ token, onOpenOccurrence }) {
   const columns = [
     { key: 'regional', label: 'Regional' },
     { key: 'conjunto', label: 'Conjunto' },
-    { key: 'uc', label: 'UC' },
+    {
+      key: 'uc',
+      label: 'UC',
+      render: (item) => (
+        <button
+          className="link-button"
+          onClick={() => item.uc && onOpenUC && onOpenUC(item.uc)}
+          title="Clique para pesquisar/visualizar dados da UC"
+        >
+          {item.uc || '—'}
+        </button>
+      ),
+    },
     { 
       key: 'ocorrencia', 
       label: 'Ocorrência',
@@ -4440,6 +4464,81 @@ function OccurrencePreviewModal({ numOcorrencia, token, anomes, onClose, onOpenO
   )
 }
 
+function UcPreviewModal({ numUc, token, anomes, onClose, onOpenOccurrence }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!numUc) return
+    async function load() {
+      try {
+        setLoading(true)
+        setError('')
+        const params = new URLSearchParams({
+          tipo: 'uc',
+          valor: String(numUc).trim(),
+          anomes: anomes || '202607',
+          limit: '10',
+        })
+        const response = await fetch(`${API_URL}/api/qualidade/busca?${params.toString()}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+        const result = await response.json()
+        if (!response.ok) throw new Error(result?.detail || 'Falha ao carregar dados da UC.')
+        if (result && result.length > 0) {
+          setData(result[0])
+        } else {
+          setData({ NUM_UC_UCI: numUc })
+        }
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [numUc, token, anomes])
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+      <div className="modal-content panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', width: '90%', maxHeight: '90vh', overflowY: 'auto', padding: '1.5rem', background: '#181b20', border: '1px solid #333', borderRadius: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #333', paddingBottom: '0.5rem' }}>
+          <h2 style={{ margin: 0, fontSize: '1.4rem' }}>Unidade Consumidora (UC) {numUc}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }}>×</button>
+        </div>
+
+        {loading && <div className="alert">Carregando dados da UC...</div>}
+        {error && <div className="alert alert-danger">{error}</div>}
+        {!loading && (
+          <div>
+            <div className="result-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem', background: '#111317', padding: '1rem', borderRadius: '6px' }}>
+              <span><small style={{ color: '#888', display: 'block' }}>UC</small><strong>{numUc}</strong></span>
+              <span><small style={{ color: '#888', display: 'block' }}>Regional / Conjunto</small><strong>{data?.SIGLA_REGIONAL || '—'} / {data?.COD_CONJTO_ELET_ANEEL_INTRP || '—'}</strong></span>
+              <span><small style={{ color: '#888', display: 'block' }}>CHI acumulado</small><strong>{decimalFormat(data?.CHI_LIQUIDO || data?.DIC_LIQUIDO || 0, 2)} h</strong></span>
+              <span><small style={{ color: '#888', display: 'block' }}>FIC acumulado</small><strong>{numberFormat(data?.CI_LIQUIDO || data?.FIC_LIQUIDO || 0)}</strong></span>
+            </div>
+
+            {data?.NUM_OCORRENCIA_ADMS && (
+              <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <button 
+                  className="btn btn-primary"
+                  onClick={() => {
+                    onClose()
+                    if (onOpenOccurrence) onOpenOccurrence(data.NUM_OCORRENCIA_ADMS)
+                  }}
+                >
+                  Ver Ocorrência Completa ({data.NUM_OCORRENCIA_ADMS})
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function OcorrenciasPage({
   resumo,
   fila,
@@ -4450,6 +4549,7 @@ function OcorrenciasPage({
 }) {
   const [activeOccurrenceTab, setActiveOccurrenceTab] = useState('busca')
   const [previewOcorrencia, setPreviewOcorrencia] = useState(null)
+  const [previewUc, setPreviewUc] = useState(null)
 
   const occurrenceTabs = [
     { id: 'busca', label: 'Busca' },
@@ -4462,6 +4562,11 @@ function OcorrenciasPage({
   const handleOpenPreview = (num) => {
     if (!num) return
     setPreviewOcorrencia(num)
+  }
+
+  const handleOpenUc = (ucNum) => {
+    if (!ucNum) return
+    setPreviewUc(ucNum)
   }
 
   return (
@@ -4495,13 +4600,13 @@ function OcorrenciasPage({
           <FilaPreview anomes={resumo.anomes} token={token} onOpenOccurrence={handleOpenPreview} />
         )}
         {activeOccurrenceTab === 'impacto' && (
-          <AnaliseImpactoPanel anomes={resumo.anomes} token={token} onOpenOccurrence={handleOpenPreview} />
+          <AnaliseImpactoPanel anomes={resumo.anomes} token={token} onOpenOccurrence={handleOpenPreview} onOpenUC={handleOpenUc} />
         )}
         {activeOccurrenceTab === 'fila' && (
-          <FilaPage token={token} fila={fila} resumo={resumo} onOpenOccurrence={handleOpenPreview} embedded />
+          <FilaPage token={token} fila={fila} resumo={resumo} onOpenOccurrence={handleOpenPreview} onOpenUC={handleOpenUc} embedded />
         )}
         {activeOccurrenceTab === 'outlier' && (
-          <OutlierAnomaliaPanel token={token} onOpenOccurrence={handleOpenPreview} />
+          <OutlierAnomaliaPanel token={token} onOpenOccurrence={handleOpenPreview} onOpenUC={handleOpenUc} />
         )}
         {activeOccurrenceTab === 'modulos' && (
           <ModulosOcorrenciaPanel anomalias={anomalias} modulos={modulos} fila={fila} token={token} onOpenOccurrence={handleOpenPreview} />
@@ -4515,6 +4620,16 @@ function OcorrenciasPage({
           anomes={resumo?.anomes}
           onClose={() => setPreviewOcorrencia(null)}
           onOpenOccurrence={onOpenOccurrence}
+        />
+      )}
+
+      {previewUc && (
+        <UcPreviewModal
+          numUc={previewUc}
+          token={token}
+          anomes={resumo?.anomes}
+          onClose={() => setPreviewUc(null)}
+          onOpenOccurrence={handleOpenPreview}
         />
       )}
     </>
