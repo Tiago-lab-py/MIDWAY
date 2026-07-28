@@ -339,8 +339,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_violadas['COMP_DISE'] = 0.0
     
     comp_dic = np.where(df_violadas['VIOLOU_DIC'], (df_violadas['DIC_ACUMULADO'] * df_violadas['VRC'] / 730.0) * df_violadas['KEI'], 0.0)
-    comp_fic = np.where(df_violadas['VIOLOU_FIC'], ((df_violadas['FIC_ACUMULADO'] / df_violadas['META_FIC']) * df_violadas['META_DIC'] * df_violadas['VRC'] / 730.0) * df_violadas['KEI'], 0.0)
-    comp_dmic = np.where(df_violadas.get('VIOLOU_DMIC', False), ((df_violadas.get('DMIC_ACUMULADO', 0) / df_violadas.get('META_DMIC', 1)) * df_violadas['VRC'] / 730.0) * df_violadas['KEI'], 0.0)
+    comp_fic = np.where(df_violadas['VIOLOU_FIC'], (df_violadas['FIC_ACUMULADO'] * df_violadas['VRC'] / 730.0) * df_violadas['KEI'], 0.0)
+    comp_dmic = np.where(df_violadas.get('VIOLOU_DMIC', False), (df_violadas.get('DMIC_ACUMULADO', 0) * df_violadas['VRC'] / 730.0) * df_violadas['KEI'], 0.0)
 
     comp_regular_max = np.maximum(comp_dic, np.maximum(comp_fic, comp_dmic))
 
