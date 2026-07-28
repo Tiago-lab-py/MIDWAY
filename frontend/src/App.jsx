@@ -3452,28 +3452,38 @@ function normalizeQueueItem(item) {
 }
 
 function FilaTable({ fila, onOpenOccurrence }) {
-  const exportCSV = () => {
+  function exportCSV() {
     if (!fila || fila.length === 0) return
+
     const headers = [
-      'Regional', 'Conjunto', 'UC', 'Ocorrencia', 'Problema Suspeito no Registro',
-      'Qtd. Reclamacoes', 'Severidade', 'CHI Liquido (h)', 'Ressarcimento (R$)',
-      'Duracao Max (h)', 'CI Liq.'
+      'REGIONAL',
+      'CONJUNTO',
+      'UC',
+      'OCORRENCIA',
+      'VERIF_POS',
+      'QTD_SERVICOS',
+      'QTD_RECLAMACOES',
+      'CHI_LIQUIDO',
+      'RESSARCIMENTO',
+      'DURACAO_MAXIMA',
+      'QUANT_UC',
     ]
+
     const csvRows = [headers.join(';')]
 
-    fila.forEach(row => {
+    fila.forEach((row) => {
       const line = [
-        `"${row.regional || row.sigla_regional || ''}"`,
-        `"${row.conjunto || row.cod_conjto_elet_aneel_intrp || ''}"`,
-        `"${row.uc || row.num_uc_uci || ''}"`,
-        `"${row.num_ocorrencia_adms || row.ocorrencia || ''}"`,
-        `"${String(row.diagnostico_provavel || row.fonte_sugestao || row.nome || '').replace(/"/g, '""')}"`,
-        row.qtd_reclamacoes || row.qtd_reclamacoes_vinculadas || 0,
-        `"${row.prioridade || row.severidade || ''}"`,
-        (row.chi_liquido || row.impacto_chi_liquido || 0).toFixed(2).replace('.', ','),
-        (row.ressarcimento_estimado || row.impacto_ressarc || 0).toFixed(2).replace('.', ','),
-        (row.duracao_max_hora || row.duracao_horas || row.impacto_duracao_maxima || 0).toFixed(2).replace('.', ','),
-        row.ci_liquido || row.qtd_ucs || 0
+        row.regional || '—',
+        row.conjunto || '—',
+        row.uc || '—',
+        row.num_ocorrencia_adms || row.ocorrencia || '—',
+        row.verif_pos || 'Não',
+        row.qtd_servicos ?? 0,
+        row.qtd_reclamacoes ?? 0,
+        (row.chi_liquido || 0).toFixed(2).replace('.', ','),
+        (row.ressarcimento || 0).toFixed(2).replace('.', ','),
+        (row.duracao_maxima || 0).toFixed(2).replace('.', ','),
+        row.quant_uc || 0,
       ]
       csvRows.push(line.join(';'))
     })
@@ -3482,7 +3492,7 @@ function FilaTable({ fila, onOpenOccurrence }) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', `fila_tecnica_ocorrencias_${new Date().toISOString().slice(0, 10)}.csv`)
+    link.setAttribute('download', `fila_pos_operacao_${new Date().toISOString().slice(0, 10)}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -3490,9 +3500,9 @@ function FilaTable({ fila, onOpenOccurrence }) {
   }
 
   const columns = [
-    { key: 'regional', label: 'Regional', render: (item) => item.regional || item.sigla_regional || '—' },
-    { key: 'conjunto', label: 'Conjunto', render: (item) => item.conjunto || item.cod_conjto_elet_aneel_intrp || '—' },
-    { key: 'uc', label: 'UC', render: (item) => item.uc || item.num_uc_uci || '—' },
+    { key: 'regional', label: 'Regional', render: (item) => item.regional || '—' },
+    { key: 'conjunto', label: 'Conjunto', render: (item) => item.conjunto || '—' },
+    { key: 'uc', label: 'UC', render: (item) => item.uc || '—' },
     {
       key: 'num_ocorrencia_adms',
       label: 'Ocorrência',
@@ -3503,24 +3513,35 @@ function FilaTable({ fila, onOpenOccurrence }) {
       ),
     },
     { 
-      key: 'diagnostico_provavel', 
-      label: 'Problema Suspeito no Registro',
-      render: (item) => item.diagnostico_provavel || item.fonte_sugestao || item.nome || '—'
+      key: 'verif_pos', 
+      label: 'Verif. Pós',
+      render: (item) => {
+        const sim = item.verif_pos === 'Sim'
+        return (
+          <span className={`pill ${sim ? 'pill-success' : 'pill-warning'}`} style={{ fontWeight: 'bold' }}>
+            {sim ? 'Sim' : 'Não'}
+          </span>
+        )
+      }
+    },
+    {
+      key: 'qtd_servicos',
+      label: 'Qtd. Serviços',
+      render: (item) => <strong style={{ color: '#1890ff' }}>{numberFormat(item.qtd_servicos ?? 0)}</strong>
     },
     { 
       key: 'qtd_reclamacoes', 
       label: 'Qtd. Reclamações', 
       render: (item) => {
-        const val = item.qtd_reclamacoes ?? item.qtd_reclamacoes_vinculadas ?? 0
-        return <strong style={{ color: val > 0 ? '#1890ff' : '#8c8c8c' }}>{numberFormat(val)}</strong>
+        const val = item.qtd_reclamacoes ?? 0
+        return <strong style={{ color: val > 0 ? '#ff4d4f' : '#8c8c8c' }}>{numberFormat(val)}</strong>
       } 
     },
-    { key: 'prioridade', label: 'Severidade', render: (item) => item.prioridade || item.severidade || '—' },
     { 
       key: 'chi_liquido', 
       label: 'CHI Líquido (h)', 
       render: (item) => {
-        const val = item.chi_liquido ?? item.impacto_chi_liquido ?? 0
+        const val = item.chi_liquido ?? 0
         return <strong style={{ color: val > 50 ? '#ff4d4f' : 'inherit' }}>{decimalFormat(val, 2)}</strong>
       } 
     },
@@ -3528,7 +3549,7 @@ function FilaTable({ fila, onOpenOccurrence }) {
       key: 'ressarcimento', 
       label: 'Ressarcimento (R$)', 
       render: (item) => {
-        const val = item.ressarcimento_estimado ?? item.impacto_ressarc ?? item.ressarcimento ?? 0
+        const val = item.ressarcimento ?? 0
         return <strong style={{ color: val > 0 ? '#ff4d4f' : '#52c41a' }}>{currencyFormat(val)}</strong>
       } 
     },
@@ -3536,17 +3557,14 @@ function FilaTable({ fila, onOpenOccurrence }) {
       key: 'duracao_maxima', 
       label: 'Duração Máx. (h)', 
       render: (item) => {
-        const val = item.duracao_max_hora ?? item.duracao_horas ?? item.impacto_duracao_maxima ?? 0
+        const val = item.duracao_maxima ?? 0
         return `${decimalFormat(val, 2)} h`
       } 
     },
     { 
-      key: 'ci_liquido', 
+      key: 'quant_uc', 
       label: 'Quant. UC', 
-      render: (item) => {
-        const val = item.ci_liquido ?? item.qtd_ucs ?? 0
-        return numberFormat(val)
-      } 
+      render: (item) => numberFormat(item.quant_uc ?? 0)
     },
     {
       key: 'acoes',
@@ -3572,13 +3590,13 @@ function FilaTable({ fila, onOpenOccurrence }) {
           disabled={!fila || fila.length === 0}
           style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}
         >
-          <span>📥 Baixar Tabela (CSV)</span>
+          <span>📥 Baixar Fila Pós-Operação (CSV)</span>
         </button>
       </div>
       <div style={{ maxHeight: '650px', overflowY: 'auto', border: '1px solid #333', borderRadius: '4px' }}>
         <DataTable
           sortable
-          initialSort={{ key: 'score_impacto', direction: 'desc' }}
+          initialSort={{ key: 'chi_liquido', direction: 'desc' }}
           columns={columns}
           rows={fila}
         />
@@ -3587,111 +3605,131 @@ function FilaTable({ fila, onOpenOccurrence }) {
   )
 }
 
-function FilaPage({ fila, resumo, onOpenOccurrence, embedded = false }) {
+function FilaPage({ token, resumo, onOpenOccurrence, embedded = false }) {
+  const [filaData, setFilaData] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState('')
   const [filtros, setFiltros] = useState({
     busca: '',
-    status: '',
-    prioridade: '',
-    diagnostico: '',
-    modulo: '',
+    verif_pos: '',
+    regional: '',
   })
-  const filaNormalizada = useMemo(() => (fila || []).map(normalizeQueueItem), [fila])
+
+  useEffect(() => {
+    async function fetchFila() {
+      try {
+        setLoading(true)
+        setErro('')
+        const response = await fetch(`${API_URL}/api/anomalias/fila/pos`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+        const result = await response.json()
+        if (!response.ok) throw new Error(result?.detail || 'Falha ao carregar Fila Pós-Operação.')
+        setFilaData(result || [])
+      } catch (err) {
+        setErro(err.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchFila()
+  }, [token])
+
   const filaFiltrada = useMemo(() => {
     const busca = filtros.busca.trim().toLowerCase()
-    return filaNormalizada.filter((item) => {
+    return filaData.filter((item) => {
       const texto = [
         item.num_ocorrencia_adms,
-        item.num_seq_intrp,
-        item.fonte_sugestao,
-        item.nivel_evidencia,
-        item.status_fila,
-        item.cod_comp_sugerido,
-        item.cod_causa_sugerida,
-        item.diagnostico_provavel,
-        item.modulo_analise,
+        item.ocorrencia,
+        item.uc,
+        item.conjunto,
+        item.regional,
       ].join(' ').toLowerCase()
+
       if (busca && !texto.includes(busca)) return false
-      if (filtros.status && String(item.status_fila || '') !== filtros.status) return false
-      if (filtros.prioridade && String(item.prioridade || '') !== filtros.prioridade) return false
-      if (filtros.diagnostico && item.diagnostico_provavel !== filtros.diagnostico) return false
-      if (filtros.modulo && item.modulo_analise !== filtros.modulo) return false
+      if (filtros.verif_pos && item.verif_pos !== filtros.verif_pos) return false
+      if (filtros.regional && item.regional !== filtros.regional) return false
       return true
     })
-  }, [filaNormalizada, filtros])
-  const opcoesStatus = [...new Set(filaNormalizada.map((item) => item.status_fila).filter(Boolean))]
-  const opcoesPrioridade = [...new Set(filaNormalizada.map((item) => item.prioridade).filter(Boolean))]
-  const opcoesDiagnostico = [...new Set(filaNormalizada.map((item) => item.diagnostico_provavel).filter(Boolean))]
-  const opcoesModulo = [...new Set(filaNormalizada.map((item) => item.modulo_analise).filter(Boolean))]
-  const filaAlta = filaFiltrada.filter((item) => Number(item.score_impacto || 0) >= 80).length
-  const filaAutomacao = filaFiltrada.filter((item) => item.diagnostico_provavel.includes('automação')).length
-  const filaProcessual = filaFiltrada.filter((item) => item.diagnostico_provavel.includes('processual')).length
+  }, [filaData, filtros])
+
+  const pendentesPos = useMemo(() => filaData.filter((item) => item.verif_pos === 'Não').length, [filaData])
+  const validadosPos = useMemo(() => filaData.filter((item) => item.verif_pos === 'Sim').length, [filaData])
+  const totalRessarcimento = useMemo(() => filaData.reduce((sum, item) => sum + Number(item.ressarcimento || 0), 0), [filaData])
+  const regionais = useMemo(() => [...new Set(filaData.map((item) => item.regional).filter(Boolean))], [filaData])
 
   return (
     <>
       {!embedded && (
-        <>
-          <PageHero
-            title="Fila Técnica"
-            description="Casos problemáticos para suporte técnico: conflito de serviço ou evidência por reclamação."
-            sideLabel="Abertos"
-            sideValue={numberFormat(resumo.fila_aberta)}
-          />
-          <section className="metrics-grid compact">
-            <Card label="Total na fila" value={numberFormat(resumo.fila_tecnica_total)} hint="revisão técnica" tone="orange" />
-            <Card label="Conflito de serviço" value={numberFormat(resumo.fila_servico_conflito)} hint="revisão técnica prioritária" tone="purple" />
-            <Card label="Por reclamação" value={numberFormat(resumo.fila_reclamacao)} hint="melhor classificação textual" tone="blue" />
-            <Card label="Tratados" value={numberFormat(resumo.fila_tratada)} hint="baixados da fila" tone="green" />
-          </section>
-        </>
+        <PageHero
+          title="Fila Técnica - Pós-Operação"
+          description="Demanda de serviço e carga de trabalho pós-operação: ocorrências tratadas vs não tratadas com verificação pós."
+          sideLabel="Total Pós"
+          sideValue={numberFormat(filaData.length)}
+        />
       )}
+
+      <section className="metrics-grid compact" style={{ marginBottom: '1rem' }}>
+        <Card label="Total na Fila Pós" value={numberFormat(filaData.length)} hint="ocorrências apuradas" tone="blue" />
+        <Card label="Não Tratadas (Pós)" value={numberFormat(pendentesPos)} hint="Verif. Pós = Não" tone="orange" />
+        <Card label="Tratadas (Pós)" value={numberFormat(validadosPos)} hint="Verif. Pós = Sim" tone="green" />
+        <Card label="Ressarcimento Total" value={currencyFormat(totalRessarcimento)} hint="estimado PRODIST" tone="purple" />
+      </section>
+
       <section className="panel">
         <div className="panel-title">
           <div>
-            <h2>Fila Técnica Priorizada</h2>
-            <p>Triagem por impacto, módulo e diagnóstico provável para separar anomalia operacional de falha processual ou automação.</p>
+            <h2>Demanda de Serviço Pós-Operação</h2>
+            <p>Triagem de ocorrências tratadas (`interrupcao_tratada`) com status de verificação pós-operação, serviços e reclamações.</p>
           </div>
         </div>
+
         <div className="analysis-summary-strip">
-          <span><strong>{numberFormat(filaFiltrada.length)}</strong> item(ns) filtrados</span>
-          <span><strong>{numberFormat(filaAlta)}</strong> com impacto alto</span>
-          <span><strong>{numberFormat(filaAutomacao)}</strong> provável automação</span>
-          <span><strong>{numberFormat(filaProcessual)}</strong> provável processo</span>
+          <span><strong>{numberFormat(filaFiltrada.length)}</strong> ocorrência(s) exibida(s)</span>
+          <span><strong>{numberFormat(pendentesPos)}</strong> pendente(s) de verificação pós</span>
+          <span><strong>{numberFormat(validadosPos)}</strong> validada(s) pós</span>
         </div>
+
         <div className="analysis-filter-grid occurrence-filter-grid">
           <label>
-            Busca técnica
-            <input value={filtros.busca} onChange={(event) => setFiltros((current) => ({ ...current, busca: event.target.value }))} placeholder="Ocorrência, interrupção, fonte, componente..." />
+            Busca rápida
+            <input 
+              value={filtros.busca} 
+              onChange={(event) => setFiltros((current) => ({ ...current, busca: event.target.value }))} 
+              placeholder="Ocorrência, UC, conjunto, regional..." 
+            />
           </label>
           <label>
-            Status
-            <select value={filtros.status} onChange={(event) => setFiltros((current) => ({ ...current, status: event.target.value }))}>
-              <option value="">Todos</option>
-              {opcoesStatus.map((item) => <option key={item} value={item}>{item}</option>)}
+            Verificação Pós
+            <select 
+              value={filtros.verif_pos} 
+              onChange={(event) => setFiltros((current) => ({ ...current, verif_pos: event.target.value }))}
+            >
+              <option value="">Todas (Tratadas e Não Tratadas)</option>
+              <option value="Não">Não (Pendente Pós)</option>
+              <option value="Sim">Sim (Validada Pós)</option>
             </select>
           </label>
           <label>
-            Prioridade
-            <select value={filtros.prioridade} onChange={(event) => setFiltros((current) => ({ ...current, prioridade: event.target.value }))}>
-              <option value="">Todas</option>
-              {opcoesPrioridade.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label>
-            Diagnóstico
-            <select value={filtros.diagnostico} onChange={(event) => setFiltros((current) => ({ ...current, diagnostico: event.target.value }))}>
-              <option value="">Todos</option>
-              {opcoesDiagnostico.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label>
-            Módulo
-            <select value={filtros.modulo} onChange={(event) => setFiltros((current) => ({ ...current, modulo: event.target.value }))}>
-              <option value="">Todos</option>
-              {opcoesModulo.map((item) => <option key={item} value={item}>{item}</option>)}
+            Regional
+            <select 
+              value={filtros.regional} 
+              onChange={(event) => setFiltros((current) => ({ ...current, regional: event.target.value }))}
+            >
+              <option value="">Todas as Regionais</option>
+              {regionais.map((reg) => (
+                <option key={reg} value={reg}>{reg}</option>
+              ))}
             </select>
           </label>
         </div>
-        <FilaTable fila={filaFiltrada} onOpenOccurrence={onOpenOccurrence} />
+
+        {loading && <div className="alert">Carregando Demanda de Serviço Pós-Operação...</div>}
+        {erro && <div className="alert alert-danger">Erro: {erro}</div>}
+
+        {!loading && !erro && (
+          <FilaTable fila={filaFiltrada} onOpenOccurrence={onOpenOccurrence} />
+        )}
       </section>
     </>
   )

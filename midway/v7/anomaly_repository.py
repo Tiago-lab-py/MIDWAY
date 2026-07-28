@@ -1,10 +1,140 @@
-from __future__ import annotations
-
+import os
+from pathlib import Path
+import duckdb
+from dotenv import load_dotenv
 from typing import Any
 
 from sqlalchemy import text
 
 from midway.db.postgres import create_postgres_engine, get_config
+
+def _map_regional(val: Any) -> str:
+    s = str(val or '').strip().upper()
+    mapping = {'V': 'CEL', 'C': 'LES', 'P': 'PGO', 'M': 'MGA', 'L': 'LNA'}
+    return mapping.get(s, s or '—')
+
+def list_pos_operacao_queue(limit: int = 10000) -> list[dict[str, object]]:
+    load_dotenv()
+    anomes = os.getenv("ANOMES", "202607")
+    processed_path = Path(os.getenv("MIDWAY_PROCESSED_DUCKDB_PATH", f"data/processed/iqs_adms_processed_{anomes}.duckdb"))
+    if not processed_path.exists():
+        fallback_path = Path(f"data/processed/iqs_adms_processed_202606.duckdb")
+        if fallback_path.exists():
+            processed_path = fallback_path
+        else:
+            return []
+
+    try:
+        with duckdb.connect(str(processed_path), read_only=True) as con:
+            tables = [row[0] for row in con.execute("SHOW TABLES").fetchall()]
+            if "gold_interrupcao_tratada" not in tables:
+                return []
+
+            has_prodist = "gold_ressarcimento_prodist" in tables
+            has_vrc = "gold_vrc" in tables
+            has_reclamacao = "gold_reclamacao_ocorrencia_resumo" in tables
+
+            vrc_join = ""
+            uc_expr = "MAX(TRIM(CAST(i.NUM_UC_UCI AS VARCHAR)))"
+            if has_prodist and has_vrc:
+                vrc_join = """
+                LEFT JOIN gold_ressarcimento_prodist r ON r.NUM_OCORRENCIA_ADMS = i.NUM_OCORRENCIA_ADMS AND r.UC = i.NUM_UC_UCI
+                LEFT JOIN gold_vrc v ON v.ISN_UC = i.NUM_UC_UCI
+                """
+                uc_expr = "ARGMAX(TRIM(CAST(i.NUM_UC_UCI AS VARCHAR)), COALESCE(r.COMP_TOTAL_PRODIST, 0) * 1000000 + COALESCE(v.VRC, 0))"
+            elif has_prodist:
+                vrc_join = """
+                LEFT JOIN gold_ressarcimento_prodist r ON r.NUM_OCORRENCIA_ADMS = i.NUM_OCORRENCIA_ADMS AND r.UC = i.NUM_UC_UCI
+                """
+                uc_expr = "ARGMAX(TRIM(CAST(i.NUM_UC_UCI AS VARCHAR)), COALESCE(r.COMP_TOTAL_PRODIST, 0))"
+
+            reclamacao_join = ""
+            reclamacao_select = "0 AS QTD_RECLAMACOES,"
+            if has_reclamacao:
+                reclamacao_join = """
+                LEFT JOIN (
+                    SELECT
+                        TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                        SUM(COALESCE(QTD_RECLAMACOES, 0)) AS QTD_RECLAMACOES
+                    FROM gold_reclamacao_ocorrencia_resumo
+                    WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+                    GROUP BY 1
+                ) rec ON rec.NUM_OCORRENCIA_ADMS = b.NUM_OCORRENCIA_ADMS
+                """
+                reclamacao_select = "COALESCE(rec.QTD_RECLAMACOES, 0) AS QTD_RECLAMACOES,"
+
+            prodist_join = ""
+            prodist_select = "0 AS RESSARCIMENTO,"
+            if has_prodist:
+                prodist_join = """
+                LEFT JOIN (
+                    SELECT
+                        TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                        SUM(COALESCE(COMP_TOTAL_PRODIST, 0)) AS RESSARCIMENTO
+                    FROM gold_ressarcimento_prodist
+                    WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+                    GROUP BY 1
+                ) res ON res.NUM_OCORRENCIA_ADMS = b.NUM_OCORRENCIA_ADMS
+                """
+                prodist_select = "COALESCE(res.RESSARCIMENTO, 0) AS RESSARCIMENTO,"
+
+            query = f"""
+            WITH base AS (
+                SELECT
+                    TRIM(CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                    MAX(TRIM(CAST(i.SIGLA_REGIONAL AS VARCHAR))) AS REGIONAL_RAW,
+                    MAX(TRIM(CAST(i.COD_CONJTO_ELET_ANEEL_INTRP AS VARCHAR))) AS CONJUNTO,
+                    MAX(CASE
+                        WHEN UPPER(TRIM(CAST(i.VALID_POS_OPERACAO AS VARCHAR))) IN ('S', 'SIM', '1', 'TRUE', 'VÁLIDO', 'VALIDO')
+                        THEN 'Sim'
+                        ELSE 'Não'
+                    END) AS VERIF_POS,
+                    COUNT(DISTINCT NULLIF(TRIM(CAST(i.NUM_SEQ_INTRP AS VARCHAR)), '')) AS QTD_SERVICOS,
+                    COUNT(DISTINCT NULLIF(TRIM(CAST(i.NUM_UC_UCI AS VARCHAR)), '')) AS QUANT_UC,
+                    MAX(COALESCE(DATE_DIFF('second', i.DTHR_INICIO_INTRP_UC, i.DATA_HORA_FIM_INTRP)/3600.0, 0)) AS DURACAO_HORAS,
+                    SUM(COALESCE(DATE_DIFF('second', i.DTHR_INICIO_INTRP_UC, i.DATA_HORA_FIM_INTRP)/3600.0, 0)) AS CHI_LIQUIDO,
+                    {uc_expr} AS UC
+                FROM gold_interrupcao_tratada i
+                {vrc_join}
+                WHERE NULLIF(TRIM(CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+                GROUP BY 1
+            )
+            SELECT
+                b.NUM_OCORRENCIA_ADMS AS num_ocorrencia_adms,
+                b.REGIONAL_RAW AS regional_raw,
+                b.CONJUNTO AS conjunto,
+                b.UC AS uc,
+                b.VERIF_POS AS verif_pos,
+                b.QTD_SERVICOS AS qtd_servicos,
+                b.QUANT_UC AS quant_uc,
+                b.DURACAO_HORAS AS duracao_maxima,
+                b.CHI_LIQUIDO AS chi_liquido,
+                {reclamacao_select}
+                {prodist_select}
+                'Demanda Pós' AS problema_suspeito
+            FROM base b
+            {reclamacao_join}
+            {prodist_join}
+            ORDER BY b.CHI_LIQUIDO DESC
+            LIMIT {limit}
+            """
+            rows = con.execute(query).fetchall()
+            cols = [c[0].lower() for c in con.description]
+
+            result = []
+            for r in rows:
+                item = dict(zip(cols, r))
+                item['regional'] = _map_regional(item.get('regional_raw'))
+                item['status_fila'] = 'Tratada Pós' if item.get('verif_pos') == 'Sim' else 'Pendente Pós'
+                item['prioridade'] = 'Alta' if item.get('verif_pos') == 'Não' else 'Normal'
+                item['score_impacto'] = float(item.get('chi_liquido') or 0)
+                item['ocorrencia'] = item.get('num_ocorrencia_adms')
+                result.append(item)
+
+            return result
+    except Exception as err:
+        print(f"Erro ao listar fila pos operacao: {err}")
+        return []
 
 V7_TABLES = {
     "midway_anomalia",

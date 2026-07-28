@@ -3,9 +3,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from midway.api.security import AuthUser, require_profiles
-from midway.v7.anomaly_repository import anomaly_detail, list_anomalies, list_outliers_raw, module_catalog, anomaly_sample_for_module
+from midway.v7.anomaly_repository import anomaly_detail, list_anomalies, list_outliers_raw, module_catalog, anomaly_sample_for_module, list_pos_operacao_queue
 
 router = APIRouter(prefix="/api/anomalias", tags=["anomalias"])
+
+
+@router.get("/fila/pos")
+def listar_fila_pos_v7(
+    user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
+) -> list[dict[str, object]]:
+    return list_pos_operacao_queue(limit=10000)
 
 
 @router.get("")
