@@ -192,7 +192,7 @@ def anomaly_sample_for_module(codigo: str, limit: int = 20) -> dict[str, object]
 
 
 
-def list_outliers_raw(limit: int = 500) -> list[dict[str, object]]:
+def list_outliers_raw(limit: int = 10000) -> list[dict[str, object]]:
     schema = _schema()
     if not _ensure_tables(schema):
         return []
@@ -319,7 +319,7 @@ def _list_postgres_anomalies() -> list[dict[str, object]]:
                     ) AS impacto_ressarcimento
                 FROM {schema}.midway_propostas_tratamento
                 ORDER BY created_at DESC
-                LIMIT 500
+                LIMIT 10000
                 """
             )
         ).mappings().all()

@@ -44,7 +44,7 @@ def amostra_anomalia_v7(
 def listar_outliers_raw_v7(
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA")),
 ) -> list[dict[str, object]]:
-    return list_outliers_raw(limit=500)
+    return list_outliers_raw(limit=10000)
 
 
 @router.get("/{id_anomalia}")

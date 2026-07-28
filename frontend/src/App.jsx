@@ -3117,7 +3117,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
     causa: '',
     grupo: '',
     problema: 'impacto',
-    duracao_suspeita_min: '24',
+    duracao_suspeita_min: '4',
     limit: '50',
   }
   const [filtros, setFiltros] = useState(filtrosPadrao)
@@ -3147,7 +3147,6 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
       return true
     })
   }, [filtros.componente, filtros.grupo, opcoesReferencia.causas])
-  const topCasosTecnicos = useMemo(() => [...(itens || [])].slice(0, 3), [itens])
   const criteriosAtivos = useMemo(() => {
     const criterios = []
     if (filtros.problema && filtros.problema !== 'impacto') criterios.push(`Problema: ${filtros.problema}`)
@@ -3158,7 +3157,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
     if (filtros.min_ci) criterios.push(`CI ≥ ${filtros.min_ci}`)
     if (filtros.min_ressarcimento) criterios.push(`R$ ≥ ${filtros.min_ressarcimento}`)
     if (filtros.duracao_suspeita_min) criterios.push(`Duração ≥ ${filtros.duracao_suspeita_min}h`)
-    return criterios.length ? criterios : ['Maior impacto', 'Duração ≥ 24h', `Limite ${filtros.limit}`]
+    return criterios.length ? criterios : ['Maior impacto', 'Duração ≥ 4h', `Limite ${filtros.limit}`]
   }, [filtros])
 
   function updateFiltro(campo, valor) {
@@ -3182,7 +3181,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
       const params = new URLSearchParams({
         anomes: anomes || '202607',
         problema: filtrosAtuais.problema || 'impacto',
-        duracao_suspeita_min: normalizeDecimalParam(filtrosAtuais.duracao_suspeita_min) || '24',
+        duracao_suspeita_min: normalizeDecimalParam(filtrosAtuais.duracao_suspeita_min) || '4',
         limit: filtrosAtuais.limit || '50',
       })
       ;['componente', 'causa', 'grupo'].forEach((campo) => {
@@ -3273,13 +3272,13 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
         </button>
       </div>
 
-      <details className="collapsible-panel analysis-filter-panel">
+      <details className="collapsible-panel analysis-filter-panel" open>
         <summary className="collapsible-summary">
           <div>
             <h2>Filtros de investigação</h2>
             <p>{criteriosAtivos.join(' · ')}</p>
           </div>
-          <span className="collapsible-indicator">Expandir</span>
+          <span className="collapsible-indicator">Recolher</span>
         </summary>
         <form className="analysis-filter-grid" onSubmit={submit}>
           <label>
@@ -3307,7 +3306,7 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
           </label>
           <label>
             Duração suspeita ≥ h
-            <input inputMode="decimal" value={filtros.duracao_suspeita_min} onChange={(event) => updateFiltro('duracao_suspeita_min', event.target.value)} placeholder="Ex.: 24,5" />
+            <input inputMode="decimal" value={filtros.duracao_suspeita_min} onChange={(event) => updateFiltro('duracao_suspeita_min', event.target.value)} placeholder="Ex.: 4" />
           </label>
           <label>
             Grupo comp./causa (GCR)
@@ -3377,55 +3376,6 @@ function AnaliseImpactoPanel({ anomes, token, onOpenOccurrence }) {
         <span><strong>{numberFormat(resumo.QTD_DURACAO_SUSPEITA)}</strong> ocorrência(s) com duração suspeita</span>
         <span><strong>{fonte === 'cache' ? 'Cache' : 'Ao vivo'}</strong> fonte · score máx. {decimalFormat(resumo.MAIOR_IMPACTO_SCORE, 1)}</span>
       </div>
-
-      <section className="technical-case-deck">
-        <article className="investigation-card investigation-card-wide">
-          <div className="panel-title compact-title">
-            <div>
-              <h2>Casos que merecem leitura humana</h2>
-              <p>Inspirado nos cards do v1: antes da planilha, mostre impacto, sinais e caminho de decisão.</p>
-            </div>
-          </div>
-          <div className="technical-card-grid">
-            {topCasosTecnicos.map((item) => (
-              <article className="technical-case-card" key={item.NUM_OCORRENCIA_ADMS}>
-                <div className="technical-case-head">
-                  <button className="link-button" onClick={() => onOpenOccurrence(item.NUM_OCORRENCIA_ADMS)}>
-                    Ocorrência {item.NUM_OCORRENCIA_ADMS}
-                  </button>
-                  <strong>{decimalFormat(item.IMPACTO_SCORE, 1)}</strong>
-                </div>
-                <div className="tag-list">
-                  {Number(item.TEM_9282 || 0) > 0 && <span className="pill">Comp/Causa</span>}
-                  {Number(item.QTD_VIOLACAO_COMP_CAUSA || 0) > 0 && <span className="pill pill-danger">Violação</span>}
-                  {Number(item.RESSARCIMENTO_ESTIMADO || 0) > 0 && <span className="pill pill-money">Ressarcimento</span>}
-                </div>
-                <div className="case-metric-grid">
-                  <span><small>CHI</small><strong>{decimalFormat(item.CHI_LIQUIDO, 2)}</strong></span>
-                  <span><small>CI/FIC</small><strong>{numberFormat(item.CI_LIQUIDO)}</strong></span>
-                  <span><small>Ressarc.</small><strong>{currencyFormat(item.RESSARCIMENTO_ESTIMADO)}</strong></span>
-                  <span><small>Duração</small><strong>{decimalFormat(item.DURACAO_MAX_HORA, 1)}h</strong></span>
-                </div>
-                <p>{textValue(item.COD_GRUPO_PRINCIPAL)}/{textValue(item.COD_COMP_PRINCIPAL)}/{textValue(item.COD_CAUSA_PRINCIPAL)} · {textValue(item.PARES_COMPONENTE_CAUSA)}</p>
-              </article>
-            ))}
-            {!topCasosTecnicos.length && <p className="muted-text">Aplique filtros ou atualize o ranking para ver os cartões investigativos.</p>}
-          </div>
-        </article>
-
-        <aside className="investigation-card decision-lens-card">
-          <h2>Lente de decisão</h2>
-          <p>Use como triagem: primeiro confirme contexto, depois detalhe a ocorrência.</p>
-          <div className="decision-step-list">
-            <span><strong>1</strong><small>Verifique grupo/comp/causa</small></span>
-            <span><strong>2</strong><small>Compare CHI, CI/FIC e ressarcimento</small></span>
-            <span><strong>3</strong><small>Abra ocorrência e valide serviços/reclamações</small></span>
-          </div>
-          <div className="filter-chip-list">
-            {criteriosAtivos.map((criterio) => <span key={criterio}>{criterio}</span>)}
-          </div>
-        </aside>
-      </section>
 
       <DataTable
         empty={loading ? 'Carregando ranking técnico...' : 'Nenhuma ocorrência encontrada para os filtros.'}
@@ -3625,12 +3575,14 @@ function FilaTable({ fila, onOpenOccurrence }) {
           <span>📥 Baixar Tabela (CSV)</span>
         </button>
       </div>
-      <DataTable
-        sortable
-        initialSort={{ key: 'score_impacto', direction: 'desc' }}
-        columns={columns}
-        rows={fila}
-      />
+      <div style={{ maxHeight: '650px', overflowY: 'auto', border: '1px solid #333', borderRadius: '4px' }}>
+        <DataTable
+          sortable
+          initialSort={{ key: 'score_impacto', direction: 'desc' }}
+          columns={columns}
+          rows={fila}
+        />
+      </div>
     </div>
   )
 }
@@ -4369,6 +4321,100 @@ function ModulosOcorrenciaPanel({ anomalias, modulos, fila, token, onOpenOccurre
   )
 }
 
+function OccurrencePreviewModal({ numOcorrencia, token, anomes, onClose, onOpenOccurrence }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!numOcorrencia) return
+    async function load() {
+      try {
+        setLoading(true)
+        setError('')
+        const params = new URLSearchParams({
+          tipo: 'ocorrencia',
+          valor: String(numOcorrencia).trim(),
+          anomes: anomes || '202607',
+          limit: '1',
+        })
+        const response = await fetch(`${API_URL}/api/qualidade/busca?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const result = await response.json()
+        if (!response.ok) throw new Error(result?.detail || 'Falha ao carregar dados da ocorrência.')
+        if (result && result.length > 0) {
+          setData(result[0])
+        } else {
+          setData({ NUM_OCORRENCIA_ADMS: numOcorrencia })
+        }
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [numOcorrencia, token, anomes])
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+      <div className="modal-content panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', width: '90%', maxHeight: '90vh', overflowY: 'auto', padding: '1.5rem', background: '#181b20', border: '1px solid #333', borderRadius: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #333', paddingBottom: '0.5rem' }}>
+          <h2 style={{ margin: 0, fontSize: '1.4rem' }}>Ocorrência {numOcorrencia}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }}>×</button>
+        </div>
+
+        {loading && <div className="alert">Carregando timeline e dados da ocorrência...</div>}
+        {error && <div className="alert alert-danger">{error}</div>}
+        {!loading && (
+          <div>
+            <div className="result-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem', background: '#111317', padding: '1rem', borderRadius: '6px' }}>
+              <span><small style={{ color: '#888', display: 'block' }}>Período</small><strong>{dateTime(data?.PRIMEIRO_INICIO)} → {dateTime(data?.ULTIMO_FIM)}</strong></span>
+              <span><small style={{ color: '#888', display: 'block' }}>Componente/Causa</small><strong>{textValue(data?.PARES_COMPONENTE_CAUSA)}</strong></span>
+              <span><small style={{ color: '#888', display: 'block' }}>CHI líquido</small><strong>{decimalFormat(data?.CHI_LIQUIDO, 2)}</strong></span>
+              <span><small style={{ color: '#888', display: 'block' }}>CI líquido</small><strong>{numberFormat(data?.CI_LIQUIDO)}</strong></span>
+              <span><small style={{ color: '#888', display: 'block' }}>Score reclamação</small><strong>{numberFormat(data?.MAX_SCORE_RECLAMACAO)}</strong></span>
+              <span><small style={{ color: '#888', display: 'block' }}>Grupos IQS</small><strong>{textValue(data?.GRUPOS_COMPONENTE_IQS || data?.GRUPOS_CAUSA_IQS)}</strong></span>
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem', color: '#fff' }}>Timeline de Interrupções</h3>
+              <OccurrenceGanttTimeline interrupcoes={data?.INTERRUPCOES_DETALHE || []} />
+            </div>
+
+            {data?.INTERRUPCOES && (
+              <div className="result-text" style={{ marginBottom: '0.5rem', color: '#ccc' }}>
+                <strong>Interrupções:</strong> {textValue(data.INTERRUPCOES)}
+              </div>
+            )}
+            {data?.TIPOS_RECLAMACAO && (
+              <div className="result-text" style={{ marginBottom: '1.5rem', color: '#ccc' }}>
+                <strong>Reclamações:</strong> {textValue(data.TIPOS_RECLAMACAO)} · {textValue(data.CAUSAS_RECLAMACAO)}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem', borderTop: '1px solid #333', paddingTop: '1rem' }}>
+              <button className="secondary-button btn btn-secondary" onClick={onClose}>
+                Fechar
+              </button>
+              <button 
+                className="primary-button btn btn-primary" 
+                onClick={() => {
+                  onClose()
+                  onOpenOccurrence(numOcorrencia)
+                }}
+              >
+                Abrir ocorrência completa
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function OcorrenciasPage({
   resumo,
   fila,
@@ -4378,26 +4424,32 @@ function OcorrenciasPage({
   onOpenOccurrence,
 }) {
   const [activeOccurrenceTab, setActiveOccurrenceTab] = useState('busca')
+  const [previewOcorrencia, setPreviewOcorrencia] = useState(null)
+
   const occurrenceTabs = [
     { id: 'busca', label: 'Busca' },
     { id: 'impacto', label: 'Impacto' },
     { id: 'fila', label: 'Fila' },
     { id: 'outlier', label: 'Outliers' },
-    { id: 'gold', label: 'Gold' },
     { id: 'modulos', label: 'Como resolver' },
   ]
+
+  const handleOpenPreview = (num) => {
+    if (!num) return
+    setPreviewOcorrencia(num)
+  }
 
   return (
     <>
       <PageHero
         title="Ocorrências"
-        description="Bancada de investigação para localizar a ocorrência, entender a falha provável, conferir Gold e registrar a correção com evidência."
+        description="Bancada de investigação para localizar a ocorrência, entender a falha provável e registrar a correção com evidência."
       />
 
       <section className="occurrence-workflow">
         <span><strong>1</strong><small>Localizar ocorrência, UC ou interrupção.</small></span>
         <span><strong>2</strong><small>Escolher lente: impacto, fila, outlier ou módulo.</small></span>
-        <span><strong>3</strong><small>Conferir Gold e registrar decisão no detalhe.</small></span>
+        <span><strong>3</strong><small>Conferir dados e registrar decisão no detalhe.</small></span>
       </section>
 
       <nav className="admin-tabs occurrence-tabs" aria-label="Seções da página de ocorrências">
@@ -4415,24 +4467,31 @@ function OcorrenciasPage({
 
       <section className="occurrence-tab-panel">
         {activeOccurrenceTab === 'busca' && (
-          <FilaPreview anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
+          <FilaPreview anomes={resumo.anomes} token={token} onOpenOccurrence={handleOpenPreview} />
         )}
         {activeOccurrenceTab === 'impacto' && (
-          <AnaliseImpactoPanel anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
+          <AnaliseImpactoPanel anomes={resumo.anomes} token={token} onOpenOccurrence={handleOpenPreview} />
         )}
         {activeOccurrenceTab === 'fila' && (
-          <FilaPage fila={fila} resumo={resumo} onOpenOccurrence={onOpenOccurrence} embedded />
+          <FilaPage fila={fila} resumo={resumo} onOpenOccurrence={handleOpenPreview} embedded />
         )}
         {activeOccurrenceTab === 'outlier' && (
-          <OutlierAnomaliaPanel token={token} onOpenOccurrence={onOpenOccurrence} />
-        )}
-        {activeOccurrenceTab === 'gold' && (
-          <GoldExplorerPanel anomes={resumo.anomes} token={token} onOpenOccurrence={onOpenOccurrence} />
+          <OutlierAnomaliaPanel token={token} onOpenOccurrence={handleOpenPreview} />
         )}
         {activeOccurrenceTab === 'modulos' && (
-          <ModulosOcorrenciaPanel anomalias={anomalias} modulos={modulos} fila={fila} token={token} onOpenOccurrence={onOpenOccurrence} />
+          <ModulosOcorrenciaPanel anomalias={anomalias} modulos={modulos} fila={fila} token={token} onOpenOccurrence={handleOpenPreview} />
         )}
       </section>
+
+      {previewOcorrencia && (
+        <OccurrencePreviewModal
+          numOcorrencia={previewOcorrencia}
+          token={token}
+          anomes={resumo?.anomes}
+          onClose={() => setPreviewOcorrencia(null)}
+          onOpenOccurrence={onOpenOccurrence}
+        />
+      )}
     </>
   )
 }

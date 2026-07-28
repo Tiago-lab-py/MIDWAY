@@ -12,7 +12,7 @@ from sqlalchemy import text
 from midway.db.postgres import create_postgres_engine, get_config
 
 CREATED_BY = "gerador_v7_raw_silver_gold"
-PAGE_LIMIT_PER_RULE = 80
+PAGE_LIMIT_PER_RULE = 10000
 
 
 def stable_uuid(value: str) -> str:
