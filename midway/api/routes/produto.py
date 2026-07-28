@@ -2151,7 +2151,7 @@ def _build_cockpit(user: AuthUser, limite: int) -> dict[str, object]:
             _metric_card("fic_liquido", "FIC líquido", ci_liquido, "qtd", "Soma de CI líquido na base de apuração UC.", "regulatoria"),
             _metric_card("dec_liquido", "DEC líquido estimado", dec_liquido, "hora/cons", "CHI líquido dividido pelo denominador COPEL quando disponível.", "regulatoria"),
             _metric_card("fec_liquido", "FEC líquido estimado", fec_liquido, "freq/cons", "CI líquido dividido pelo denominador COPEL quando disponível.", "regulatoria"),
-            _metric_card("comp_total_prodist", "Compensação PRODIST", ressarcimento.get("comp_total_prodist"), "BRL", "Soma única por UC em gold_ressarcimento_prodist.", "regulatoria"),
+            _metric_card("comp_total_prodist", "Compensação PRODIST", ressarcimento.get("comp_total_prodist"), "BRL", "Soma única por UC do maior (DIC, FIC ou DMIC) + DICRI + DISE.", "regulatoria"),
             _metric_card("duracao_suspeita", "Duração suspeita", base.get("linhas_duracao_suspeita"), "qtd", "Linhas UC com duração maior ou igual a 24h.", "cliente_operacao"),
         ]
 

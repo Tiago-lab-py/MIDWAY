@@ -62,14 +62,21 @@ def list_pos_operacao_queue(limit: int = 10000) -> list[dict[str, object]]:
                 reclamacao_select = "COALESCE(rec.QTD_RECLAMACOES, 0) AS QTD_RECLAMACOES,"
 
             prodist_join = ""
-            prodist_join = ""
             prodist_select = "0 AS RESSARCIMENTO,"
             if has_prodist:
-                prodist_join = """
+                prodist_cols = [c[1].upper() for c in con.execute("PRAGMA table_info('gold_ressarcimento_prodist')").fetchall()]
+                has_comp_detail = all(col in prodist_cols for col in ["COMP_DIC", "COMP_FIC", "COMP_DMIC", "COMP_DICRI", "COMP_DISE"])
+                
+                if has_comp_detail:
+                    ressarc_calc = "GREATEST(COALESCE(r.COMP_DIC, 0), COALESCE(r.COMP_FIC, 0), COALESCE(r.COMP_DMIC, 0)) + COALESCE(r.COMP_DICRI, 0) + COALESCE(r.COMP_DISE, 0)"
+                else:
+                    ressarc_calc = "COALESCE(r.COMP_TOTAL_PRODIST, 0)"
+
+                prodist_join = f"""
                 LEFT JOIN (
                     SELECT
                         TRIM(CAST(r.NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
-                        SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS RESSARCIMENTO
+                        SUM({ressarc_calc}) AS RESSARCIMENTO
                     FROM gold_ressarcimento_prodist r
                     WHERE NULLIF(TRIM(CAST(r.NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
                     GROUP BY 1
@@ -141,6 +148,8 @@ def list_pos_operacao_queue(limit: int = 10000) -> list[dict[str, object]]:
                 item['prioridade'] = 'Alta' if item.get('verif_pos') == 'Não' else 'Normal'
                 item['score_impacto'] = float(item.get('chi_liquido') or 0)
                 item['ocorrencia'] = item.get('num_ocorrencia_adms')
+                result.append(item)
+
             if result:
                 return result
     except Exception as err:
