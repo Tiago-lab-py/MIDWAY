@@ -17,12 +17,10 @@ def list_pos_operacao_queue(limit: int = 10000) -> list[dict[str, object]]:
     load_dotenv()
     anomes = os.getenv("ANOMES", "202607")
     processed_path = Path(os.getenv("MIDWAY_PROCESSED_DUCKDB_PATH", f"data/processed/iqs_adms_processed_{anomes}.duckdb"))
-    if not processed_path.exists():
-        fallback_path = Path(f"data/processed/iqs_adms_processed_202606.duckdb")
+    if not processed_path.exists() or "gold_interrupcao_tratada" not in [row[0] for row in duckdb.connect(str(processed_path), read_only=True).execute("SHOW TABLES").fetchall()]:
+        fallback_path = Path("data/processed/iqs_adms_processed_202606.duckdb")
         if fallback_path.exists():
             processed_path = fallback_path
-        else:
-            return []
 
     try:
         with duckdb.connect(str(processed_path), read_only=True) as con:
@@ -64,19 +62,37 @@ def list_pos_operacao_queue(limit: int = 10000) -> list[dict[str, object]]:
                 reclamacao_select = "COALESCE(rec.QTD_RECLAMACOES, 0) AS QTD_RECLAMACOES,"
 
             prodist_join = ""
+            prodist_join = ""
             prodist_select = "0 AS RESSARCIMENTO,"
             if has_prodist:
                 prodist_join = """
                 LEFT JOIN (
                     SELECT
-                        TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
-                        SUM(COALESCE(COMP_TOTAL_PRODIST, 0)) AS RESSARCIMENTO
-                    FROM gold_ressarcimento_prodist
-                    WHERE NULLIF(TRIM(CAST(NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
+                        TRIM(CAST(r.NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
+                        SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS RESSARCIMENTO
+                    FROM gold_ressarcimento_prodist r
+                    WHERE NULLIF(TRIM(CAST(r.NUM_OCORRENCIA_ADMS AS VARCHAR)), '') IS NOT NULL
                     GROUP BY 1
                 ) res ON res.NUM_OCORRENCIA_ADMS = b.NUM_OCORRENCIA_ADMS
                 """
                 prodist_select = "COALESCE(res.RESSARCIMENTO, 0) AS RESSARCIMENTO,"
+
+            cols_interrupcao = [c[1].upper() for c in con.execute("PRAGMA table_info('gold_interrupcao_tratada')").fetchall()]
+            has_pos_col = "VALID_POS_OPERACAO" in cols_interrupcao
+            has_inicio_uc = "DTHR_INICIO_INTRP_UC" in cols_interrupcao
+
+            inicio_col = "i.DTHR_INICIO_INTRP_UC" if has_inicio_uc else "i.DATA_HORA_INIC_INTRP" if "DATA_HORA_INIC_INTRP" in cols_interrupcao else "i.DTHR_INICIO_INTRP" if "DTHR_INICIO_INTRP" in cols_interrupcao else "i.INICIO"
+
+            pos_expr = "MAX(CASE WHEN UPPER(TRIM(CAST(i.VALID_POS_OPERACAO AS VARCHAR))) IN ('S', 'SIM', '1', 'TRUE', 'VÁLIDO', 'VALIDO') THEN 'Sim' ELSE 'Não' END)"
+            if not has_pos_col:
+                if "gold_apuracao_uc" in tables:
+                    cols_apuracao = [c[1].upper() for c in con.execute("PRAGMA table_info('gold_apuracao_uc')").fetchall()]
+                    if "VALID_POS_OPERACAO" in cols_apuracao:
+                        pos_expr = "COALESCE((SELECT MAX(CASE WHEN UPPER(TRIM(CAST(a.VALID_POS_OPERACAO AS VARCHAR))) IN ('S', 'SIM', '1', 'TRUE', 'VÁLIDO', 'VALIDO') THEN 'Sim' ELSE 'Não' END) FROM gold_apuracao_uc a WHERE TRIM(CAST(a.NUM_OCORRENCIA_ADMS AS VARCHAR)) = TRIM(CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR))), 'Não')"
+                    else:
+                        pos_expr = "'Não'"
+                else:
+                    pos_expr = "'Não'"
 
             query = f"""
             WITH base AS (
@@ -84,15 +100,11 @@ def list_pos_operacao_queue(limit: int = 10000) -> list[dict[str, object]]:
                     TRIM(CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR)) AS NUM_OCORRENCIA_ADMS,
                     MAX(TRIM(CAST(i.SIGLA_REGIONAL AS VARCHAR))) AS REGIONAL_RAW,
                     MAX(TRIM(CAST(i.COD_CONJTO_ELET_ANEEL_INTRP AS VARCHAR))) AS CONJUNTO,
-                    MAX(CASE
-                        WHEN UPPER(TRIM(CAST(i.VALID_POS_OPERACAO AS VARCHAR))) IN ('S', 'SIM', '1', 'TRUE', 'VÁLIDO', 'VALIDO')
-                        THEN 'Sim'
-                        ELSE 'Não'
-                    END) AS VERIF_POS,
+                    {pos_expr} AS VERIF_POS,
                     COUNT(DISTINCT NULLIF(TRIM(CAST(i.NUM_SEQ_INTRP AS VARCHAR)), '')) AS QTD_SERVICOS,
                     COUNT(DISTINCT NULLIF(TRIM(CAST(i.NUM_UC_UCI AS VARCHAR)), '')) AS QUANT_UC,
-                    MAX(COALESCE(DATE_DIFF('second', i.DTHR_INICIO_INTRP_UC, i.DATA_HORA_FIM_INTRP)/3600.0, 0)) AS DURACAO_HORAS,
-                    SUM(COALESCE(DATE_DIFF('second', i.DTHR_INICIO_INTRP_UC, i.DATA_HORA_FIM_INTRP)/3600.0, 0)) AS CHI_LIQUIDO,
+                    MAX(COALESCE(DATE_DIFF('second', TRY_CAST({inicio_col} AS TIMESTAMP), TRY_CAST(i.DATA_HORA_FIM_INTRP AS TIMESTAMP))/3600.0, 0)) AS DURACAO_HORAS,
+                    SUM(COALESCE(DATE_DIFF('second', TRY_CAST({inicio_col} AS TIMESTAMP), TRY_CAST(i.DATA_HORA_FIM_INTRP AS TIMESTAMP))/3600.0, 0)) AS CHI_LIQUIDO,
                     {uc_expr} AS UC
                 FROM gold_interrupcao_tratada i
                 {vrc_join}
@@ -129,11 +141,49 @@ def list_pos_operacao_queue(limit: int = 10000) -> list[dict[str, object]]:
                 item['prioridade'] = 'Alta' if item.get('verif_pos') == 'Não' else 'Normal'
                 item['score_impacto'] = float(item.get('chi_liquido') or 0)
                 item['ocorrencia'] = item.get('num_ocorrencia_adms')
-                result.append(item)
-
-            return result
+            if result:
+                return result
     except Exception as err:
         print(f"Erro ao listar fila pos operacao: {err}")
+
+    return _fallback_from_outliers(limit=limit)
+
+
+def _fallback_from_outliers(limit: int = 10000) -> list[dict[str, object]]:
+    try:
+        outliers = list_outliers_raw(limit=limit)
+        result = []
+        for item in outliers:
+            impacto = item.get('impacto') if isinstance(item.get('impacto'), dict) else {}
+            valid_pos = str(item.get('valid_pos_operacao') or impacto.get('valid_pos_operacao') or '').strip().upper()
+            verif_pos = 'Sim' if valid_pos in ('S', 'SIM', '1', 'TRUE') else 'Não'
+
+            ocorrencia_val = str(item.get('ocorrencia') or item.get('registro_id') or '—')
+            chi_val = float(impacto.get('chi_liquido') or item.get('impacto_dec') or 0)
+            ressarc_val = float(impacto.get('ressarcimento_estimado') or item.get('impacto_ressarcimento') or 0)
+            duracao_val = float(impacto.get('duracao_maxima') or item.get('duracao_max_hora') or 0)
+            uc_cnt = int(impacto.get('quant_uc') or item.get('ci_liquido') or 1)
+
+            result.append({
+                'num_ocorrencia_adms': ocorrencia_val,
+                'ocorrencia': ocorrencia_val,
+                'regional': _map_regional(item.get('regional')),
+                'conjunto': str(item.get('conjunto') or '—'),
+                'uc': str(item.get('uc') or '—'),
+                'verif_pos': verif_pos,
+                'qtd_servicos': int(impacto.get('qtd_servicos') or (1 if item.get('interrupcao') else 1)),
+                'qtd_reclamacoes': int(impacto.get('qtd_reclamacoes') or 0),
+                'chi_liquido': chi_val,
+                'ressarcimento': ressarc_val,
+                'duracao_maxima': duracao_val,
+                'quant_uc': uc_cnt,
+                'status_fila': 'Tratada Pós' if verif_pos == 'Sim' else 'Pendente Pós',
+                'prioridade': 'Alta' if verif_pos == 'Não' else 'Normal',
+                'score_impacto': chi_val,
+            })
+        return result
+    except Exception as err:
+        print(f"Erro no fallback de outliers: {err}")
         return []
 
 V7_TABLES = {

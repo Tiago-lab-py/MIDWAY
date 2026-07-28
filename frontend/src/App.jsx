@@ -3605,15 +3605,10 @@ function FilaTable({ fila, onOpenOccurrence }) {
   )
 }
 
-function FilaPage({ token, resumo, onOpenOccurrence, embedded = false }) {
+function FilaPage({ token, fila = [], resumo = {}, onOpenOccurrence, embedded = false }) {
   const [filaData, setFilaData] = useState([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
-  const [filtros, setFiltros] = useState({
-    busca: '',
-    verif_pos: '',
-    regional: '',
-  })
 
   useEffect(() => {
     async function fetchFila() {
@@ -3624,39 +3619,61 @@ function FilaPage({ token, resumo, onOpenOccurrence, embedded = false }) {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
         const result = await response.json()
-        if (!response.ok) throw new Error(result?.detail || 'Falha ao carregar Fila Pós-Operação.')
-        setFilaData(result || [])
+        if (response.ok && Array.isArray(result) && result.length > 0) {
+          setFilaData(result)
+        } else {
+          // Fallback fetch outliers raw
+          const rawResp = await fetch(`${API_URL}/api/anomalias/outliers/raw`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          })
+          const rawResult = await rawResp.json()
+          if (rawResp.ok && Array.isArray(rawResult) && rawResult.length > 0) {
+            setFilaData(
+              rawResult.map((item) => {
+                const impacto = item.impacto || {}
+                const sim = String(item.valid_pos_operacao || impacto.valid_pos_operacao || '').toUpperCase() === 'S'
+                return {
+                  num_ocorrencia_adms: item.ocorrencia || item.registro_id || '—',
+                  ocorrencia: item.ocorrencia || item.registro_id || '—',
+                  regional: item.regional || '—',
+                  conjunto: item.conjunto || '—',
+                  uc: item.uc || '—',
+                  verif_pos: sim ? 'Sim' : 'Não',
+                  qtd_servicos: 1,
+                  qtd_reclamacoes: impacto.qtd_reclamacoes || 0,
+                  chi_liquido: impacto.chi_liquido || 0,
+                  ressarcimento: impacto.ressarcimento_estimado || 0,
+                  duracao_maxima: impacto.duracao_maxima || 0,
+                  quant_uc: impacto.quant_uc || 1,
+                }
+              })
+            )
+          } else if (Array.isArray(fila) && fila.length > 0) {
+            setFilaData(fila)
+          }
+        }
       } catch (err) {
-        setErro(err.message)
+        if (Array.isArray(fila) && fila.length > 0) {
+          setFilaData(fila)
+        } else {
+          setErro(err.message)
+        }
       } finally {
         setLoading(false)
       }
     }
     fetchFila()
-  }, [token])
+  }, [token, fila])
 
-  const filaFiltrada = useMemo(() => {
-    const busca = filtros.busca.trim().toLowerCase()
-    return filaData.filter((item) => {
-      const texto = [
-        item.num_ocorrencia_adms,
-        item.ocorrencia,
-        item.uc,
-        item.conjunto,
-        item.regional,
-      ].join(' ').toLowerCase()
+  const listaExibicao = useMemo(() => {
+    if (filaData && filaData.length > 0) return filaData
+    if (Array.isArray(fila) && fila.length > 0) return fila
+    return []
+  }, [filaData, fila])
 
-      if (busca && !texto.includes(busca)) return false
-      if (filtros.verif_pos && item.verif_pos !== filtros.verif_pos) return false
-      if (filtros.regional && item.regional !== filtros.regional) return false
-      return true
-    })
-  }, [filaData, filtros])
-
-  const pendentesPos = useMemo(() => filaData.filter((item) => item.verif_pos === 'Não').length, [filaData])
-  const validadosPos = useMemo(() => filaData.filter((item) => item.verif_pos === 'Sim').length, [filaData])
-  const totalRessarcimento = useMemo(() => filaData.reduce((sum, item) => sum + Number(item.ressarcimento || 0), 0), [filaData])
-  const regionais = useMemo(() => [...new Set(filaData.map((item) => item.regional).filter(Boolean))], [filaData])
+  const pendentesPos = useMemo(() => listaExibicao.filter((item) => item.verif_pos === 'Não').length, [listaExibicao])
+  const validadosPos = useMemo(() => listaExibicao.filter((item) => item.verif_pos === 'Sim').length, [listaExibicao])
+  const totalRessarcimento = useMemo(() => listaExibicao.reduce((sum, item) => sum + Number(item.ressarcimento || 0), 0), [listaExibicao])
 
   return (
     <>
@@ -3665,12 +3682,12 @@ function FilaPage({ token, resumo, onOpenOccurrence, embedded = false }) {
           title="Fila Técnica - Pós-Operação"
           description="Demanda de serviço e carga de trabalho pós-operação: ocorrências tratadas vs não tratadas com verificação pós."
           sideLabel="Total Pós"
-          sideValue={numberFormat(filaData.length)}
+          sideValue={numberFormat(listaExibicao.length)}
         />
       )}
 
       <section className="metrics-grid compact" style={{ marginBottom: '1rem' }}>
-        <Card label="Total na Fila Pós" value={numberFormat(filaData.length)} hint="ocorrências apuradas" tone="blue" />
+        <Card label="Total na Fila Pós" value={numberFormat(listaExibicao.length)} hint="ocorrências apuradas" tone="blue" />
         <Card label="Não Tratadas (Pós)" value={numberFormat(pendentesPos)} hint="Verif. Pós = Não" tone="orange" />
         <Card label="Tratadas (Pós)" value={numberFormat(validadosPos)} hint="Verif. Pós = Sim" tone="green" />
         <Card label="Ressarcimento Total" value={currencyFormat(totalRessarcimento)} hint="estimado PRODIST" tone="purple" />
@@ -3680,55 +3697,21 @@ function FilaPage({ token, resumo, onOpenOccurrence, embedded = false }) {
         <div className="panel-title">
           <div>
             <h2>Demanda de Serviço Pós-Operação</h2>
-            <p>Triagem de ocorrências tratadas (`interrupcao_tratada`) com status de verificação pós-operação, serviços e reclamações.</p>
+            <p>Listagem completa das ocorrências tratadas com status de verificação pós-operação, serviços e reclamações.</p>
           </div>
         </div>
 
         <div className="analysis-summary-strip">
-          <span><strong>{numberFormat(filaFiltrada.length)}</strong> ocorrência(s) exibida(s)</span>
+          <span><strong>{numberFormat(listaExibicao.length)}</strong> ocorrência(s) na lista</span>
           <span><strong>{numberFormat(pendentesPos)}</strong> pendente(s) de verificação pós</span>
           <span><strong>{numberFormat(validadosPos)}</strong> validada(s) pós</span>
-        </div>
-
-        <div className="analysis-filter-grid occurrence-filter-grid">
-          <label>
-            Busca rápida
-            <input 
-              value={filtros.busca} 
-              onChange={(event) => setFiltros((current) => ({ ...current, busca: event.target.value }))} 
-              placeholder="Ocorrência, UC, conjunto, regional..." 
-            />
-          </label>
-          <label>
-            Verificação Pós
-            <select 
-              value={filtros.verif_pos} 
-              onChange={(event) => setFiltros((current) => ({ ...current, verif_pos: event.target.value }))}
-            >
-              <option value="">Todas (Tratadas e Não Tratadas)</option>
-              <option value="Não">Não (Pendente Pós)</option>
-              <option value="Sim">Sim (Validada Pós)</option>
-            </select>
-          </label>
-          <label>
-            Regional
-            <select 
-              value={filtros.regional} 
-              onChange={(event) => setFiltros((current) => ({ ...current, regional: event.target.value }))}
-            >
-              <option value="">Todas as Regionais</option>
-              {regionais.map((reg) => (
-                <option key={reg} value={reg}>{reg}</option>
-              ))}
-            </select>
-          </label>
         </div>
 
         {loading && <div className="alert">Carregando Demanda de Serviço Pós-Operação...</div>}
         {erro && <div className="alert alert-danger">Erro: {erro}</div>}
 
-        {!loading && !erro && (
-          <FilaTable fila={filaFiltrada} onOpenOccurrence={onOpenOccurrence} />
+        {!loading && (
+          <FilaTable fila={listaExibicao} onOpenOccurrence={onOpenOccurrence} />
         )}
       </section>
     </>
@@ -4511,7 +4494,7 @@ function OcorrenciasPage({
           <AnaliseImpactoPanel anomes={resumo.anomes} token={token} onOpenOccurrence={handleOpenPreview} />
         )}
         {activeOccurrenceTab === 'fila' && (
-          <FilaPage fila={fila} resumo={resumo} onOpenOccurrence={handleOpenPreview} embedded />
+          <FilaPage token={token} fila={fila} resumo={resumo} onOpenOccurrence={handleOpenPreview} embedded />
         )}
         {activeOccurrenceTab === 'outlier' && (
           <OutlierAnomaliaPanel token={token} onOpenOccurrence={handleOpenPreview} />
