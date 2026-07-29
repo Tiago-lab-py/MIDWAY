@@ -439,18 +439,23 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                         if 'QTD_SERVICOS_y' in df_resumo_ocorrencia.columns:
                             df_resumo_ocorrencia['QTD_SERVICOS'] = df_resumo_ocorrencia['QTD_SERVICOS_y'].fillna(df_resumo_ocorrencia['QTD_SERVICOS_x']).fillna(0)
                             df_resumo_ocorrencia = df_resumo_ocorrencia.drop(columns=['QTD_SERVICOS_x', 'QTD_SERVICOS_y'])
-                        
+                if "gold_geo_chaves_ra" in tables and 'NUM_OPER_CHVP' in df_resumo_ocorrencia.columns:
+                    df_geo_ra = duck_conn.execute("""
+                        SELECT DISTINCT CAST(NUM_OPER_CHVP AS VARCHAR) AS NUM_OPER_CHVP,
+                               'SIM' AS RA_GEO
+                        FROM gold_geo_chaves_ra
+                    """).df()
+                    # Garante que a coluna base de merge e string
+                    df_resumo_ocorrencia['NUM_OPER_CHVP'] = df_resumo_ocorrencia['NUM_OPER_CHVP'].astype(str)
+                    df_resumo_ocorrencia = df_resumo_ocorrencia.merge(df_geo_ra, on='NUM_OPER_CHVP', how='left')
+                    df_resumo_ocorrencia['RA_1_UC'] = df_resumo_ocorrencia['RA_GEO'].fillna('NAO')
+                    df_resumo_ocorrencia = df_resumo_ocorrencia.drop(columns=['RA_GEO'])
+                else:
+                    df_resumo_ocorrencia['RA_1_UC'] = 'NAO'
+                    
             duck_conn.close()
             
-            # Recalculate RA_1_UC here since we now have TIPO_CHV!
-            if 'TIPO_CHV' in df_resumo_ocorrencia.columns:
-                df_resumo_ocorrencia['RA_1_UC'] = np.where(
-                    (df_resumo_ocorrencia['TIPO_CHV'].astype(str).str.strip().str.upper() == 'RA') & 
-                    (df_resumo_ocorrencia['TOTAL_UCS'] == 1),
-                    'SIM', 'NAO'
-                )
-            else:
-                df_resumo_ocorrencia['RA_1_UC'] = 'NAO'
+            # Removida logica errada do TIPO_CHV, pois o filtro real e do GEO (realizado acima)
                 
             df_resumo_ocorrencia['QTD_RECLAMACOES'] = df_resumo_ocorrencia.get('QTD_RECLAMACOES', pd.Series([0]*len(df_resumo_ocorrencia))).fillna(0).astype(int)
             df_resumo_ocorrencia['QTD_SERVICOS'] = df_resumo_ocorrencia.get('QTD_SERVICOS', pd.Series([0]*len(df_resumo_ocorrencia))).fillna(0).astype(int)
