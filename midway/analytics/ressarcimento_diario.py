@@ -419,7 +419,23 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     except Exception as e:
         print(f"Aviso: erro ao buscar reclamacoes/servicos no DuckDB: {e}")
 
-    df_resumo_ocorrencia = df_resumo_ocorrencia.sort_values(by='RISCO_TOTAL_ESTIMADO', ascending=False)
+    # Arredondamentos e criação de DURACAO_OCORRENCIA_HORA
+    df_resumo_ocorrencia['DURACAO_OCORRENCIA_MIN'] = df_resumo_ocorrencia['DURACAO_OCORRENCIA_MIN'].round(2)
+    df_resumo_ocorrencia['DURACAO_OCORRENCIA_HORA'] = (df_resumo_ocorrencia['DURACAO_OCORRENCIA_MIN'] / 60.0).round(2)
+    df_resumo_ocorrencia['RISCO_TOTAL_ESTIMADO'] = df_resumo_ocorrencia['RISCO_TOTAL_ESTIMADO'].round(2)
+
+    cols_resumo = [
+        'NUM_OCORRENCIA_ADMS', 'DURACAO_OCORRENCIA_MIN', 'DURACAO_OCORRENCIA_HORA',
+        'QTD_UCS_VIOLADAS', 'QTD_RECLAMACOES', 'QTD_SERVICOS', 'RISCO_TOTAL_ESTIMADO'
+    ]
+    cols_resumo_existentes = [c for c in cols_resumo if c in df_resumo_ocorrencia.columns]
+    df_resumo_ocorrencia = df_resumo_ocorrencia[cols_resumo_existentes].sort_values(by='RISCO_TOTAL_ESTIMADO', ascending=False)
+
+    # Arredondamentos da aba detalhe (df_violadas)
+    num_cols_violadas = ['DIC_ACUMULADO', 'FIC_ACUMULADO', 'DMIC_ACUMULADO', 'META_DIC', 'META_FIC', 'META_DMIC', 'VRC', 'RISCO_R$']
+    for c in num_cols_violadas:
+        if c in df_violadas.columns:
+            df_violadas[c] = pd.to_numeric(df_violadas[c], errors='ignore').round(2)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     arquivo_saida = os.path.join(pasta_destino, f"Relatorio_Ressarcimento_Preventivo_{ANOMES}_{timestamp}.xlsx")
