@@ -398,7 +398,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                     df_chv = duck_conn.execute("""
                         SELECT CAST(t.NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
                                FIRST(t.NUM_OPER_CHV_INTRP) AS NUM_OPER_CHVP,
-                               FIRST(t.TIPO_CHV_INTRP) AS TIPO_CHV
+                               FIRST(t.TIPO_CHV_INTRP) AS TIPO_CHV,
+                               FIRST(t.VALID_POS_OPERACAO) AS VALID_POS_OPERACAO
                         FROM gold_interrupcao_tratada t
                         JOIN tmp_ocorrencias tmp ON CAST(t.NUM_OCORRENCIA_ADMS AS VARCHAR) = tmp.NUM_OCORRENCIA_ADMS
                         GROUP BY CAST(t.NUM_OCORRENCIA_ADMS AS VARCHAR)
@@ -408,6 +409,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                 else:
                     df_resumo_ocorrencia['NUM_OPER_CHVP'] = None
                     df_resumo_ocorrencia['TIPO_CHV'] = None
+                    df_resumo_ocorrencia['VALID_POS_OPERACAO'] = None
                 
                 if "gold_reclamacao_ocorrencia_resumo" in tables:
                     df_rec = duck_conn.execute("""
@@ -462,8 +464,9 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_resumo_ocorrencia['RISCO_TOTAL_ESTIMADO'] = df_resumo_ocorrencia['RISCO_TOTAL_ESTIMADO'].round(2)
 
     cols_resumo = [
-        'NUM_OCORRENCIA_ADMS', 'NUM_OPER_CHVP', 'RA_1_UC', 'DURACAO_OCORRENCIA_MIN', 'DURACAO_OCORRENCIA_HORA',
-        'TOTAL_UCS', 'QTD_UCS_VIOLADAS', 'QTD_RECLAMACOES', 'QTD_SERVICOS', 'RISCO_TOTAL_ESTIMADO'
+        'NUM_OCORRENCIA_ADMS', 'NUM_OPER_CHVP', 'RA_1_UC', 'VALID_POS_OPERACAO', 
+        'DURACAO_OCORRENCIA_MIN', 'DURACAO_OCORRENCIA_HORA', 'TOTAL_UCS', 
+        'QTD_UCS_VIOLADAS', 'QTD_RECLAMACOES', 'QTD_SERVICOS', 'RISCO_TOTAL_ESTIMADO'
     ]
     cols_resumo_existentes = [c for c in cols_resumo if c in df_resumo_ocorrencia.columns]
     df_resumo_ocorrencia = df_resumo_ocorrencia[cols_resumo_existentes].sort_values(by='RISCO_TOTAL_ESTIMADO', ascending=False)
@@ -493,6 +496,18 @@ def gerar_ressarcimento_diario(pasta_destino: str):
         with pd.ExcelWriter(arquivo_saida, engine='openpyxl') as writer:
             df_resumo_ocorrencia.to_excel(writer, sheet_name='Ocorrencias_Prioritarias', index=False)
             df_violadas_export.to_excel(writer, sheet_name='UCs_Violadas_Detalhe', index=False)
+            
+        import shutil
+        pasta_rede = r"Y:\VDSED\dados_pos\ressarcimento"
+        try:
+            if not os.path.exists(pasta_rede):
+                os.makedirs(pasta_rede, exist_ok=True)
+            arquivo_rede = os.path.join(pasta_rede, os.path.basename(arquivo_saida))
+            shutil.copy2(arquivo_saida, arquivo_rede)
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Cópia de rede enviada com sucesso para: {arquivo_rede}")
+        except Exception as e_rede:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] AVISO: Não foi possível copiar para a rede ({pasta_rede}): {e_rede}")
+            
     except Exception as e:
         print(f"Erro ao gerar Excel: {e}")
         try:
