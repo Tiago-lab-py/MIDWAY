@@ -53,4 +53,4 @@ echo.
 echo =========================================================================
 echo ATUALIZACAO COMPLETA DAS BASES RAW E PROCESSED CONCLUIDA COM SUCESSO!
 echo =========================================================================
-pause
+:: pause

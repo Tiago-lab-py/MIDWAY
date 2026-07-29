@@ -48,4 +48,4 @@ echo ROTINA FINALIZADA COM SUCESSO!
 echo ========================================================
 :: Se for colocar no agendador de tarefas e quiser que a janela feche sozinha,
 :: basta apagar ou colocar "::" na frente do comando pause abaixo:
-pause
+:: pause
