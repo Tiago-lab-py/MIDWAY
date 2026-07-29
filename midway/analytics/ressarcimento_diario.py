@@ -87,13 +87,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                         CAST(a.NUM_UC_UCI AS VARCHAR) AS UC,
                         a.DATA_HORA_INIC_INTRP AS DATA_REGISTRO,
                         COALESCE(a.DURACAO_HORA, 0) * 60 AS DURACAO_MIN,
-                        1 AS FREQUENCIA,
-                        t.NUM_OPER_CHV_INTRP,
-                        t.TIPO_CHV_INTRP
+                        1 AS FREQUENCIA
                     FROM gold_apuracao_uc a
-                    LEFT JOIN gold_interrupcao_tratada t 
-                      ON TRIM(CAST(a.NUM_SEQ_INTRP AS VARCHAR)) = TRIM(CAST(t.NUM_SEQ_INTRP AS VARCHAR))
-                     AND NULLIF(TRIM(CAST(a.NUM_SEQ_INTRP AS VARCHAR)), '') IS NOT NULL
                     WHERE a.NUM_UC_UCI IS NOT NULL
                       AND COALESCE(a.DURACAO_HORA, 0) * 60 >= 3.0
                       AND COALESCE(TRIM(CAST(a.TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), '0') IN ('0', '0.0', '')
@@ -126,9 +121,7 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             NUM_UC_UCI_CHVP_HIADMS AS UC,
             DTHR_INC_REGIS_HIADMS AS DATA_REGISTRO,
             (DATA_HORA_FIM_INTRP_ULT_HIADMS - DATA_HORA_INIC_INTRP_ULT_HIADMS) * 24 * 60 AS DURACAO_MIN,
-            1 AS FREQUENCIA,
-            NULLIF(TRIM(NUM_OPER_CHVP_INTRP_PRIM_HIADMS), '') AS NUM_OPER_CHV_INTRP,
-            NULLIF(TRIM(TIPO_CHV_INTRP_PRIM_HIADMS), '') AS TIPO_CHV_INTRP
+            1 AS FREQUENCIA
         FROM IQS.HIST_INTEGRACAO_ADMS
         WHERE DTHR_INC_REGIS_HIADMS >= TO_DATE(:anomes || '01', 'YYYYMMDD')
           AND DTHR_INC_REGIS_HIADMS < ADD_MONTHS(TO_DATE(:anomes || '01', 'YYYYMMDD'), 1)
@@ -374,18 +367,13 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     ).reset_index()
 
     df_totais_ocorrencia = df_intrp.groupby('NUM_OCORRENCIA_ADMS').agg(
-        TOTAL_UCS=('UC', 'nunique'),
-        NUM_OPER_CHVP=('NUM_OPER_CHV_INTRP', 'first'),
-        TIPO_CHV=('TIPO_CHV_INTRP', 'first')
+        TOTAL_UCS=('UC', 'nunique')
     ).reset_index()
 
     df_resumo_ocorrencia = df_resumo_ocorrencia.merge(df_totais_ocorrencia, on='NUM_OCORRENCIA_ADMS', how='left')
     
-    df_resumo_ocorrencia['RA_1_UC'] = np.where(
-        (df_resumo_ocorrencia['TIPO_CHV'].astype(str).str.strip().str.upper() == 'RA') & 
-        (df_resumo_ocorrencia['TOTAL_UCS'] == 1),
-        'SIM', 'NAO'
-    )
+    # TIPO_CHV and RA_1_UC are calculated later in duckdb block!
+    # df_resumo_ocorrencia['RA_1_UC'] ...
 
     df_resumo_ocorrencia = df_resumo_ocorrencia[df_resumo_ocorrencia['DURACAO_OCORRENCIA_MIN'] >= 3.0].copy()
 
@@ -403,14 +391,32 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             
             ocorrencias_list = df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'].dropna().astype(str).unique().tolist()
             if ocorrencias_list:
-                ocorrencias_tup = tuple(ocorrencias_list)
-                if len(ocorrencias_tup) == 1:
-                    ocorrencias_tup = f"('{ocorrencias_tup[0]}')"
+                duck_conn.register("tmp_ocorrencias", pd.DataFrame({'NUM_OCORRENCIA_ADMS': ocorrencias_list}))
+                
+                # Fetch TIPO_CHV and NUM_OPER_CHVP using JOIN instead of loading them in the main 5M row query
+                if "gold_interrupcao_tratada" in tables:
+                    df_chv = duck_conn.execute("""
+                        SELECT CAST(t.NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS,
+                               FIRST(t.NUM_OPER_CHV_INTRP) AS NUM_OPER_CHVP,
+                               FIRST(t.TIPO_CHV_INTRP) AS TIPO_CHV
+                        FROM gold_interrupcao_tratada t
+                        JOIN tmp_ocorrencias tmp ON CAST(t.NUM_OCORRENCIA_ADMS AS VARCHAR) = tmp.NUM_OCORRENCIA_ADMS
+                        GROUP BY CAST(t.NUM_OCORRENCIA_ADMS AS VARCHAR)
+                    """).df()
+                    df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'] = df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'].astype(str)
+                    df_resumo_ocorrencia = df_resumo_ocorrencia.merge(df_chv, on='NUM_OCORRENCIA_ADMS', how='left')
+                else:
+                    df_resumo_ocorrencia['NUM_OPER_CHVP'] = None
+                    df_resumo_ocorrencia['TIPO_CHV'] = None
                 
                 if "gold_reclamacao_ocorrencia_resumo" in tables:
-                    df_rec = duck_conn.execute(f"SELECT CAST(NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS, QTD_RECLAMACOES FROM gold_reclamacao_ocorrencia_resumo WHERE CAST(NUM_OCORRENCIA_ADMS AS VARCHAR) IN {ocorrencias_tup}").df()
+                    df_rec = duck_conn.execute("""
+                        SELECT CAST(r.NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS, 
+                               r.QTD_RECLAMACOES 
+                        FROM gold_reclamacao_ocorrencia_resumo r 
+                        JOIN tmp_ocorrencias tmp ON CAST(r.NUM_OCORRENCIA_ADMS AS VARCHAR) = tmp.NUM_OCORRENCIA_ADMS
+                    """).df()
                     if not df_rec.empty:
-                        df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'] = df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'].astype(str)
                         df_resumo_ocorrencia = df_resumo_ocorrencia.merge(df_rec, on='NUM_OCORRENCIA_ADMS', how='left')
                         if 'QTD_RECLAMACOES_y' in df_resumo_ocorrencia.columns:
                             df_resumo_ocorrencia['QTD_RECLAMACOES'] = df_resumo_ocorrencia['QTD_RECLAMACOES_y'].fillna(df_resumo_ocorrencia['QTD_RECLAMACOES_x']).fillna(0)
@@ -418,24 +424,34 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                 
                 if os.path.exists(serv_path) and "gold_interrupcao_tratada" in tables:
                     duck_conn.execute(f"ATTACH '{serv_path}' AS serv_raw (READ_ONLY)")
-                    query_serv = f"""
+                    query_serv = """
                         SELECT CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS, COUNT(DISTINCT s.PID_INTRP_SRVE) AS QTD_SERVICOS
                         FROM gold_interrupcao_tratada i
+                        JOIN tmp_ocorrencias tmp ON CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR) = tmp.NUM_OCORRENCIA_ADMS
                         JOIN serv_raw.raw_adms_servicos s ON TRIM(CAST(i.NUM_SEQ_INTRP AS VARCHAR)) = TRIM(CAST(s.PID_INTRP_SRVE AS VARCHAR))
-                        WHERE CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR) IN {ocorrencias_tup}
-                        GROUP BY i.NUM_OCORRENCIA_ADMS
+                        GROUP BY CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR)
                     """
                     df_serv = duck_conn.execute(query_serv).df()
                     if not df_serv.empty:
-                        df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'] = df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'].astype(str)
                         df_resumo_ocorrencia = df_resumo_ocorrencia.merge(df_serv, on='NUM_OCORRENCIA_ADMS', how='left')
                         if 'QTD_SERVICOS_y' in df_resumo_ocorrencia.columns:
                             df_resumo_ocorrencia['QTD_SERVICOS'] = df_resumo_ocorrencia['QTD_SERVICOS_y'].fillna(df_resumo_ocorrencia['QTD_SERVICOS_x']).fillna(0)
                             df_resumo_ocorrencia = df_resumo_ocorrencia.drop(columns=['QTD_SERVICOS_x', 'QTD_SERVICOS_y'])
                         
             duck_conn.close()
-            df_resumo_ocorrencia['QTD_RECLAMACOES'] = df_resumo_ocorrencia['QTD_RECLAMACOES'].fillna(0).astype(int)
-            df_resumo_ocorrencia['QTD_SERVICOS'] = df_resumo_ocorrencia['QTD_SERVICOS'].fillna(0).astype(int)
+            
+            # Recalculate RA_1_UC here since we now have TIPO_CHV!
+            if 'TIPO_CHV' in df_resumo_ocorrencia.columns:
+                df_resumo_ocorrencia['RA_1_UC'] = np.where(
+                    (df_resumo_ocorrencia['TIPO_CHV'].astype(str).str.strip().str.upper() == 'RA') & 
+                    (df_resumo_ocorrencia['TOTAL_UCS'] == 1),
+                    'SIM', 'NAO'
+                )
+            else:
+                df_resumo_ocorrencia['RA_1_UC'] = 'NAO'
+                
+            df_resumo_ocorrencia['QTD_RECLAMACOES'] = df_resumo_ocorrencia.get('QTD_RECLAMACOES', pd.Series([0]*len(df_resumo_ocorrencia))).fillna(0).astype(int)
+            df_resumo_ocorrencia['QTD_SERVICOS'] = df_resumo_ocorrencia.get('QTD_SERVICOS', pd.Series([0]*len(df_resumo_ocorrencia))).fillna(0).astype(int)
             
     except Exception as e:
         print(f"Aviso: erro ao buscar reclamacoes/servicos no DuckDB: {e}")
@@ -473,8 +489,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_violadas_export = df_violadas[cols_existentes].sort_values(by='RISCO_R$', ascending=False)
 
     try:
-        # Usando xlsxwriter com constant_memory para nao estourar a RAM
-        with pd.ExcelWriter(arquivo_saida, engine='xlsxwriter', engine_kwargs={'options': {'constant_memory': True}}) as writer:
+        # Retornado ao openpyxl pois a causa do OOM era o LEFT JOIN gerando explosao cartesiana!
+        with pd.ExcelWriter(arquivo_saida, engine='openpyxl') as writer:
             df_resumo_ocorrencia.to_excel(writer, sheet_name='Ocorrencias_Prioritarias', index=False)
             df_violadas_export.to_excel(writer, sheet_name='UCs_Violadas_Detalhe', index=False)
     except Exception as e:

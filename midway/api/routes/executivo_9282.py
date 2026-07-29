@@ -119,7 +119,11 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
             else:
                 raise exc
     try:
-        con.execute(f"ATTACH {_sql_literal(raw_path)} AS raw_db (READ_ONLY)")
+        try:
+            con.execute(f"ATTACH {_sql_literal(raw_path)} AS raw_db (READ_ONLY)")
+        except duckdb.BinderException as e:
+            if "already exists" not in str(e):
+                raise
         row = con.execute(
             """
             WITH denominador AS (
