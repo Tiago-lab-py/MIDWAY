@@ -121,6 +121,10 @@ def main():
         logger.info("--- [FASE 4/4] ANALYTICS E PROPOSTAS DE ANOMALIA ---")
         gerar_outliers_uc()
 
+        logger.info("[4.2] Executando Orquestrador de Anomalias...")
+        from midway.modulos.orquestrador import orquestrar
+        orquestrar()
+
         logger.info("=== PIPELINE ETL CONCLUÍDO COM SUCESSO DE PONTA A PONTA ===")
 
     except Exception as e:
