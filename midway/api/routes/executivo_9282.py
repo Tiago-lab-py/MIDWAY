@@ -109,8 +109,8 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
         }
 
     try:
-        with duckdb.connect(str(db_path), read_only=True) as con:
-            con.execute(f"ATTACH {_sql_literal(raw_path)} AS raw_db (READ_ONLY)")
+        con = duckdb.connect(str(db_path), read_only=True)
+        con.execute(f"ATTACH {_sql_literal(raw_path)} AS raw_db (READ_ONLY)")
         row = con.execute(
             """
             WITH denominador AS (
@@ -303,10 +303,38 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
                         AND TRIM(CAST(u.FATURADO AS VARCHAR)) = 'S'
                   )
             ),
+            outros_impactos AS (
+                SELECT
+                    CASE 
+                        WHEN ACAO_REDIREC_MANOBRA_ESTADO_7 = 'REDIRECIONAR_MANOBRA_ESTADO_7' THEN 'Identificadas como Manobra ou Remanejamento'
+                        ELSE 'Outras Classificações 91 (Total/Parcial/Geral)'
+                    END AS tratamento,
+                    COUNT(*) AS ci_bruto_ganho,
+                    SUM(DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0) AS chi_bruto_ganho,
+                    SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0' THEN 1 ELSE 0 END) AS ci_liquido_ganho,
+                    SUM(CASE WHEN TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)) = '0'
+                        THEN DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) / 3600.0 ELSE 0 END) AS chi_liquido_ganho
+                FROM adms_iqs_alterados a
+                WHERE (
+                       ACAO_REDIREC_MANOBRA_ESTADO_7 = 'REDIRECIONAR_MANOBRA_ESTADO_7'
+                       OR (CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR) = '91' AND ACAO_REDIREC_MANOBRA_ESTADO_7 IS NULL)
+                      )
+                  AND TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP) IS NOT NULL
+                  AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) IS NOT NULL
+                  AND TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP) >= TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP)
+                  AND DATE_DIFF('second', TRY_CAST(DTHR_INICIO_INTRP_UC_ORIG AS TIMESTAMP), TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)) >= 180
+                  AND EXISTS (
+                      SELECT 1 FROM gold_uc_fatura u
+                      WHERE TRIM(CAST(u.UC AS VARCHAR)) = TRIM(CAST(a.NUM_UC_UCI AS VARCHAR))
+                        AND TRIM(CAST(u.FATURADO AS VARCHAR)) = 'S'
+                  )
+                GROUP BY 1
+            ),
             impactos AS (
                 SELECT * FROM impacto_total
                 UNION ALL SELECT * FROM impacto_parcial
                 UNION ALL SELECT * FROM impacto_sem_uc
+                UNION ALL SELECT * FROM outros_impactos
             )
             SELECT
                 tratamento,
@@ -495,8 +523,12 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
             "Não faturados ficam fora do DEC/FEC oficial; demais filtros ajudam a explicar "
             "a linha residual, mas não substituem o fechamento validado."
         )
+        con.close()
         return api_row(result)
     except Exception as error:
+        print(f"ERRO DEC-FEC: {error}", flush=True)
+        if 'con' in locals():
+            con.close()
         return {
             "anomes": anomes,
             "denominador_copel": 0,
