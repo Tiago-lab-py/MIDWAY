@@ -531,7 +531,7 @@ if errorlevel 1 (
     echo AVISO: MIDWAY_API_PORT invalido: !MIDWAY_API_PORT_RESOLVIDO!. Usando porta 8000.
     set "MIDWAY_API_PORT_RESOLVIDO=8000"
 )
-"%PYTHON_EXE%" -m uvicorn midway.api.main:app --host 127.0.0.1 --port !MIDWAY_API_PORT_RESOLVIDO! --reload
+"%PYTHON_EXE%" -m uvicorn midway.api.main:app --host 127.0.0.1 --port !MIDWAY_API_PORT_RESOLVIDO! --reload --reload-dir midway
 if errorlevel 1 goto erro
 goto fim
 

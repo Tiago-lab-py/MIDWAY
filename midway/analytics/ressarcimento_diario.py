@@ -76,30 +76,35 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             tabelas = {row[0] for row in duck_conn.execute("SHOW TABLES").fetchall()}
             if "gold_apuracao_uc" in tabelas:
                 cols = {r[0].upper() for r in duck_conn.execute("DESCRIBE gold_apuracao_uc").fetchall()}
-                area_filter = "AND COALESCE(TRIM(CAST(COD_AREA_ELET_INTRP AS VARCHAR)), '') NOT IN ('7', '8', '9')" if "COD_AREA_ELET_INTRP" in cols else ""
-                posto_filter = "AND COALESCE(TRIM(CAST(INDIC_PROPR_POSTO_INTRP AS VARCHAR)), 'N') <> 'P'" if "INDIC_PROPR_POSTO_INTRP" in cols else ""
-                chvp_filter = "AND COALESCE(TRIM(CAST(INDIC_PROPR_CHVP_INTRP AS VARCHAR)), 'N') <> 'P'" if "INDIC_PROPR_CHVP_INTRP" in cols else ""
-                acess_filter = "AND COALESCE(TRIM(CAST(UC_ACESSANTE AS VARCHAR)), 'N') <> 'S'" if "UC_ACESSANTE" in cols else ""
+                area_filter = "AND COALESCE(TRIM(CAST(a.COD_AREA_ELET_INTRP AS VARCHAR)), '') NOT IN ('7', '8', '9')" if "COD_AREA_ELET_INTRP" in cols else ""
+                posto_filter = "AND COALESCE(TRIM(CAST(a.INDIC_PROPR_POSTO_INTRP AS VARCHAR)), 'N') <> 'P'" if "INDIC_PROPR_POSTO_INTRP" in cols else ""
+                chvp_filter = "AND COALESCE(TRIM(CAST(a.INDIC_PROPR_CHVP_INTRP AS VARCHAR)), 'N') <> 'P'" if "INDIC_PROPR_CHVP_INTRP" in cols else ""
+                acess_filter = "AND COALESCE(TRIM(CAST(a.UC_ACESSANTE AS VARCHAR)), 'N') <> 'S'" if "UC_ACESSANTE" in cols else ""
 
                 df_intrp = duck_conn.execute(f"""
                     SELECT 
-                        NUM_OCORRENCIA_ADMS,
-                        CAST(NUM_UC_UCI AS VARCHAR) AS UC,
-                        DATA_HORA_INIC_INTRP AS DATA_REGISTRO,
-                        COALESCE(DURACAO_HORA, 0) * 60 AS DURACAO_MIN,
-                        1 AS FREQUENCIA
-                    FROM gold_apuracao_uc
-                    WHERE NUM_UC_UCI IS NOT NULL
-                      AND COALESCE(DURACAO_HORA, 0) * 60 >= 3.0
-                      AND COALESCE(TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), '0') IN ('0', '0.0', '')
-                      AND (NUM_MOTIVO_TRAT_DIF_UCI IS NULL OR TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)) IN ('', '0', '0.0', 'NONE', 'NULL'))
-                      AND COALESCE(TRIM(CAST(COD_COMP_INTRP AS VARCHAR)), '') NOT IN ('46', '48', '52', '54')
-                      AND COALESCE(TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('22', '71', '75', '83', '85', '88')
+                        a.NUM_OCORRENCIA_ADMS,
+                        CAST(a.NUM_UC_UCI AS VARCHAR) AS UC,
+                        a.DATA_HORA_INIC_INTRP AS DATA_REGISTRO,
+                        COALESCE(a.DURACAO_HORA, 0) * 60 AS DURACAO_MIN,
+                        1 AS FREQUENCIA,
+                        t.NUM_OPER_CHV_INTRP,
+                        t.TIPO_CHV_INTRP
+                    FROM gold_apuracao_uc a
+                    LEFT JOIN gold_interrupcao_tratada t 
+                      ON TRIM(CAST(a.NUM_SEQ_INTRP AS VARCHAR)) = TRIM(CAST(t.NUM_SEQ_INTRP AS VARCHAR))
+                     AND NULLIF(TRIM(CAST(a.NUM_SEQ_INTRP AS VARCHAR)), '') IS NOT NULL
+                    WHERE a.NUM_UC_UCI IS NOT NULL
+                      AND COALESCE(a.DURACAO_HORA, 0) * 60 >= 3.0
+                      AND COALESCE(TRIM(CAST(a.TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), '0') IN ('0', '0.0', '')
+                      AND (a.NUM_MOTIVO_TRAT_DIF_UCI IS NULL OR TRIM(CAST(a.NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)) IN ('', '0', '0.0', 'NONE', 'NULL'))
+                      AND COALESCE(TRIM(CAST(a.COD_COMP_INTRP AS VARCHAR)), '') NOT IN ('46', '48', '52', '54')
+                      AND COALESCE(TRIM(CAST(a.COD_CAUSA_INTRP AS VARCHAR)), '') NOT IN ('22', '71', '75', '83', '85', '88')
                       {area_filter}
                       {posto_filter}
                       {chvp_filter}
                       {acess_filter}
-                      AND COALESCE(TRIM(CAST(ESTADO_INTRP AS VARCHAR)), '') NOT IN ('7')
+                      AND COALESCE(TRIM(CAST(a.ESTADO_INTRP AS VARCHAR)), '') NOT IN ('7')
                 """).df()
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] Interrupcoes lidas do DuckDB local (filtros COPEL COMP/CAUSA/AREA/ESTADO/POSTO_PART/PTP): {len(df_intrp)} registros.")
             duck_conn.close()
@@ -121,7 +126,9 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             NUM_UC_UCI_CHVP_HIADMS AS UC,
             DTHR_INC_REGIS_HIADMS AS DATA_REGISTRO,
             (DATA_HORA_FIM_INTRP_ULT_HIADMS - DATA_HORA_INIC_INTRP_ULT_HIADMS) * 24 * 60 AS DURACAO_MIN,
-            1 AS FREQUENCIA
+            1 AS FREQUENCIA,
+            NULLIF(TRIM(NUM_OPER_CHVP_INTRP_PRIM_HIADMS), '') AS NUM_OPER_CHV_INTRP,
+            NULLIF(TRIM(TIPO_CHV_INTRP_PRIM_HIADMS), '') AS TIPO_CHV_INTRP
         FROM IQS.HIST_INTEGRACAO_ADMS
         WHERE DTHR_INC_REGIS_HIADMS >= TO_DATE(:anomes || '01', 'YYYYMMDD')
           AND DTHR_INC_REGIS_HIADMS < ADD_MONTHS(TO_DATE(:anomes || '01', 'YYYYMMDD'), 1)
@@ -366,6 +373,20 @@ def gerar_ressarcimento_diario(pasta_destino: str):
         RISCO_TOTAL_ESTIMADO=('RISCO_R$', 'sum')
     ).reset_index()
 
+    df_totais_ocorrencia = df_intrp.groupby('NUM_OCORRENCIA_ADMS').agg(
+        TOTAL_UCS=('UC', 'nunique'),
+        NUM_OPER_CHVP=('NUM_OPER_CHV_INTRP', 'first'),
+        TIPO_CHV=('TIPO_CHV_INTRP', 'first')
+    ).reset_index()
+
+    df_resumo_ocorrencia = df_resumo_ocorrencia.merge(df_totais_ocorrencia, on='NUM_OCORRENCIA_ADMS', how='left')
+    
+    df_resumo_ocorrencia['RA_1_UC'] = np.where(
+        (df_resumo_ocorrencia['TIPO_CHV'].astype(str).str.strip().str.upper() == 'RA') & 
+        (df_resumo_ocorrencia['TOTAL_UCS'] == 1),
+        'SIM', 'NAO'
+    )
+
     df_resumo_ocorrencia = df_resumo_ocorrencia[df_resumo_ocorrencia['DURACAO_OCORRENCIA_MIN'] >= 3.0].copy()
 
     df_resumo_ocorrencia['QTD_RECLAMACOES'] = 0
@@ -425,8 +446,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_resumo_ocorrencia['RISCO_TOTAL_ESTIMADO'] = df_resumo_ocorrencia['RISCO_TOTAL_ESTIMADO'].round(2)
 
     cols_resumo = [
-        'NUM_OCORRENCIA_ADMS', 'DURACAO_OCORRENCIA_MIN', 'DURACAO_OCORRENCIA_HORA',
-        'QTD_UCS_VIOLADAS', 'QTD_RECLAMACOES', 'QTD_SERVICOS', 'RISCO_TOTAL_ESTIMADO'
+        'NUM_OCORRENCIA_ADMS', 'NUM_OPER_CHVP', 'RA_1_UC', 'DURACAO_OCORRENCIA_MIN', 'DURACAO_OCORRENCIA_HORA',
+        'TOTAL_UCS', 'QTD_UCS_VIOLADAS', 'QTD_RECLAMACOES', 'QTD_SERVICOS', 'RISCO_TOTAL_ESTIMADO'
     ]
     cols_resumo_existentes = [c for c in cols_resumo if c in df_resumo_ocorrencia.columns]
     df_resumo_ocorrencia = df_resumo_ocorrencia[cols_resumo_existentes].sort_values(by='RISCO_TOTAL_ESTIMADO', ascending=False)
@@ -452,7 +473,8 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_violadas_export = df_violadas[cols_existentes].sort_values(by='RISCO_R$', ascending=False)
 
     try:
-        with pd.ExcelWriter(arquivo_saida, engine='openpyxl') as writer:
+        # Usando xlsxwriter com constant_memory para nao estourar a RAM
+        with pd.ExcelWriter(arquivo_saida, engine='xlsxwriter', engine_kwargs={'options': {'constant_memory': True}}) as writer:
             df_resumo_ocorrencia.to_excel(writer, sheet_name='Ocorrencias_Prioritarias', index=False)
             df_violadas_export.to_excel(writer, sheet_name='UCs_Violadas_Detalhe', index=False)
     except Exception as e:
