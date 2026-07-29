@@ -108,8 +108,17 @@ def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
             "ganho": {"dec_bruto_ganho": 0, "fec_bruto_ganho": 0, "dec_liquido_ganho": 0, "fec_liquido_ganho": 0},
         }
 
+    import time
+    for attempt in range(30):
+        try:
+            con = duckdb.connect(str(db_path), read_only=True)
+            break
+        except (duckdb.Error, OSError) as exc:
+            if attempt < 29:
+                time.sleep(0.5)
+            else:
+                raise exc
     try:
-        con = duckdb.connect(str(db_path), read_only=True)
         con.execute(f"ATTACH {_sql_literal(raw_path)} AS raw_db (READ_ONLY)")
         row = con.execute(
             """

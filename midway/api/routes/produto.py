@@ -102,15 +102,22 @@ def _connect_processed_readonly() -> tuple[duckdb.DuckDBPyConnection | None, dic
     fonte = {"fonte": str(db_path).replace("\\", "/"), "status": "ok"}
     if not db_path.exists():
         return None, {**fonte, "status": "ausente"}
-    try:
-        return duckdb.connect(str(db_path), read_only=True), fonte
-    except (duckdb.Error, OSError) as exc:
-        return None, {
-            **fonte,
-            "status": "indisponivel",
-            "erro": str(exc).splitlines()[0],
-            "acao_sugerida": "fechar outra aplicação usando o DuckDB ou executar novamente",
-        }
+    import time
+    for attempt in range(30):
+        try:
+            return duckdb.connect(str(db_path), read_only=True), fonte
+        except (duckdb.Error, OSError) as exc:
+            if attempt < 29:
+                time.sleep(0.5)
+            else:
+                with open("duckdb_error.log", "w") as f:
+                    f.write(f"DuckDB connect error: {exc}\n")
+                return None, {
+                    **fonte,
+                    "status": "indisponivel",
+                    "erro": str(exc).splitlines()[0],
+                    "acao_sugerida": "fechar outra aplicação usando o DuckDB ou executar novamente",
+                }
 
 
 def _clean(value: Any) -> str:
