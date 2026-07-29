@@ -361,9 +361,63 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_ocorrencias_violadas = df_ocorrencias_violadas.merge(df_violadas[['UC', 'RISCO_R$']], on='UC', how='left')
 
     df_resumo_ocorrencia = df_ocorrencias_violadas.groupby('NUM_OCORRENCIA_ADMS').agg(
+        DURACAO_OCORRENCIA_MIN=('DURACAO_MIN', 'max'),
         QTD_UCS_VIOLADAS=('UC', 'nunique'),
         RISCO_TOTAL_ESTIMADO=('RISCO_R$', 'sum')
     ).reset_index()
+
+    df_resumo_ocorrencia = df_resumo_ocorrencia[df_resumo_ocorrencia['DURACAO_OCORRENCIA_MIN'] >= 3.0].copy()
+
+    df_resumo_ocorrencia['QTD_RECLAMACOES'] = 0
+    df_resumo_ocorrencia['QTD_SERVICOS'] = 0
+    
+    try:
+        import duckdb
+        duck_path = f"data/processed/iqs_adms_processed_{ANOMES}.duckdb"
+        serv_path = f"data/raw/adms_servicos_raw_{ANOMES}.duckdb"
+        
+        if os.path.exists(duck_path) and not df_resumo_ocorrencia.empty:
+            duck_conn = duckdb.connect(duck_path, read_only=True)
+            tables = [row[0] for row in duck_conn.execute("SHOW TABLES").fetchall()]
+            
+            ocorrencias_list = df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'].dropna().astype(str).unique().tolist()
+            if ocorrencias_list:
+                ocorrencias_tup = tuple(ocorrencias_list)
+                if len(ocorrencias_tup) == 1:
+                    ocorrencias_tup = f"('{ocorrencias_tup[0]}')"
+                
+                if "gold_reclamacao_ocorrencia_resumo" in tables:
+                    df_rec = duck_conn.execute(f"SELECT CAST(NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS, QTD_RECLAMACOES FROM gold_reclamacao_ocorrencia_resumo WHERE CAST(NUM_OCORRENCIA_ADMS AS VARCHAR) IN {ocorrencias_tup}").df()
+                    if not df_rec.empty:
+                        df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'] = df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'].astype(str)
+                        df_resumo_ocorrencia = df_resumo_ocorrencia.merge(df_rec, on='NUM_OCORRENCIA_ADMS', how='left')
+                        if 'QTD_RECLAMACOES_y' in df_resumo_ocorrencia.columns:
+                            df_resumo_ocorrencia['QTD_RECLAMACOES'] = df_resumo_ocorrencia['QTD_RECLAMACOES_y'].fillna(df_resumo_ocorrencia['QTD_RECLAMACOES_x']).fillna(0)
+                            df_resumo_ocorrencia = df_resumo_ocorrencia.drop(columns=['QTD_RECLAMACOES_x', 'QTD_RECLAMACOES_y'])
+                
+                if os.path.exists(serv_path) and "gold_interrupcao_tratada" in tables:
+                    duck_conn.execute(f"ATTACH '{serv_path}' AS serv_raw (READ_ONLY)")
+                    query_serv = f"""
+                        SELECT CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR) AS NUM_OCORRENCIA_ADMS, COUNT(DISTINCT s.PID_INTRP_SRVE) AS QTD_SERVICOS
+                        FROM gold_interrupcao_tratada i
+                        JOIN serv_raw.raw_adms_servicos s ON TRIM(CAST(i.NUM_SEQ_INTRP AS VARCHAR)) = TRIM(CAST(s.PID_INTRP_SRVE AS VARCHAR))
+                        WHERE CAST(i.NUM_OCORRENCIA_ADMS AS VARCHAR) IN {ocorrencias_tup}
+                        GROUP BY i.NUM_OCORRENCIA_ADMS
+                    """
+                    df_serv = duck_conn.execute(query_serv).df()
+                    if not df_serv.empty:
+                        df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'] = df_resumo_ocorrencia['NUM_OCORRENCIA_ADMS'].astype(str)
+                        df_resumo_ocorrencia = df_resumo_ocorrencia.merge(df_serv, on='NUM_OCORRENCIA_ADMS', how='left')
+                        if 'QTD_SERVICOS_y' in df_resumo_ocorrencia.columns:
+                            df_resumo_ocorrencia['QTD_SERVICOS'] = df_resumo_ocorrencia['QTD_SERVICOS_y'].fillna(df_resumo_ocorrencia['QTD_SERVICOS_x']).fillna(0)
+                            df_resumo_ocorrencia = df_resumo_ocorrencia.drop(columns=['QTD_SERVICOS_x', 'QTD_SERVICOS_y'])
+                        
+            duck_conn.close()
+            df_resumo_ocorrencia['QTD_RECLAMACOES'] = df_resumo_ocorrencia['QTD_RECLAMACOES'].fillna(0).astype(int)
+            df_resumo_ocorrencia['QTD_SERVICOS'] = df_resumo_ocorrencia['QTD_SERVICOS'].fillna(0).astype(int)
+            
+    except Exception as e:
+        print(f"Aviso: erro ao buscar reclamacoes/servicos no DuckDB: {e}")
 
     df_resumo_ocorrencia = df_resumo_ocorrencia.sort_values(by='RISCO_TOTAL_ESTIMADO', ascending=False)
     
