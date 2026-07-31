@@ -1,6 +1,6 @@
 @echo off
 echo =========================================================================
-echo REEXTRACAO COMPLETA E REPROCESSAMENTO DE TODAS AS BASES (RAW & PROCESSED)
+echo REEXTRACAO COMPLETA E REPROCESSAMENTO DE TODAS AS BASES (RAW E PROCESSED)
 echo =========================================================================
 
 :: Garante que o script esta rodando na pasta raiz do projeto

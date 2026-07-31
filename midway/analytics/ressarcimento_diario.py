@@ -87,7 +87,11 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                         CAST(a.NUM_UC_UCI AS VARCHAR) AS UC,
                         a.DATA_HORA_INIC_INTRP AS DATA_REGISTRO,
                         COALESCE(a.DURACAO_HORA, 0) * 60 AS DURACAO_MIN,
-                        1 AS FREQUENCIA
+                        1 AS FREQUENCIA,
+                        COALESCE(a.CI_BRUTO, 0) AS CI_BRUTO,
+                        COALESCE(a.CHI_BRUTO, 0) AS CHI_BRUTO,
+                        COALESCE(a.CI_LIQUIDO, 0) AS CI_LIQUIDO,
+                        COALESCE(a.CHI_LIQUIDO, 0) AS CHI_LIQUIDO
                     FROM gold_apuracao_uc a
                     WHERE a.NUM_UC_UCI IS NOT NULL
                       AND COALESCE(a.DURACAO_HORA, 0) * 60 >= 3.0
@@ -121,7 +125,11 @@ def gerar_ressarcimento_diario(pasta_destino: str):
             NUM_UC_UCI_CHVP_HIADMS AS UC,
             DTHR_INC_REGIS_HIADMS AS DATA_REGISTRO,
             (DATA_HORA_FIM_INTRP_ULT_HIADMS - DATA_HORA_INIC_INTRP_ULT_HIADMS) * 24 * 60 AS DURACAO_MIN,
-            1 AS FREQUENCIA
+            1 AS FREQUENCIA,
+            1 AS CI_BRUTO,
+            (DATA_HORA_FIM_INTRP_ULT_HIADMS - DATA_HORA_INIC_INTRP_ULT_HIADMS) * 24 AS CHI_BRUTO,
+            1 AS CI_LIQUIDO,
+            (DATA_HORA_FIM_INTRP_ULT_HIADMS - DATA_HORA_INIC_INTRP_ULT_HIADMS) * 24 AS CHI_LIQUIDO
         FROM IQS.HIST_INTEGRACAO_ADMS
         WHERE DTHR_INC_REGIS_HIADMS >= TO_DATE(:anomes || '01', 'YYYYMMDD')
           AND DTHR_INC_REGIS_HIADMS < ADD_MONTHS(TO_DATE(:anomes || '01', 'YYYYMMDD'), 1)
@@ -366,8 +374,20 @@ def gerar_ressarcimento_diario(pasta_destino: str):
         RISCO_TOTAL_ESTIMADO=('RISCO_R$', 'sum')
     ).reset_index()
 
+    # Garante a existência e o tratamento de CI/CHI antes da agregação
+    for c_col in ['CI_BRUTO', 'CI_LIQUIDO']:
+        if c_col not in df_intrp.columns:
+            df_intrp[c_col] = 1
+    for h_col in ['CHI_BRUTO', 'CHI_LIQUIDO']:
+        if h_col not in df_intrp.columns:
+            df_intrp[h_col] = df_intrp['DURACAO_MIN'] / 60.0
+
     df_totais_ocorrencia = df_intrp.groupby('NUM_OCORRENCIA_ADMS').agg(
-        TOTAL_UCS=('UC', 'nunique')
+        TOTAL_UCS=('UC', 'nunique'),
+        CI_BRUTO=('CI_BRUTO', 'sum'),
+        CHI_BRUTO=('CHI_BRUTO', 'sum'),
+        CI_LIQUIDO=('CI_LIQUIDO', 'sum'),
+        CHI_LIQUIDO=('CHI_LIQUIDO', 'sum')
     ).reset_index()
 
     df_resumo_ocorrencia = df_resumo_ocorrencia.merge(df_totais_ocorrencia, on='NUM_OCORRENCIA_ADMS', how='left')
@@ -467,10 +487,15 @@ def gerar_ressarcimento_diario(pasta_destino: str):
     df_resumo_ocorrencia['DURACAO_OCORRENCIA_MIN'] = df_resumo_ocorrencia['DURACAO_OCORRENCIA_MIN'].round(2)
     df_resumo_ocorrencia['DURACAO_OCORRENCIA_HORA'] = (df_resumo_ocorrencia['DURACAO_OCORRENCIA_MIN'] / 60.0).round(2)
     df_resumo_ocorrencia['RISCO_TOTAL_ESTIMADO'] = df_resumo_ocorrencia['RISCO_TOTAL_ESTIMADO'].round(2)
+    df_resumo_ocorrencia['CI_BRUTO'] = df_resumo_ocorrencia.get('CI_BRUTO', pd.Series([0]*len(df_resumo_ocorrencia))).fillna(0).astype(int)
+    df_resumo_ocorrencia['CHI_BRUTO'] = df_resumo_ocorrencia.get('CHI_BRUTO', pd.Series([0.0]*len(df_resumo_ocorrencia))).fillna(0.0).round(3)
+    df_resumo_ocorrencia['CI_LIQUIDO'] = df_resumo_ocorrencia.get('CI_LIQUIDO', pd.Series([0]*len(df_resumo_ocorrencia))).fillna(0).astype(int)
+    df_resumo_ocorrencia['CHI_LIQUIDO'] = df_resumo_ocorrencia.get('CHI_LIQUIDO', pd.Series([0.0]*len(df_resumo_ocorrencia))).fillna(0.0).round(3)
 
     cols_resumo = [
         'NUM_OCORRENCIA_ADMS', 'NUM_OPER_CHVP', 'RA_1_UC', 'VALID_POS_OPERACAO', 
         'DURACAO_OCORRENCIA_MIN', 'DURACAO_OCORRENCIA_HORA', 'TOTAL_UCS', 
+        'CI_BRUTO', 'CHI_BRUTO', 'CI_LIQUIDO', 'CHI_LIQUIDO',
         'QTD_UCS_VIOLADAS', 'QTD_RECLAMACOES', 'QTD_SERVICOS', 'RISCO_TOTAL_ESTIMADO'
     ]
     cols_resumo_existentes = [c for c in cols_resumo if c in df_resumo_ocorrencia.columns]
