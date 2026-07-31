@@ -509,9 +509,23 @@ def gerar_ressarcimento_diario(pasta_destino: str):
                 os.makedirs(pasta_rede, exist_ok=True)
             arquivo_rede = os.path.join(pasta_rede, os.path.basename(arquivo_saida))
             shutil.copy2(arquivo_saida, arquivo_rede)
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Cópia de rede enviada com sucesso para: {arquivo_rede}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Cópia de rede (Excel) enviada com sucesso para: {arquivo_rede}")
+            
+            # --- Gerar arquivos Parquet/CSV para consumo direto no Power BI ---
+            pasta_pbi = os.path.join(pasta_rede, "base_automatica")
+            os.makedirs(pasta_pbi, exist_ok=True)
+            
+            try:
+                df_resumo_ocorrencia.to_parquet(os.path.join(pasta_pbi, f"Ocorrencias_Prioritarias_{ANOMES}.parquet"), index=False)
+                df_violadas_export.to_parquet(os.path.join(pasta_pbi, f"UCs_Violadas_{ANOMES}.parquet"), index=False)
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Arquivos Parquet gerados com sucesso para o Power BI em: {pasta_pbi}")
+            except ImportError:
+                df_resumo_ocorrencia.to_csv(os.path.join(pasta_pbi, f"Ocorrencias_Prioritarias_{ANOMES}.csv"), sep=';', index=False, encoding='utf-8-sig')
+                df_violadas_export.to_csv(os.path.join(pasta_pbi, f"UCs_Violadas_{ANOMES}.csv"), sep=';', index=False, encoding='utf-8-sig')
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Bibliotecas Parquet não encontradas. Arquivos CSV gerados com sucesso em: {pasta_pbi}")
+                
         except Exception as e_rede:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] AVISO: Não foi possível copiar para a rede ({pasta_rede}): {e_rede}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] AVISO: Não foi possível copiar para a rede ou gerar base PBI: {e_rede}")
             
     except Exception as e:
         print(f"Erro ao gerar Excel: {e}")
