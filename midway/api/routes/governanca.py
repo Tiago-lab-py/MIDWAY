@@ -179,6 +179,7 @@ EXECUCOES_PERMITIDAS = {
         "etapas": [
             {"module": "midway.analytics.outlier_uc", "env": {}},
             {"module": "midway.modulos.orquestrador", "env": {}},
+            {"module": "midway.qualidade.analise_tecnica_cache", "env": {}},
         ],
     },
     "full": {
@@ -200,6 +201,7 @@ EXECUCOES_PERMITIDAS = {
             {"module": "midway.apuracao.previa", "env": {}},
             {"module": "midway.analytics.outlier_uc", "env": {}},
             {"module": "midway.auditoria.sobreposicoes", "env": {}},
+            {"module": "midway.qualidade.analise_tecnica_cache", "env": {}},
         ],
     },
     "exportar": {
@@ -213,6 +215,7 @@ EXECUCOES_PERMITIDAS = {
         "etapas": [
             {"module": "midway.apuracao.previa", "env": {}},
             {"module": "midway.analytics.outlier_uc", "env": {}},
+            {"module": "midway.qualidade.analise_tecnica_cache", "env": {}},
         ],
     },
     "consumidores": {

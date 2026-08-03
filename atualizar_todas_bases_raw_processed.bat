@@ -27,7 +27,6 @@ echo [1/3] Executando Pipeline ETL com Reextracao Total (RAW + Processed + Gold)
 call run.bat etl
 if %errorlevel% neq 0 (
     echo ERRO: Ocorreu uma falha no reprocessamento geral do ETL.
-    pause
     exit /b %errorlevel%
 )
 
@@ -36,7 +35,6 @@ echo [2/3] Extraindo dados do banco GEO (Chaves RA)...
 call run.bat geo
 if %errorlevel% neq 0 (
     echo ERRO: Ocorreu uma falha na extracao do GEO.
-    pause
     exit /b %errorlevel%
 )
 
@@ -45,7 +43,6 @@ echo [3/3] Gerando Relatorio de Ressarcimento Preventivo com as novas bases...
 "%PYTHON_EXE%" -m midway.analytics.ressarcimento_diario
 if %errorlevel% neq 0 (
     echo ERRO: Ocorreu uma falha ao gerar o relatorio de ressarcimento.
-    pause
     exit /b %errorlevel%
 )
 

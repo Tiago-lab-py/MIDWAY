@@ -125,6 +125,10 @@ def main():
         from midway.modulos.orquestrador import orquestrar
         orquestrar()
 
+        logger.info("[4.3] Materializando cache da Análise Técnica...")
+        from midway.qualidade.analise_tecnica_cache import materializar_cache
+        materializar_cache(ANOMES, force=True)
+
         logger.info("=== PIPELINE ETL CONCLUÍDO COM SUCESSO DE PONTA A PONTA ===")
 
     except Exception as e:

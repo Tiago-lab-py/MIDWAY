@@ -18,7 +18,6 @@ echo [1/3] Rodando ETL Oficial (Fases 1 a 4)...
 call run.bat etl
 if %errorlevel% neq 0 (
     echo ERRO: Ocorreu um problema durante a execucao do ETL.
-    pause
     exit /b %errorlevel%
 )
 
@@ -28,7 +27,6 @@ echo [2/3] Extraindo dados do banco GEO (Chaves RA)...
 call run.bat geo
 if %errorlevel% neq 0 (
     echo ERRO: Ocorreu um problema na extracao do GEO.
-    pause
     exit /b %errorlevel%
 )
 
@@ -38,7 +36,6 @@ echo [3/3] Gerando Relatorio de Ressarcimento Preventivo...
 "%PYTHON_EXE%" -m midway.analytics.ressarcimento_diario
 if %errorlevel% neq 0 (
     echo ERRO: Ocorreu um problema ao gerar o relatorio de ressarcimento.
-    pause
     exit /b %errorlevel%
 )
 
