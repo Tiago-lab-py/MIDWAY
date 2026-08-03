@@ -1,4 +1,5 @@
 @echo off
+title MIDWAY ATUALIZACAO COMPLETA
 echo =========================================================================
 echo REEXTRACAO COMPLETA E REPROCESSAMENTO DE TODAS AS BASES (RAW E PROCESSED)
 echo =========================================================================
@@ -68,7 +69,7 @@ echo Inicializando Frontend React novamente...
 start "MIDWAY Frontend React" /D "D:\MIDWAY" cmd /k "call run.bat frontend"
 goto fim
 
-reiniciar_stack_erro:
+:reiniciar_stack_erro
 echo.
 echo Reiniciando a stack do sistema em segundo plano por seguranca...
 start "MIDWAY API FastAPI" /D "D:\MIDWAY" cmd /k "call run.bat api"
