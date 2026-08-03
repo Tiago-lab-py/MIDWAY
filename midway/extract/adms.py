@@ -112,21 +112,24 @@ def extrair_iqs_para_duckdb(chunksize: int = 100_000, logger=None):
     logger = logger or configurar_logger("extract", ANOMES)
     done = carregar_done("extract", ANOMES)
 
-    if done and not REEXTRAIR:
+    forcado_reextrair = REEXTRAIR
+
+    if done and not forcado_reextrair:
         duckdb_path_done = Path(done.get("duckdb_path", ""))
 
         if not duckdb_path_done.exists():
-            raise FileNotFoundError(
+            logger.warning(
                 f"Controle de extracao existe, mas o DuckDB bruto nao foi encontrado: "
-                f"{duckdb_path_done}. Defina REEXTRAIR=1 para recriar."
+                f"{duckdb_path_done}. Forcando reextracao automatica."
             )
+            forcado_reextrair = True
+        else:
+            logger.info("Extracao ja finalizada em %s", done.get("finished_at"))
+            logger.info("DuckDB bruto registrado: %s", done.get("duckdb_path"))
+            logger.info("Defina REEXTRAIR=1 para extrair novamente do Oracle.")
+            return
 
-        logger.info("Extracao ja finalizada em %s", done.get("finished_at"))
-        logger.info("DuckDB bruto registrado: %s", done.get("duckdb_path"))
-        logger.info("Defina REEXTRAIR=1 para extrair novamente do Oracle.")
-        return
-
-    if RAW_DUCKDB_PATH.exists() and not REEXTRAIR:
+    if RAW_DUCKDB_PATH.exists() and not forcado_reextrair:
         raise RuntimeError(
             f"DuckDB bruto existe sem controle finalizado: {RAW_DUCKDB_PATH}. "
             "Valide o arquivo e crie o controle ou defina REEXTRAIR=1."
@@ -136,7 +139,7 @@ def extrair_iqs_para_duckdb(chunksize: int = 100_000, logger=None):
         if RAW_DUCKDB_INCOMPLETE_PATH.exists():
             RAW_DUCKDB_INCOMPLETE_PATH.unlink()
 
-        if REEXTRAIR and RAW_DUCKDB_PATH.exists():
+        if forcado_reextrair and RAW_DUCKDB_PATH.exists():
             RAW_DUCKDB_PATH.unlink()
 
         logger.info("Conectando no IQS Oracle...")

@@ -7,13 +7,17 @@ echo ========================================================
 :: Garante que o script esta rodando na pasta correta
 cd /d "D:\MIDWAY"
 
-:: 0. Garante a liberação das bases DuckDB fechando conexões ativas
+:: 0. Garante a liberação das bases DuckDB fechando conexões ativas e removendo locks antigos
 echo.
-echo [0/3] Liberando arquivos DuckDB (fechando processos python ativos)...
+echo [0/3] Liberando arquivos DuckDB (fechando processos python ativos e limpando locks)...
 taskkill /f /fi "WINDOWTITLE eq MIDWAY API FastAPI*" >nul 2>&1
 taskkill /f /fi "WINDOWTITLE eq MIDWAY Frontend React*" >nul 2>&1
 taskkill /f /im python.exe >nul 2>&1
 timeout /t 3 /nobreak >nul
+if exist "data\control\*.lock" (
+    echo Removendo arquivos de lock pendentes...
+    del /f /q "data\control\*.lock" >nul 2>&1
+)
 
 :: Verifica onde esta o python (usando a mesma logica do run.bat)
 set "PYTHON_EXE=C:\Program Files\Python311\python.exe"
@@ -60,6 +64,8 @@ start "MIDWAY API FastAPI" /D "D:\MIDWAY" cmd /k "call run.bat api"
 timeout /t 3 /nobreak >nul
 echo Inicializando Frontend React novamente...
 start "MIDWAY Frontend React" /D "D:\MIDWAY" cmd /k "call run.bat frontend"
+timeout /t 2 /nobreak >nul
+start "" "http://127.0.0.1:5173"
 goto fim
 
 :reiniciar_stack_erro
@@ -68,6 +74,8 @@ echo Reiniciando a stack do sistema em segundo plano por seguranca...
 start "MIDWAY API FastAPI" /D "D:\MIDWAY" cmd /k "call run.bat api"
 timeout /t 3 /nobreak >nul
 start "MIDWAY Frontend React" /D "D:\MIDWAY" cmd /k "call run.bat frontend"
+timeout /t 2 /nobreak >nul
+start "" "http://127.0.0.1:5173"
 exit /b 1
 
 :fim
