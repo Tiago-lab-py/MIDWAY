@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from midway.api.routes import anomalias, executivo_9282, exportacoes, governanca, health, iqs, produto, qualidade
+from midway.api.routes import anomalias, executivo_9282, exportacoes, governanca, health, iqs, produto, qualidade, ise
 
 
 def create_app() -> FastAPI:
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(anomalias.router)
     app.include_router(produto.router)
     app.include_router(exportacoes.router)
+    app.include_router(ise.router)
 
     @app.on_event("startup")
     def limpar_lotes_travados():

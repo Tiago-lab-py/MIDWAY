@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import IseSimulation from './IseSimulation'
 
 const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8000'
 
@@ -11,6 +12,7 @@ const menuItems = [
   { id: 'executivo', label: 'Saída IQS', icon: 'I', profiles: ['GESTOR', 'ADM'] },
   { id: 'exportacoes', label: 'Exportações', icon: 'E' },
   { id: 'administracao', label: 'Administração', icon: 'G', profiles: ['ADM'] },
+  { id: 'ise', label: 'Simulador ISE', icon: '⚡' },
 ]
 
 
@@ -7863,6 +7865,9 @@ export default function App() {
         token={token}
         onRefresh={load}
       />
+    ),
+    ise: (
+      <IseSimulation />
     ),
   }
 

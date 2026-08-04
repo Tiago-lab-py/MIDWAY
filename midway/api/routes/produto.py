@@ -2372,6 +2372,16 @@ def cockpit_produto(
     limite: int = Query(20, ge=1, le=100, description="Quantidade máxima por ranking."),
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
 ) -> dict[str, object]:
+    import json
+    from pathlib import Path
+    cockpit_path = Path("data") / "processed" / f"cockpit_{ANOMES}.json"
+    if cockpit_path.exists():
+        with open(cockpit_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            data["usuario"] = user.login
+            data["status"] = "ok (materializado)"
+            return data
+            
     return _build_cockpit(user, limite)
 
 
@@ -2379,6 +2389,13 @@ def cockpit_produto(
 def modulos_resumo_produto(
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
 ) -> dict[str, object]:
+    import json
+    from pathlib import Path
+    modulos_path = Path("data") / "processed" / f"modulos_resumo_{ANOMES}.json"
+    if modulos_path.exists():
+        with open(modulos_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+            
     return _resumo_modulos_automatizados()
 
 

@@ -1,0 +1,44 @@
+{
+  "modulos": {
+    "INTERRUPCAO_SEM_UC": {
+      "codigo": "INTERRUPCAO_SEM_UC",
+      "total": 0,
+      "impacto_chi": 0,
+      "impacto_ci": 0,
+      "impacto_ressarcimento": 0,
+      "fonte": "",
+      "status": "ausente"
+    },
+    "DUPLICIDADE_TIPO": {
+      "codigo": "DUPLICIDADE_TIPO",
+      "total": 0,
+      "impacto_chi": 0,
+      "impacto_ci": 0,
+      "impacto_ressarcimento": 0,
+      "fonte": "",
+      "status": "ausente"
+    },
+    "DIA_CRITICO_ISE": {
+      "codigo": "DIA_CRITICO_ISE",
+      "total": 0,
+      "impacto_chi": 0,
+      "impacto_ci": 0,
+      "impacto_ressarcimento": 0,
+      "fonte": "",
+      "status": "ausente"
+    },
+    "RECLAMACOES_SERVICOS": {
+      "codigo": "RECLAMACOES_SERVICOS",
+      "total": 0,
+      "impacto_chi": 0,
+      "impacto_ci": 0,
+      "impacto_ressarcimento": 0,
+      "fonte": "",
+      "status": "ausente"
+    }
+  },
+  "fonte_processado": {
+    "fonte": "data/processed/iqs_adms_processed_202607.duckdb",
+    "status": "ausente"
+  }
+}
