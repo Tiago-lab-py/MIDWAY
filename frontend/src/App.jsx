@@ -7318,7 +7318,6 @@ export default function App() {
           fetch(`${API_URL}/api/produto/visao`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/dicionarios?limite=10000`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/cockpit?limite=20`, { headers: authHeaders }),
-          fetch(`${API_URL}/api/produto/suspeitas-ra?limite=20`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/validacao-iqs`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/modulos-resumo`, { headers: authHeaders }),
         ]
@@ -7342,7 +7341,6 @@ export default function App() {
           produtoVisaoResponse,
           produtoDicionariosResponse,
           produtoCockpitResponse,
-          produtoSuspeitasRaResponse,
           produtoValidacaoIqsResponse,
           produtoModulosResumoResponse,
         ] =
@@ -7367,7 +7365,6 @@ export default function App() {
           produtoVisaoResponse,
           produtoDicionariosResponse,
           produtoCockpitResponse,
-          produtoSuspeitasRaResponse,
           produtoValidacaoIqsResponse,
           produtoModulosResumoResponse,
         ]
@@ -7408,7 +7405,6 @@ export default function App() {
         if (produtoVisaoResponse.ok) setProdutoVisao(await produtoVisaoResponse.json())
         if (produtoDicionariosResponse.ok) setProdutoDicionarios(await produtoDicionariosResponse.json())
         if (produtoCockpitResponse.ok) setProdutoCockpit(await produtoCockpitResponse.json())
-        if (produtoSuspeitasRaResponse.ok) setProdutoSuspeitasRa(await produtoSuspeitasRaResponse.json())
         if (produtoValidacaoIqsResponse.ok) setProdutoValidacaoIqs(await produtoValidacaoIqsResponse.json())
         if (produtoModulosResumoResponse.ok) setProdutoModulosResumo(await produtoModulosResumoResponse.json())
       }

@@ -2460,7 +2460,8 @@ def suspeitas_ra_produto(
         try:
             with open(suspeitas_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception as e:
+            print(f"Erro ao ler cache JSON suspeitas-ra: {e}")
             pass
             
     return _painel_suspeitas_ra(user, limite)
