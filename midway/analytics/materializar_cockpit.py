@@ -34,6 +34,11 @@ def materializar():
         print("Calculando Resumo de Módulos...")
         modulos_data = _resumo_modulos_automatizados()
         
+        print("Calculando Suspeitas RA...")
+        # Limite = 20 para refletir exatamente a chamada inicial da página principal
+        from midway.api.routes.produto import _painel_suspeitas_ra
+        suspeitas_data = _painel_suspeitas_ra(user, limite=20)
+        
         # Garante que o diretório de processed existe na RAIZ do projeto
         processed_dir = Path(project_root) / "data" / "processed"
         processed_dir.mkdir(parents=True, exist_ok=True)
@@ -47,8 +52,12 @@ def materializar():
         with open(modulos_path, "w", encoding="utf-8") as f:
             json.dump(modulos_data, f, ensure_ascii=False, indent=2)
             
+        suspeitas_path = processed_dir / f"suspeitas_ra_{ANOMES}.json"
+        with open(suspeitas_path, "w", encoding="utf-8") as f:
+            json.dump(suspeitas_data, f, ensure_ascii=False, indent=2)
+            
         print(f"Materialização concluída com sucesso!")
-        print(f"Arquivos gerados: {cockpit_path} e {modulos_path}")
+        print(f"Arquivos gerados: {cockpit_path}, {modulos_path} e {suspeitas_path}")
         
     except Exception as e:
         print(f"Erro durante a materialização: {e}")

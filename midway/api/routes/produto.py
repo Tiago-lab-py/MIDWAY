@@ -2373,15 +2373,22 @@ def cockpit_produto(
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
 ) -> dict[str, object]:
     import json
+    import os
     from pathlib import Path
-    cockpit_path = Path("data") / "processed" / f"cockpit_{ANOMES}.json"
+    
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    anomes_str = str(ANOMES).strip()
+    cockpit_path = project_root / "data" / "processed" / f"cockpit_{anomes_str}.json"
+    
     if cockpit_path.exists():
-        with open(cockpit_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            data["usuario"] = user.login
-            # Mantém status 'ok' para não quebrar a validação estrita do React
-            data["status"] = "ok"
-            return data
+        try:
+            with open(cockpit_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                data["usuario"] = user.login
+                data["status"] = "ok"
+                return data
+        except Exception:
+            pass
             
     return _build_cockpit(user, limite)
 
@@ -2391,11 +2398,19 @@ def modulos_resumo_produto(
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
 ) -> dict[str, object]:
     import json
+    import os
     from pathlib import Path
-    modulos_path = Path("data") / "processed" / f"modulos_resumo_{ANOMES}.json"
+    
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    anomes_str = str(ANOMES).strip()
+    modulos_path = project_root / "data" / "processed" / f"modulos_resumo_{anomes_str}.json"
+    
     if modulos_path.exists():
-        with open(modulos_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(modulos_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
             
     return _resumo_modulos_automatizados()
 
@@ -2434,6 +2449,20 @@ def suspeitas_ra_produto(
     limite: int = Query(20, ge=1, le=100, description="Quantidade máxima de suspeitas retornadas."),
     user: AuthUser = Depends(require_profiles("ADM", "GESTOR", "ANALISTA", "CONSULTA", "AUDITOR")),
 ) -> dict[str, object]:
+    import json
+    from pathlib import Path
+    
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    anomes_str = str(ANOMES).strip()
+    suspeitas_path = project_root / "data" / "processed" / f"suspeitas_ra_{anomes_str}.json"
+    
+    if suspeitas_path.exists():
+        try:
+            with open(suspeitas_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+            
     return _painel_suspeitas_ra(user, limite)
 
 
