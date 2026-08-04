@@ -2379,7 +2379,8 @@ def cockpit_produto(
         with open(cockpit_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             data["usuario"] = user.login
-            data["status"] = "ok (materializado)"
+            # Mantém status 'ok' para não quebrar a validação estrita do React
+            data["status"] = "ok"
             return data
             
     return _build_cockpit(user, limite)

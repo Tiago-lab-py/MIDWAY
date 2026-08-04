@@ -7,6 +7,9 @@ project_root = str(Path(__file__).resolve().parent.parent.parent)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+# Força o diretório de trabalho a ser a raiz do projeto para o DuckDB encontrar a pasta data
+os.chdir(project_root)
+
 import json
 from midway.api.security import AuthUser
 from midway.api.routes.produto import _build_cockpit, _resumo_modulos_automatizados, ANOMES
@@ -31,8 +34,8 @@ def materializar():
         print("Calculando Resumo de Módulos...")
         modulos_data = _resumo_modulos_automatizados()
         
-        # Garante que o diretório de processed existe
-        processed_dir = Path("data") / "processed"
+        # Garante que o diretório de processed existe na RAIZ do projeto
+        processed_dir = Path(project_root) / "data" / "processed"
         processed_dir.mkdir(parents=True, exist_ok=True)
         
         # Salva o JSON no disco
