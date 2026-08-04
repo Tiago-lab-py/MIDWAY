@@ -7261,16 +7261,17 @@ export default function App() {
       if (!silent) setLoading(true)
       const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
       const decFecRequest = fetch(`${API_URL}/api/executivo/9282/dec-fec`).catch(() => null)
-      const [healthResponse, painelResponse, decFecResponse, filaResponse, ajustesResponse, auditoriaResponse] = await Promise.all([
+      const [healthResponse, painelResponse, decFecResponse, filaResponse, ajustesResponse, auditoriaResponse, cockpitResponse] = await Promise.all([
         fetch(`${API_URL}/api/health`),
         fetch(`${API_URL}/api/executivo/9282/painel`),
         decFecRequest,
         fetch(`${API_URL}/api/executivo/9282/fila-tecnica?limit=100`),
         fetch(`${API_URL}/api/executivo/9282/ajustes-auto?limit=100`),
         fetch(`${API_URL}/api/executivo/9282/auditoria?limit=100`),
+        fetch(`${API_URL}/api/executivo/9282/cockpit`),
       ])
 
-      const responses = [healthResponse, painelResponse, filaResponse, ajustesResponse, auditoriaResponse]
+      const responses = [healthResponse, painelResponse, filaResponse, ajustesResponse, auditoriaResponse, cockpitResponse]
       const failed = responses.find((response) => !response.ok)
       if (failed) {
         const detail = await failed.json().catch(() => null)
@@ -7283,6 +7284,7 @@ export default function App() {
       setFila(await filaResponse.json())
       setAjustes(await ajustesResponse.json())
       setAuditoria(await auditoriaResponse.json())
+      setProdutoCockpit(cockpitResponse?.ok ? await cockpitResponse.json() : null)
 
       if (token) {
         const meResponse = await fetch(`${API_URL}/api/auth/me`, { headers: authHeaders })
@@ -7317,7 +7319,6 @@ export default function App() {
           fetch(`${API_URL}/api/qualidade/analise-tecnica?problema=9282&limit=1`, { headers: authHeaders }).catch(() => null),
           fetch(`${API_URL}/api/produto/visao`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/dicionarios?limite=10000`, { headers: authHeaders }),
-          fetch(`${API_URL}/api/produto/cockpit?limite=20`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/validacao-iqs`, { headers: authHeaders }),
           fetch(`${API_URL}/api/produto/modulos-resumo`, { headers: authHeaders }),
         ]
@@ -7340,7 +7341,6 @@ export default function App() {
           analise9282Response,
           produtoVisaoResponse,
           produtoDicionariosResponse,
-          produtoCockpitResponse,
           produtoValidacaoIqsResponse,
           produtoModulosResumoResponse,
         ] =
@@ -7364,7 +7364,6 @@ export default function App() {
           analise9282Response,
           produtoVisaoResponse,
           produtoDicionariosResponse,
-          produtoCockpitResponse,
           produtoValidacaoIqsResponse,
           produtoModulosResumoResponse,
         ]
@@ -7404,7 +7403,6 @@ export default function App() {
         setAnaliseTecnicaResumos(technicalSummaries)
         if (produtoVisaoResponse.ok) setProdutoVisao(await produtoVisaoResponse.json())
         if (produtoDicionariosResponse.ok) setProdutoDicionarios(await produtoDicionariosResponse.json())
-        if (produtoCockpitResponse.ok) setProdutoCockpit(await produtoCockpitResponse.json())
         if (produtoValidacaoIqsResponse.ok) setProdutoValidacaoIqs(await produtoValidacaoIqsResponse.json())
         if (produtoModulosResumoResponse.ok) setProdutoModulosResumo(await produtoModulosResumoResponse.json())
       }

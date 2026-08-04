@@ -95,6 +95,32 @@ def painel_9282(anomes: str | None = None) -> list[dict[str, object]]:
         raise _api_error(error) from error
 
 
+@router.get("/cockpit")
+def cockpit_publico(anomes: str = "202607") -> dict[str, object]:
+    import json
+    
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    cockpit_path = project_root / "data" / "processed" / f"cockpit_{anomes}.json"
+    
+    if cockpit_path.exists():
+        try:
+            with open(cockpit_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                data["usuario"] = "publico"
+                data["status"] = "ok"
+                return data
+        except Exception:
+            pass
+            
+    return {
+        "usuario": "publico",
+        "status": "fonte_indisponivel",
+        "cards": [],
+        "rankings": {"regional": [], "conjunto": []},
+        "alertas": [{"tipo": "fonte", "mensagem": "Arquivo JSON processado do cockpit não encontrado."}],
+    }
+
+
 @router.get("/dec-fec")
 def dec_fec_tratativas(anomes: str = "202607") -> dict[str, object]:
     db_path = _processed_path(anomes)
