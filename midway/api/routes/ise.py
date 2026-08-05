@@ -119,32 +119,37 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             conn.execute("CREATE TABLE main.metas_dc (CEA VARCHAR, META DOUBLE)")
 
         conn.execute("""
-            WITH chi_diario AS (
-                SELECT 
-                    v.CEA,
-                    CAST(a.DATA_HORA_INIC_INTRP AS DATE) AS DIA_EVENTO,
-                    SUM(COALESCE(a.DURACAO_HORA, 0)) AS CHI_TOTAL
-                FROM main.gold_apuracao_uc_ise a
-                LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
-                WHERE a.TIPO_PROTOC_JUSTIF_UCI != '6'
-                GROUP BY v.CEA, CAST(a.DATA_HORA_INIC_INTRP AS DATE)
-            ),
-            conjuntos_rebaixados AS (
-                SELECT c.CEA, c.DIA_EVENTO
-                FROM chi_diario c
-                LEFT JOIN main.metas_dc m ON c.CEA = m.CEA
-                WHERE c.CHI_TOTAL < COALESCE(m.META, 999999)
-            )
             UPDATE main.gold_apuracao_uc_ise
             SET TIPO_PROTOC_JUSTIF_UCI = '0'
-            WHERE TIPO_PROTOC_JUSTIF_UCI = '1'
-              AND EXISTS (
-                  SELECT 1 
-                  FROM conjuntos_rebaixados cr
-                  LEFT JOIN main.gold_vrc v2 ON CAST(main.gold_apuracao_uc_ise.NUM_UC_UCI AS VARCHAR) = CAST(v2.ISN_UC AS VARCHAR)
-                  WHERE cr.CEA = v2.CEA 
-                    AND cr.DIA_EVENTO = CAST(main.gold_apuracao_uc_ise.DATA_HORA_INIC_INTRP AS DATE)
-              )
+            FROM (
+                WITH chi_diario AS (
+                    SELECT 
+                        v.CEA,
+                        CAST(a.DATA_HORA_INIC_INTRP AS DATE) AS DIA_EVENTO,
+                        SUM(COALESCE(a.DURACAO_HORA, 0)) AS CHI_TOTAL
+                    FROM main.gold_apuracao_uc_ise a
+                    INNER JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                    WHERE a.TIPO_PROTOC_JUSTIF_UCI != '6'
+                    GROUP BY v.CEA, CAST(a.DATA_HORA_INIC_INTRP AS DATE)
+                ),
+                conjuntos_rebaixados AS (
+                    SELECT c.CEA, c.DIA_EVENTO
+                    FROM chi_diario c
+                    LEFT JOIN main.metas_dc m ON c.CEA = m.CEA
+                    WHERE c.CHI_TOTAL < COALESCE(m.META, 999999)
+                )
+                SELECT CAST(a2.NUM_OCORRENCIA_ADMS AS VARCHAR) as ocorrencia, 
+                       CAST(a2.NUM_SEQ_INTRP AS VARCHAR) as seq, 
+                       CAST(a2.NUM_UC_UCI AS VARCHAR) as uc
+                FROM main.gold_apuracao_uc_ise a2
+                INNER JOIN main.gold_vrc v2 ON CAST(a2.NUM_UC_UCI AS VARCHAR) = CAST(v2.ISN_UC AS VARCHAR)
+                INNER JOIN conjuntos_rebaixados cr ON v2.CEA = cr.CEA AND CAST(a2.DATA_HORA_INIC_INTRP AS DATE) = cr.DIA_EVENTO
+                WHERE a2.TIPO_PROTOC_JUSTIF_UCI = '1'
+            ) AS sub
+            WHERE CAST(main.gold_apuracao_uc_ise.NUM_OCORRENCIA_ADMS AS VARCHAR) = sub.ocorrencia
+              AND CAST(main.gold_apuracao_uc_ise.NUM_SEQ_INTRP AS VARCHAR) = sub.seq
+              AND CAST(main.gold_apuracao_uc_ise.NUM_UC_UCI AS VARCHAR) = sub.uc
+              AND main.gold_apuracao_uc_ise.TIPO_PROTOC_JUSTIF_UCI = '1'
         """)
         
         # 4. Rodar o PRODIST real!
