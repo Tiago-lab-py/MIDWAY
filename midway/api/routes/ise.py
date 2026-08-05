@@ -3,7 +3,7 @@ import json
 import duckdb
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/ise", tags=["Simulação ISE"])
@@ -54,150 +54,239 @@ def salvar_janela(janela: IseWindowConfig):
     save_windows(windows)
     return {"mensagem": "Janela salva com sucesso", "janela": janela}
 
+@router.delete("/janelas/{janela_id}")
+def deletar_janela(janela_id: str):
+    windows = load_windows()
+    windows = [w for w in windows if w.get("id") != janela_id]
+    save_windows(windows)
+    return {"mensagem": "Janela excluída com sucesso"}
+
 @router.get("/debug")
 def debug_schema(anomes: str = "202607"):
     db_path = f"data/processed/iqs_adms_processed_{anomes}.duckdb"
     try:
         conn = duckdb.connect(db_path, read_only=True)
-        cols = conn.execute("DESCRIBE gold_apuracao_uc").fetchall()
+        cols = conn.execute("DESCRIBE gold_ressarcimento_prodist").fetchall()
         conn.close()
         return {"columns": [c[0] for c in cols]}
     except Exception as e:
         return {"error": str(e)}
 
+def process_ise_bg(janela: IseWindowConfig, db_path: str):
+    try:
+        from midway.apuracao.continuidade import criar_gold_continuidade_uc
+        from midway.apuracao.ressarcimento import criar_gold_ressarcimento_prodist
+        
+        conn = duckdb.connect()
+        conn.execute(f"ATTACH '{db_path}' AS adms (READ_ONLY)")
+        
+        # 1. Copiar tabelas necessárias
+        for tbl in ["gold_apuracao_uc", "gold_uc_fatura", "gold_metas_uc", "gold_vrc", "gold_continuidade_uc", "gold_ressarcimento_prodist"]:
+            try:
+                conn.execute(f"CREATE TABLE main.{tbl} AS SELECT * FROM adms.{tbl}")
+            except Exception:
+                pass
+                
+        # Tabela base da simulação
+        conn.execute("CREATE TABLE main.gold_apuracao_uc_ise AS SELECT * FROM main.gold_apuracao_uc")
+        
+        # 2. Ler todas as janelas
+        windows = [w for w in load_windows() if w.get('anomes') == janela.anomes and w.get('status') in ('Simulação', 'Autorizada')]
+        if not any(w.get('id') == janela.id for w in windows):
+            windows.append(janela.dict())
+            
+        causas_ise = "('2', '4', '5', '6', '7', '8', '9', '13', '15', '23', '24', '28', '39', '40', '41', '52', '54', '69', '82')"
+        
+        for w in windows:
+            inicio = w['data_inicio'].replace('T', ' ')
+            fim = w['data_fim'].replace('T', ' ')
+            if len(inicio) == 16: inicio += ':00'
+            if len(fim) == 16: fim += ':00'
+            
+            conn.execute(f"""
+                UPDATE main.gold_apuracao_uc_ise
+                SET TIPO_PROTOC_JUSTIF_UCI = '6'
+                WHERE TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)) IN {causas_ise}
+                  AND DATA_HORA_INIC_INTRP <= CAST('{fim}' AS TIMESTAMP)
+                  AND DATA_HORA_INIC_INTRP + INTERVAL (COALESCE(DURACAO_HORA, 0) * 60) MINUTE >= CAST('{inicio}' AS TIMESTAMP)
+            """)
+            
+        # 3. Efeito Gangorra
+        meta_path = "data/input/META_CONJUNTO_DIA_CRITICO.csv"
+        if os.path.exists(meta_path):
+            conn.execute(f"CREATE TABLE main.metas_dc AS SELECT CAST(CEA AS VARCHAR) AS CEA, CAST(META AS DOUBLE) AS META FROM read_csv_auto('{meta_path}')")
+        else:
+            conn.execute("CREATE TABLE main.metas_dc (CEA VARCHAR, META DOUBLE)")
+
+        conn.execute("""
+            WITH chi_diario AS (
+                SELECT 
+                    v.CEA,
+                    CAST(a.DATA_HORA_INIC_INTRP AS DATE) AS DIA_EVENTO,
+                    SUM(COALESCE(a.DURACAO_HORA, 0)) AS CHI_TOTAL
+                FROM main.gold_apuracao_uc_ise a
+                LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                WHERE a.TIPO_PROTOC_JUSTIF_UCI != '6'
+                GROUP BY v.CEA, CAST(a.DATA_HORA_INIC_INTRP AS DATE)
+            ),
+            conjuntos_rebaixados AS (
+                SELECT c.CEA, c.DIA_EVENTO
+                FROM chi_diario c
+                LEFT JOIN main.metas_dc m ON c.CEA = m.CEA
+                WHERE c.CHI_TOTAL < COALESCE(m.META, 999999)
+            )
+            UPDATE main.gold_apuracao_uc_ise
+            SET TIPO_PROTOC_JUSTIF_UCI = '0'
+            WHERE TIPO_PROTOC_JUSTIF_UCI = '1'
+              AND EXISTS (
+                  SELECT 1 
+                  FROM conjuntos_rebaixados cr
+                  LEFT JOIN main.gold_vrc v2 ON CAST(main.gold_apuracao_uc_ise.NUM_UC_UCI AS VARCHAR) = CAST(v2.ISN_UC AS VARCHAR)
+                  WHERE cr.CEA = v2.CEA 
+                    AND cr.DIA_EVENTO = CAST(main.gold_apuracao_uc_ise.DATA_HORA_INIC_INTRP AS DATE)
+              )
+        """)
+        
+        # 4. Rodar o PRODIST real!
+        criar_gold_continuidade_uc(conn, sufixo="_ise")
+        criar_gold_ressarcimento_prodist(conn, sufixo="_ise")
+        
+        # Extração Financeira
+        df_orig = conn.execute("SELECT SUM(COMP_DIC_BRUTA_PRODIST) AS DIC, SUM(COMP_FIC_BRUTA_PRODIST) AS FIC, SUM(COMP_DMIC_BRUTA_PRODIST) AS DMIC, SUM(COMP_DICRI_BRUTA_PRODIST) AS DICRI, SUM(COMP_DISE_BRUTA_PRODIST) AS DISE FROM main.gold_ressarcimento_prodist").df()
+        df_ise = conn.execute("SELECT SUM(COMP_DIC_BRUTA_PRODIST) AS DIC, SUM(COMP_FIC_BRUTA_PRODIST) AS FIC, SUM(COMP_DMIC_BRUTA_PRODIST) AS DMIC, SUM(COMP_DICRI_BRUTA_PRODIST) AS DICRI, SUM(COMP_DISE_BRUTA_PRODIST) AS DISE FROM main.gold_ressarcimento_prodist_ise").df()
+        
+        dic_orig = float(df_orig['DIC'].iloc[0] or 0) if not df_orig.empty else 0
+        fic_orig = float(df_orig['FIC'].iloc[0] or 0) if not df_orig.empty else 0
+        dmic_orig = float(df_orig['DMIC'].iloc[0] or 0) if not df_orig.empty else 0
+        dicri_orig = float(df_orig['DICRI'].iloc[0] or 0) if not df_orig.empty else 0
+        dise_orig = float(df_orig['DISE'].iloc[0] or 0) if not df_orig.empty else 0
+        
+        dic_projetado = float(df_ise['DIC'].iloc[0] or 0) if not df_ise.empty else 0
+        fic_projetado = float(df_ise['FIC'].iloc[0] or 0) if not df_ise.empty else 0
+        dmic_projetado = float(df_ise['DMIC'].iloc[0] or 0) if not df_ise.empty else 0
+        dicri_projetado = float(df_ise['DICRI'].iloc[0] or 0) if not df_ise.empty else 0
+        dise_projetado = float(df_ise['DISE'].iloc[0] or 0) if not df_ise.empty else 0
+        
+        total_sem_ise = dic_orig + fic_orig + dmic_orig + dicri_orig + dise_orig
+        total_com_ise = dic_projetado + fic_projetado + dmic_projetado + dicri_projetado + dise_projetado
+        
+        # 5. Série Temporal para o gráfico (da janela atual apenas)
+        def _parse_dt(d_str):
+            d = d_str.replace('T', ' ')
+            if len(d) == 16: d += ':00'
+            return datetime.strptime(d, "%Y-%m-%d %H:%M:%S")
+            
+        start_dt = _parse_dt(janela.data_inicio)
+        end_dt = _parse_dt(janela.data_fim)
+        
+        query_raw_events = f"""
+            SELECT 
+                GREATEST(DATA_HORA_INIC_INTRP, CAST('{start_dt}' AS TIMESTAMP)) AS INICIO_SIMULADO,
+                LEAST(DATA_HORA_INIC_INTRP + INTERVAL (COALESCE(DURACAO_HORA, 0) * 60) MINUTE, CAST('{end_dt}' AS TIMESTAMP)) AS FIM_SIMULADO,
+                CAST(NUM_UC_UCI AS VARCHAR) AS UC
+            FROM main.gold_apuracao_uc_ise
+            WHERE TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)) IN {causas_ise}
+              AND DATA_HORA_INIC_INTRP <= CAST('{end_dt}' AS TIMESTAMP)
+              AND DATA_HORA_INIC_INTRP + INTERVAL (COALESCE(DURACAO_HORA, 0) * 60) MINUTE >= CAST('{start_dt}' AS TIMESTAMP)
+        """
+        df_raw = conn.execute(query_raw_events).df()
+        
+        serie_temporal = []
+        peak_time = None
+        peak_ci = 0
+        if not df_raw.empty:
+            from datetime import timedelta
+            start_hour = start_dt.replace(minute=0, second=0, microsecond=0)
+            end_hour = end_dt.replace(minute=0, second=0, microsecond=0)
+            if end_dt > end_hour: end_hour += timedelta(hours=1)
+            curr_hour = start_hour
+            hourly_ci = []
+            while curr_hour <= end_hour:
+                mask = (df_raw['INICIO_SIMULADO'] <= curr_hour) & (df_raw['FIM_SIMULADO'] >= curr_hour)
+                ci_count = int(df_raw[mask]['UC'].nunique())
+                hourly_ci.append((curr_hour, ci_count))
+                curr_hour += timedelta(hours=1)
+            for h, c in hourly_ci:
+                if c > peak_ci: peak_ci, peak_time = c, h
+            for h, c in hourly_ci:
+                rec_pct = max(0.0, min(1.0, c / peak_ci)) if peak_time and h > peak_time and peak_ci > 0 else None
+                serie_temporal.append({"hora": h.strftime("%Y-%m-%d %H:%M"), "ci": c, "rec_pct": rec_pct})
+            peak_time = peak_time.strftime("%Y-%m-%d %H:%M") if peak_time else None
+            
+        resultado = {
+            "status": "CONCLUIDO",
+            "janela": janela.dict(),
+            "simulacao_financeira": {
+                "DIC_ORIGINAL_RS": dic_orig,
+                "DIC_COM_ISE_RS": dic_projetado,
+                "FIC_ORIGINAL_RS": fic_orig,
+                "FIC_COM_ISE_RS": fic_projetado,
+                "DMIC_ORIGINAL_RS": dmic_orig,
+                "DMIC_COM_ISE_RS": dmic_projetado,
+                "DICRI_ORIGINAL_RS": dicri_orig,
+                "DICRI_COM_ISE_RS": dicri_projetado,
+                "DISE_ORIGINAL_RS": dise_orig,
+                "DISE_COM_ISE_RS": dise_projetado,
+                "DISE_GANHO_RS": total_sem_ise - total_com_ise,
+            },
+            "serie_temporal": serie_temporal,
+            "metadados_grafico": {
+                "peak_time": peak_time if not df_raw.empty else None,
+                "peak_val": peak_ci if not df_raw.empty else 0
+            }
+        }
+        
+        # Salva resultado final
+        windows_final = load_windows()
+        for i, w in enumerate(windows_final):
+            if w.get('id') == janela.id:
+                windows_final[i]['resultado'] = resultado
+                break
+        else:
+            jdict = janela.dict()
+            jdict['resultado'] = resultado
+            windows_final.append(jdict)
+        save_windows(windows_final)
+        
+    except Exception as e:
+        import traceback
+        print(f"Erro no background ISE: {traceback.format_exc()}")
+        resultado = {"status": "ERRO", "mensagem": str(e)}
+        windows_final = load_windows()
+        for i, w in enumerate(windows_final):
+            if w.get('id') == janela.id:
+                windows_final[i]['resultado'] = resultado
+                break
+        save_windows(windows_final)
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
 @router.post("/simular")
-def simular_ise(janela: IseWindowConfig):
+def simular_ise(janela: IseWindowConfig, background_tasks: BackgroundTasks):
     anomes = janela.anomes
     db_path = f"data/processed/iqs_adms_processed_{anomes}.duckdb"
-    meta_path = "data/input/META_CONJUNTO_DIA_CRITICO.csv"
     
     if not os.path.exists(db_path):
         raise HTTPException(status_code=404, detail=f"Base processada não encontrada para o anomes {anomes}.")
         
-    try:
-        conn = duckdb.connect(db_path, read_only=True)
+    import uuid
+    if not janela.id:
+        janela.id = str(uuid.uuid4())
+        windows = load_windows()
+        windows.append(janela.dict())
+        save_windows(windows)
         
-        # Carrega as Metas de Dia Crítico
-        if os.path.exists(meta_path):
-            conn.execute(f"CREATE TEMPORARY TABLE metas_dc AS SELECT CAST(CEA AS VARCHAR) AS CEA, CAST(META AS DOUBLE) AS META FROM read_csv_auto('{meta_path}')")
-        else:
-            # Fallback vazio caso o arquivo nao exista
-            conn.execute("CREATE TEMPORARY TABLE metas_dc (CEA VARCHAR, META DOUBLE)")
-        
-        # Causas elegíveis para ISE
-        causas_ise = "('2', '4', '5', '6', '7', '8', '9', '13', '15', '23', '24', '28', '39', '40', '41', '52', '54', '69', '82')"
-        
-        # A query principal precisa recalcular o CHI diário por Conjunto (CEA)
-        
-        query_ise = f"""
-        WITH base_eventos AS (
-            SELECT 
-                a.NUM_OCORRENCIA_ADMS,
-                CAST(a.NUM_UC_UCI AS VARCHAR) AS UC,
-                COALESCE(CAST(v.CEA AS VARCHAR), 'N/I') AS CEA,
-                CAST(a.DATA_HORA_INIC_INTRP AS DATE) AS DIA_EVENTO,
-                a.DATA_HORA_INIC_INTRP,
-                a.DATA_HORA_INIC_INTRP + INTERVAL (COALESCE(a.DURACAO_HORA, 0) * 60) MINUTE AS DATA_HORA_FIM_INTRP,
-                CAST('{janela.data_inicio}' AS TIMESTAMP) AS JANELA_INICIO,
-                CAST('{janela.data_fim}' AS TIMESTAMP) AS JANELA_FIM,
-                COALESCE(a.CI_BRUTO, 0) AS CI_BRUTO,
-                COALESCE(a.CI_LIQUIDO, 0) AS CI_LIQUIDO,
-                COALESCE(TRIM(CAST(a.TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), '0') AS TIPO_PROTOC,
-                COALESCE(TRIM(CAST(a.COD_CAUSA_INTRP AS VARCHAR)), '') AS CAUSA
-            FROM gold_apuracao_uc a
-            LEFT JOIN gold_vrc v ON a.NUM_UC_UCI = v.ISN_UC
-            WHERE a.NUM_UC_UCI IS NOT NULL
-              AND a.DATA_HORA_INIC_INTRP >= CAST('{janela.data_inicio}' AS TIMESTAMP) - INTERVAL 2 DAY
-              AND a.DATA_HORA_INIC_INTRP <= CAST('{janela.data_fim}' AS TIMESTAMP) + INTERVAL 2 DAY
-        ),
-        eventos_com_janela AS (
-            SELECT 
-                *,
-                -- Verifica se o evento é elegível E intercepta a janela
-                CASE WHEN CAUSA IN {causas_ise} 
-                      AND DATA_HORA_INIC_INTRP <= JANELA_FIM 
-                      AND DATA_HORA_FIM_INTRP >= JANELA_INICIO
-                     THEN GREATEST(DATA_HORA_INIC_INTRP, JANELA_INICIO)
-                     ELSE DATA_HORA_INIC_INTRP 
-                END AS INICIO_SIMULADO,
-                
-                CASE WHEN CAUSA IN {causas_ise} 
-                      AND DATA_HORA_INIC_INTRP <= JANELA_FIM 
-                      AND DATA_HORA_FIM_INTRP >= JANELA_INICIO
-                     THEN LEAST(DATA_HORA_FIM_INTRP, JANELA_FIM)
-                     ELSE DATA_HORA_FIM_INTRP 
-                END AS FIM_SIMULADO,
-                
-                CASE WHEN CAUSA IN {causas_ise} 
-                      AND DATA_HORA_INIC_INTRP <= JANELA_FIM 
-                      AND DATA_HORA_FIM_INTRP >= JANELA_INICIO
-                     THEN 1 ELSE 0 END AS CAIU_NA_JANELA
-            FROM base_eventos
-        ),
-        chi_diario_por_cea AS (
-            -- Calcula o CHI total diário de cada Conjunto (após aplicar a janela ISE)
-            SELECT 
-                CEA, 
-                DIA_EVENTO,
-                SUM(EXTRACT(EPOCH FROM (FIM_SIMULADO - INICIO_SIMULADO)) / 3600.0) AS CHI_SIMULADO_DIA
-            FROM eventos_com_janela
-            GROUP BY CEA, DIA_EVENTO
-        ),
-        eventos_final_classificados AS (
-            SELECT 
-                e.*,
-                c.CHI_SIMULADO_DIA,
-                m.META,
-                -- REGRA GANGORRA: Se o evento original era Dia Crítico (1), mas o novo CHI simulado ficou 
-                -- abaixo da META, ele perde a isenção e vira Líquido (0)!
-                CASE 
-                    WHEN e.TIPO_PROTOC = '1' AND c.CHI_SIMULADO_DIA < COALESCE(m.META, 999999) THEN '0'
-                    WHEN e.CAIU_NA_JANELA = 1 THEN '6' -- Aplica ISE (6) no que caiu na janela
-                    ELSE e.TIPO_PROTOC
-                END AS NOVO_TIPO_PROTOC
-            FROM eventos_com_janela e
-            LEFT JOIN chi_diario_por_cea c ON e.CEA = c.CEA AND e.DIA_EVENTO = c.DIA_EVENTO
-            LEFT JOIN metas_dc m ON e.CEA = m.CEA
-        )
-        SELECT 
-            -- Resultados Brutos ISE
-            SUM(CASE WHEN CAIU_NA_JANELA = 1 THEN CI_BRUTO ELSE 0 END) AS ISE_CI_BRUTO_REFERENCIA,
-            SUM(CASE WHEN CAIU_NA_JANELA = 1 AND TIPO_PROTOC IN ('0', '0.0', '') THEN CI_LIQUIDO ELSE 0 END) AS ISE_CI_LIQUIDO_RECLASSIFICAVEL,
-            SUM(CASE WHEN CAIU_NA_JANELA = 1 THEN EXTRACT(EPOCH FROM (FIM_SIMULADO - INICIO_SIMULADO)) / 3600.0 ELSE 0 END) AS ISE_CHI_BRUTO_REFERENCIA,
-            SUM(CASE WHEN CAIU_NA_JANELA = 1 AND TIPO_PROTOC IN ('0', '0.0', '') THEN EXTRACT(EPOCH FROM (FIM_SIMULADO - INICIO_SIMULADO)) / 3600.0 ELSE 0 END) AS ISE_CHI_LIQUIDO_RECLASSIFICAVEL,
-            
-            -- Auditoria da Gangorra do Dia Critico
-            COUNT(CASE WHEN TIPO_PROTOC = '1' AND NOVO_TIPO_PROTOC = '0' THEN 1 END) AS QTD_UCS_PERDERAM_DIA_CRITICO
-        FROM eventos_final_classificados
-        """
-        
-        df_resultados = conn.execute(query_ise).df()
-        
-        # 2. Simulação Financeira (MOCK baseando-se no efeito de UCs perdidas vs Ganhadas)
-        # O cálculo final exato em R$ requererá leitura de VRC/META_DIC
-        qtd_perdida = int(df_resultados['QTD_UCS_PERDERAM_DIA_CRITICO'].iloc[0])
-        chi_salvo = float(df_resultados['ISE_CHI_LIQUIDO_RECLASSIFICAVEL'].iloc[0])
-        
-        # Estimativa Mock de R$ (100 reais de economia por CHI isento, menos 500 reais de multa por UC que perdeu isenção)
-        economia_ise = chi_salvo * 100
-        multa_reversa = qtd_perdida * 500
-        ganho_real = economia_ise - multa_reversa
-        
-        conn.close()
-        
-        return {
-            "janela": janela.dict(),
-            "resultados_ise": df_resultados.to_dict(orient="records")[0],
-            "simulacao_financeira": {
-                "DIC_ORIGINAL_RS": 152000.50,
-                "DIC_COM_ISE_RS": 152000.50 - ganho_real,
-                "FIC_ORIGINAL_RS": 85000.20,
-                "FIC_COM_ISE_RS": 85000.20 - (ganho_real * 0.4),
-                "DISE_GANHO_RS": ganho_real,
-                "UCS_QUE_PERDERAM_ISENCAO_DC": qtd_perdida
-            }
-        }
-    except Exception as e:
-        if 'conn' in locals():
-            conn.close()
-        raise HTTPException(status_code=500, detail=str(e))
+    background_tasks.add_task(process_ise_bg, janela, db_path)
+    return {"status": "PROCESSANDO", "janela_id": janela.id}
+
+@router.get("/resultado/{janela_id}")
+def get_resultado(janela_id: str):
+    windows = load_windows()
+    for w in windows:
+        if w.get('id') == janela_id:
+            if 'resultado' in w:
+                return w['resultado']
+            else:
+                return {"status": "PROCESSANDO"}
+    raise HTTPException(status_code=404, detail="Janela não encontrada")

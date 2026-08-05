@@ -3,15 +3,15 @@ from __future__ import annotations
 from midway.apuracao.duckdb_utils import tabela_local_existe
 
 
-def criar_gold_ressarcimento_prodist(con):
-    print("Criando gold_ressarcimento_prodist...")
+def criar_gold_ressarcimento_prodist(con, sufixo=""):
+    print(f"Criando gold_ressarcimento_prodist{sufixo}...")
 
-    if not tabela_local_existe(con, "gold_continuidade_uc"):
-        raise RuntimeError("Tabela gold_continuidade_uc nao encontrada.")
+    if not tabela_local_existe(con, f"gold_continuidade_uc{sufixo}"):
+        raise RuntimeError(f"Tabela gold_continuidade_uc{sufixo} nao encontrada.")
 
     con.execute(
-        """
-        CREATE OR REPLACE TABLE gold_ressarcimento_prodist AS
+        f"""
+        CREATE OR REPLACE TABLE gold_ressarcimento_prodist{sufixo} AS
         WITH base AS (
             SELECT
                 c.*,
@@ -53,7 +53,7 @@ def criar_gold_ressarcimento_prodist(con):
                     THEN 14
                     ELSE 0
                 END AS KEI3_DISE
-            FROM gold_continuidade_uc c
+            FROM gold_continuidade_uc{sufixo} c
         ),
         bruta AS (
             SELECT

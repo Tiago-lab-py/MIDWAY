@@ -3,8 +3,8 @@ from __future__ import annotations
 from midway.apuracao.duckdb_utils import tabela_local_existe
 
 
-def criar_gold_continuidade_uc(con):
-    print("Criando gold_continuidade_uc...")
+def criar_gold_continuidade_uc(con, sufixo=""):
+    print(f"Criando gold_continuidade_uc{sufixo}...")
 
     tabelas = {
         linha[0]
@@ -17,8 +17,8 @@ def criar_gold_continuidade_uc(con):
         ).fetchall()
     }
 
-    if "gold_apuracao_uc" not in tabelas:
-        raise RuntimeError("Tabela gold_apuracao_uc nao encontrada.")
+    if f"gold_apuracao_uc{sufixo}" not in tabelas:
+        raise RuntimeError(f"Tabela gold_apuracao_uc{sufixo} nao encontrada.")
 
     if "gold_uc_fatura" not in tabelas:
         raise RuntimeError("Tabela gold_uc_fatura nao encontrada. Execute run.bat uc_fatura.")
@@ -38,7 +38,7 @@ def criar_gold_continuidade_uc(con):
             SELECT column_name
             FROM information_schema.columns
             WHERE table_schema = 'main'
-              AND table_name = 'gold_apuracao_uc'
+              AND table_name = f'gold_apuracao_uc{sufixo}'
             """
         ).fetchall()
     }
@@ -55,7 +55,7 @@ def criar_gold_continuidade_uc(con):
 
     con.execute(
         f"""
-        CREATE OR REPLACE TABLE gold_continuidade_uc AS
+        CREATE OR REPLACE TABLE gold_continuidade_uc{sufixo} AS
         WITH uc_faturada AS (
             SELECT DISTINCT
                 CAST(UC AS VARCHAR) AS UC,
@@ -185,7 +185,7 @@ def criar_gold_continuidade_uc(con):
                     WHEN UPPER(TRIM(CAST(a.INTERRUPCAO_CONTABILIZAVEL AS VARCHAR))) IN ('SIM', 'TRUE', '1')
                     THEN 1 ELSE 0
                 END AS INTERRUPCAO_CONTABILIZAVEL
-            FROM gold_apuracao_uc a
+            FROM gold_apuracao_uc{sufixo} a
             LEFT JOIN uc_unica_acessante u
               ON u.NUM_OCORRENCIA_ADMS = CAST(a.NUM_OCORRENCIA_ADMS AS VARCHAR)
              AND u.NUM_SEQ_INTRP = CAST(a.NUM_SEQ_INTRP AS VARCHAR)

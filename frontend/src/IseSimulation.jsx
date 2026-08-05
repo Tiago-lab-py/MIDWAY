@@ -27,7 +27,101 @@ export default function IseSimulation() {
 
   useEffect(() => {
     carregarJanelas();
+    
+    // Injeta Plotly.js para o gráfico de recomposição
+    if (!document.getElementById('plotly-script')) {
+      const script = document.createElement('script');
+      script.id = 'plotly-script';
+      script.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
+      script.async = true;
+      document.body.appendChild(script);
+    }
   }, []);
+
+  useEffect(() => {
+    if (simulacaoAtual?.serie_temporal && window.Plotly) {
+      const serie = simulacaoAtual.serie_temporal;
+      const x = serie.map(s => s.hora);
+      const yBar = serie.map(s => s.ci);
+      const yRec = serie.map(s => s.rec_pct !== null ? s.rec_pct : null);
+      
+      const peakTime = simulacaoAtual.metadados_grafico?.peak_time;
+      const peakVal = simulacaoAtual.metadados_grafico?.peak_val || 0;
+
+      let peakTimeFmt = peakTime;
+      if (peakTime) {
+         const d = new Date(peakTime);
+         peakTimeFmt = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+      }
+
+      window.Plotly.newPlot('g_ci', [
+        {
+          type: 'bar',
+          x: x, y: yBar, name: 'CI (hora)',
+          opacity: 0.9,
+          marker: {color: 'rgba(52, 152, 219, 0.9)'},
+          hovertemplate: '%{x}<br>CI hora: %{y:,d} UC<extra></extra>'
+        },
+        {
+          type: 'scatter',
+          x: x, y: yRec, name: '% recomposição (hora/pico)',
+          mode: 'lines+markers',
+          yaxis: 'y2',
+          connectgaps: false,
+          line: {color: 'rgb(230, 81, 0)', width: 3},
+          marker: {color: 'rgb(230, 81, 0)'},
+          hovertemplate: '%{x}<br>CI_hora/CI_pico: %{y:.1%}<extra></extra>'
+        }
+      ], {
+        template: 'plotly_white',
+        hovermode: 'x unified',
+        margin: {t: 30, r: 60, b: 50, l: 60},
+        xaxis: { 
+          title: 'Hora', 
+          tickformat: '%d/%m %H:%M', 
+          rangeslider: {visible: false},
+          gridcolor: 'rgba(255,255,255,0.05)',
+          zerolinecolor: 'rgba(255,255,255,0.1)',
+          color: '#94a3b8'
+        },
+        yaxis: { 
+          title: 'CI (UC)', 
+          rangemode: 'tozero',
+          gridcolor: 'rgba(255,255,255,0.05)',
+          zerolinecolor: 'rgba(255,255,255,0.1)',
+          color: '#94a3b8'
+        },
+        yaxis2: { 
+          title: '% recomposição pós-pico', 
+          overlaying: 'y', 
+          side: 'right', 
+          rangemode: 'tozero', 
+          tickformat: '.0%',
+          gridcolor: 'rgba(255,255,255,0.05)',
+          zerolinecolor: 'rgba(255,255,255,0.1)',
+          color: '#94a3b8'
+        },
+        legend: {orientation: 'h', y: 1.08, x: 0, font: {color: '#cbd5e1'}},
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        shapes: peakTime ? [
+          { 
+            type: 'line', x0: peakTime, x1: peakTime, y0: 0, y1: 1, yref: 'paper', 
+            line: {dash: 'dot', width: 1, color: '#64748b'}
+          }
+        ] : [],
+        annotations: peakTime ? [
+          { 
+            x: peakTime, y: 1, yref: 'paper', xanchor: 'left', yanchor: 'top',
+            text: `Pico em ${peakTimeFmt} (${peakVal.toLocaleString()} UC)`, showarrow: false,
+            font: {color: '#94a3b8'}
+          }
+        ] : []
+      }, {
+        displaylogo: false, responsive: true, displayModeBar: false
+      });
+    }
+  }, [simulacaoAtual]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -48,9 +142,48 @@ export default function IseSimulation() {
     }
   };
 
+  const handleExcluirJanela = async (id) => {
+    if (!window.confirm("Deseja realmente excluir esta janela?")) return;
+    try {
+      await fetch(`${API_URL}/ise/janelas/${id}`, {
+        method: 'DELETE'
+      });
+      carregarJanelas();
+    } catch (err) {
+      alert('Erro ao excluir janela.');
+    }
+  };
+
+  const iniciarPolling = (janela_id) => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/ise/resultado/${janela_id}`);
+        const data = await res.json();
+        if (data.status === 'CONCLUIDO' || data.status === 'ERRO') {
+          clearInterval(interval);
+          setLoading(false);
+          if (data.status === 'ERRO') {
+            setError(data.mensagem || 'Erro na simulação em background.');
+            setSimulacaoAtual(null);
+          } else {
+            setSimulacaoAtual(data);
+          }
+        }
+      } catch (err) {
+        // ignore errors during poll
+      }
+    }, 3000);
+  };
+
   const handleSimular = async (janela) => {
+    if (janela.resultado && janela.resultado.status === 'CONCLUIDO') {
+      setSimulacaoAtual(janela.resultado);
+      return;
+    }
+    
     setLoading(true);
     setError(null);
+    setSimulacaoAtual(null);
     try {
       const res = await fetch(`${API_URL}/ise/simular`, {
         method: 'POST',
@@ -59,10 +192,12 @@ export default function IseSimulation() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Erro ao simular');
-      setSimulacaoAtual(data);
+      
+      if (data.status === 'PROCESSANDO') {
+        iniciarPolling(data.janela_id);
+      }
     } catch (err) {
       setError(err.message || 'Erro ao simular');
-    } finally {
       setLoading(false);
     }
   };
@@ -160,7 +295,7 @@ export default function IseSimulation() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {/* Painel Esquerdo */}
         <div className="ise-glass-panel" style={{ flex: '1', minWidth: '350px' }}>
           <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -225,9 +360,21 @@ export default function IseSimulation() {
                           {j.status}
                         </span>
                       </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button className="ise-btn-simular" onClick={() => handleSimular(j)}>
-                          Simular
+                      <td style={{ textAlign: 'right', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button 
+                          className="ise-btn-simular" 
+                          onClick={() => handleSimular(j)}
+                          style={{ background: j.resultado && j.resultado.status === 'CONCLUIDO' ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : '' }}
+                        >
+                          {j.resultado && j.resultado.status === 'CONCLUIDO' ? 'Ver Resultado' : 'Simular'}
+                        </button>
+                        <button 
+                          onClick={() => handleExcluirJanela(j.id)}
+                          style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.5)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', transition: 'all 0.2s' }}
+                          onMouseOver={(e) => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; }}
+                          onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; e.currentTarget.style.color = '#ef4444'; }}
+                        >
+                          Excluir
                         </button>
                       </td>
                     </tr>
@@ -251,7 +398,7 @@ export default function IseSimulation() {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
               <div style={{ width: '40px', height: '40px', border: '3px solid rgba(59,130,246,0.3)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }} />
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-              <p>Cruzando eventos no DuckDB...</p>
+              <p>Processando regras financeiras em background...</p>
             </div>
           )}
 
@@ -320,6 +467,16 @@ export default function IseSimulation() {
                     </thead>
                     <tbody>
                       <tr>
+                        <td style={{ color: '#94a3b8' }}>CHI (horas)</td>
+                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>{simulacaoAtual.simulacao_financeira.CHI_ORIGINAL.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>{simulacaoAtual.simulacao_financeira.CHI_COM_ISE.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      </tr>
+                      <tr>
+                        <td style={{ color: '#94a3b8' }}>CI (qtd)</td>
+                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>{simulacaoAtual.simulacao_financeira.CI_ORIGINAL.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
+                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>{simulacaoAtual.simulacao_financeira.CI_COM_ISE.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
+                      </tr>
+                      <tr>
                         <td style={{ color: '#94a3b8' }}>Risco DIC</td>
                         <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.DIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                         <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.DIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
@@ -328,6 +485,21 @@ export default function IseSimulation() {
                         <td style={{ color: '#94a3b8' }}>Risco FIC</td>
                         <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.FIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                         <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.FIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      </tr>
+                      <tr>
+                        <td style={{ color: '#94a3b8' }}>Risco DMIC</td>
+                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.DMIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.DMIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      </tr>
+                      <tr>
+                        <td style={{ color: '#94a3b8' }}>Risco DICRI</td>
+                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.DICRI_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.DICRI_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      </tr>
+                      <tr>
+                        <td style={{ color: '#94a3b8' }}>Risco DISE</td>
+                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.DISE_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.DISE_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
                       <tr style={{ background: 'linear-gradient(90deg, rgba(16,185,129,0) 0%, rgba(16,185,129,0.1) 100%)' }}>
                         <td style={{ padding: '16px 12px', color: '#10b981', fontWeight: 'bold', border: 'none' }}>ECONOMIA LÍQUIDA</td>
@@ -339,6 +511,17 @@ export default function IseSimulation() {
                   </table>
                 </div>
               </div>
+
+              {simulacaoAtual.serie_temporal && simulacaoAtual.serie_temporal.length > 0 && (
+                <div style={{ marginTop: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Curva de Recomposição de CI
+                  </h4>
+                  <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', padding: '16px' }}>
+                    <div id="g_ci" style={{ height: '400px', width: '100%' }}></div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
