@@ -214,6 +214,79 @@ def download_geracao_iqs(
             if "adms_iqs_alterados" not in tabelas:
                 raise RuntimeError("Tabela adms_iqs_alterados não encontrada no DuckDB processado.")
                 
+            try:
+                con_duck.execute(f"ATTACH 'data/raw/adms_servicos_raw_{anomes}.duckdb' AS servicos (READ_ONLY)")
+            except Exception as e:
+                pass
+                
+            # INJEÇÃO GOVERNADA: Aplicar janelas ISE "Implantadas" do mês atual
+            from ..routes.ise import load_windows
+            windows = load_windows()
+            causas_ise = "('2', '4', '5', '6', '7', '8', '9', '13', '15', '23', '24', '28', '39', '40', '41', '52', '54', '69', '82')"
+            
+            for w in windows:
+                if w.get('status') == 'Implantada' and w.get('anomes') == anomes:
+                    inicio = w['data_inicio'].replace('T', ' ')
+                    fim = w['data_fim'].replace('T', ' ')
+                    if len(inicio) == 16: inicio += ':00'
+                    if len(fim) == 16: fim += ':00'
+                    
+                    logger.info(f"Aplicando Janela ISE Implantada: {w.get('id')}")
+                    con_duck.execute(f"""
+                        UPDATE adms_iqs_alterados
+                        SET TIPO_PROTOC_JUSTIF_UCI = '6'
+                        WHERE TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)) IN {causas_ise}
+                          AND DATA_HORA_INIC_INTRP <= CAST('{fim}' AS TIMESTAMP)
+                          AND DATA_HORA_INIC_INTRP + INTERVAL (COALESCE(DURACAO_HORA, 0) * 60) MINUTE >= CAST('{inicio}' AS TIMESTAMP)
+                    """)
+                    
+                    # Refaz o efeito gangorra
+                    meta_path = "data/input/META_CONJUNTO_DIA_CRITICO.csv"
+                    if os.path.exists(meta_path):
+                        con_duck.execute(f"CREATE OR REPLACE TABLE metas_dc AS SELECT CAST(CEA AS VARCHAR) AS CEA, CAST(META AS DOUBLE) AS META FROM read_csv_auto('{meta_path}')")
+                    else:
+                        con_duck.execute("CREATE OR REPLACE TABLE metas_dc (CEA VARCHAR, META DOUBLE)")
+
+                    con_duck.execute("""
+                        UPDATE adms_iqs_alterados
+                        SET TIPO_PROTOC_JUSTIF_UCI = '0'
+                        FROM (
+                            WITH ocorrencias_com_servico AS (
+                                SELECT DISTINCT CAST(PID_INTRP_SRVE AS VARCHAR) AS PID
+                                FROM servicos.raw_adms_servicos
+                                WHERE DTHR_SAIDA_SRV IS NOT NULL
+                            ),
+                            ocorrencias_diarias AS (
+                                SELECT 
+                                    v.CEA,
+                                    CAST(a.DATA_HORA_INIC_INTRP AS DATE) AS DIA_EVENTO,
+                                    COUNT(DISTINCT a.NUM_OCORRENCIA_ADMS) AS QTD_OCORRENCIAS
+                                FROM adms_iqs_alterados a
+                                INNER JOIN gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                                INNER JOIN ocorrencias_com_servico s ON CAST(a.NUM_SEQ_INTRP AS VARCHAR) = s.PID
+                                WHERE a.TIPO_PROTOC_JUSTIF_UCI != '6'
+                                GROUP BY v.CEA, CAST(a.DATA_HORA_INIC_INTRP AS DATE)
+                            ),
+                            conjuntos_rebaixados AS (
+                                SELECT c.CEA, c.DIA_EVENTO
+                                FROM ocorrencias_diarias c
+                                LEFT JOIN metas_dc m ON c.CEA = m.CEA
+                                WHERE c.QTD_OCORRENCIAS < COALESCE(m.META, 999999)
+                            )
+                            SELECT CAST(a2.NUM_OCORRENCIA_ADMS AS VARCHAR) as ocorrencia, 
+                                   CAST(a2.NUM_SEQ_INTRP AS VARCHAR) as seq, 
+                                   CAST(a2.NUM_UC_UCI AS VARCHAR) as uc
+                            FROM adms_iqs_alterados a2
+                            INNER JOIN gold_vrc v2 ON CAST(a2.NUM_UC_UCI AS VARCHAR) = CAST(v2.ISN_UC AS VARCHAR)
+                            INNER JOIN conjuntos_rebaixados cr ON v2.CEA = cr.CEA AND CAST(a2.DATA_HORA_INIC_INTRP AS DATE) = cr.DIA_EVENTO
+                            WHERE a2.TIPO_PROTOC_JUSTIF_UCI = '1'
+                        ) AS sub
+                        WHERE CAST(adms_iqs_alterados.NUM_OCORRENCIA_ADMS AS VARCHAR) = sub.ocorrencia
+                          AND CAST(adms_iqs_alterados.NUM_SEQ_INTRP AS VARCHAR) = sub.seq
+                          AND CAST(adms_iqs_alterados.NUM_UC_UCI AS VARCHAR) = sub.uc
+                          AND adms_iqs_alterados.TIPO_PROTOC_JUSTIF_UCI = '1'
+                    """)
+
             total_export = criar_tabela_exportacao_iqs(con_duck, logger)
             regionais = con_duck.execute(
                 "SELECT DISTINCT REGIONAL_EXPORT FROM adms_iqs_export WHERE REGIONAL_EXPORT IS NOT NULL ORDER BY REGIONAL_EXPORT"

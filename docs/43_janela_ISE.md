@@ -44,9 +44,14 @@ A aplicação de uma janela ISE isenta as interrupções que ocorrem dentro dela
 
 A simulação financeira final exibida pelo módulo (Ganho DISE) já contabiliza essa possível perda de Dia Crítico para refletir o cenário real financeiro da concessionária.
 
-## 5. Arquitetura do Módulo
+## 5. Arquitetura do Módulo (Simulação Exata via PRODIST)
 
-O módulo será integrado diretamente no painel oficial do MIDWAY:
-- **Backend (FastAPI):** `api/routes/ise.py`. Utiliza o DuckDB (`iqs_adms_processed_{ANOMES}.duckdb`) para cruzar as janelas em tempo real.
-- **Controle:** As janelas criadas (estado de "Simulação" ou "Autorizada") serão salvas localmente em `data/control/janelas_ise.json`.
-- **Frontend (React):** Nova tela acessível via barra de navegação, contendo a Gestão de Janelas (Passo 1), Resultados do Motor (Passo 2) e o Simulador Financeiro com comparativo de R$ (Passo 3).
+O módulo foi refatorado para garantir **100% de precisão matemática**, abandonando estimativas teóricas e reaproveitando as funções oficiais de cálculo da concessionária:
+
+- **Backend (FastAPI - Background Tasks):** `api/routes/ise.py`. 
+  - Ao disparar a simulação, a API não trava. O cálculo pesado é deslocado para uma rotina assíncrona.
+  - Um banco volátil em memória RAM (`:memory:`) do DuckDB é criado. A tabela oficial de ocorrências (`gold_apuracao_uc`) é clonada para `gold_apuracao_uc_ise`.
+  - A manipulação de eventos ISE e o recálculo do Dia Crítico (Gangorra) ocorrem estritamente na memória, preservando a base oficial (`adms_iqs_processed`).
+- **Reaproveitamento Oficial:** O motor executa nativamente as funções `criar_gold_continuidade_uc` e `criar_gold_ressarcimento_prodist` (passando o parâmetro `sufixo="_ise"`), garantindo que as regras da ANEEL sejam aplicadas exatamente da mesma forma que o faturamento de produção.
+- **Controle Auditável:** As janelas criadas serão salvas localmente em `data/control/janelas_ise.json`.
+- **Frontend (React):** `IseSimulation.jsx`. Nova tela contendo a Gestão de Janelas (com polling assíncrono) e o Simulador Financeiro que confronta as apurações reais `Sem ISE` vs `Com ISE`.

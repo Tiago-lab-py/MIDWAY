@@ -10,8 +10,11 @@ export default function IseSimulation() {
     data_fim: '2026-07-01 23:59:59',
   });
   const [simulacaoAtual, setSimulacaoAtual] = useState(null);
+  const [selectedWindows, setSelectedWindows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editId, setEditId] = useState(null);
 
   const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8000';
 
@@ -124,22 +127,60 @@ export default function IseSimulation() {
   }, [simulacaoAtual]);
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData(prev => {
+      const next = { ...prev, [name]: value };
+      if ((name === 'data_inicio' || name === 'data_fim') && !prev.descritivo) {
+        next.descritivo = `${next.data_inicio} até ${next.data_fim}`.trim();
+      }
+      return next;
+    });
   };
 
   const handleSalvarJanela = async (e) => {
     e.preventDefault();
     try {
-      await fetch(`${API_URL}/ise/janelas`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
+      if (isEditing) {
+        await fetch(`${API_URL}/ise/janelas/${editId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        setIsEditing(false);
+        setEditId(null);
+        alert('Janela atualizada com sucesso!');
+      } else {
+        await fetch(`${API_URL}/ise/janelas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        alert('Janela salva com sucesso!');
+      }
+      setFormData({ regional: 'LESTE', data_inicio: '', data_fim: '', anomes: '202607', id_evento: '', descritivo: '' });
       carregarJanelas();
-      alert('Janela salva com sucesso!');
     } catch (err) {
       alert('Erro ao salvar janela.');
     }
+  };
+
+  const handleEditarJanela = (janela) => {
+    if (janela.status === 'Implantada') {
+      if (!window.confirm("Esta janela já está Implantada. Se você editá-la, ela voltará para o status de Simulação e precisará ser re-implantada. Deseja continuar?")) {
+        return;
+      }
+    }
+    setIsEditing(true);
+    setEditId(janela.id);
+    setFormData({
+      regional: janela.regional,
+      data_inicio: janela.data_inicio,
+      data_fim: janela.data_fim,
+      anomes: janela.anomes || '202607',
+      id_evento: janela.id_evento || '',
+      descritivo: janela.descritivo || ''
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleExcluirJanela = async (id) => {
@@ -151,6 +192,30 @@ export default function IseSimulation() {
       carregarJanelas();
     } catch (err) {
       alert('Erro ao excluir janela.');
+    }
+  };
+
+  const toggleSelection = (id) => {
+    setSelectedWindows(prev => 
+      prev.includes(id) ? prev.filter(wId => wId !== id) : [...prev, id]
+    );
+  };
+  
+  const handleImplantarLote = async () => {
+    if (selectedWindows.length === 0) return alert("Selecione ao menos uma janela!");
+    if (!window.confirm(`Tem certeza que deseja IMPLANTAR as ${selectedWindows.length} janelas selecionadas? Elas ficarão travadas para auditoria.`)) return;
+    
+    try {
+      await fetch(`${API_URL}/ise/implantar_lote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedWindows }),
+      });
+      setSelectedWindows([]);
+      carregarJanelas();
+      alert('Janelas implantadas com sucesso! Vá para a página de "Saída IQS" para gerar o pacote de envio do mês.');
+    } catch (err) {
+      alert("Erro ao implantar janelas.");
     }
   };
 
@@ -175,8 +240,8 @@ export default function IseSimulation() {
     }, 3000);
   };
 
-  const handleSimular = async (janela) => {
-    if (janela.resultado && janela.resultado.status === 'CONCLUIDO') {
+  const handleSimular = async (janela, force = false) => {
+    if (!force && janela.resultado && janela.resultado.status === 'CONCLUIDO') {
       setSimulacaoAtual(janela.resultado);
       return;
     }
@@ -299,7 +364,7 @@ export default function IseSimulation() {
         {/* Painel Esquerdo */}
         <div className="ise-glass-panel" style={{ flex: '1', minWidth: '350px' }}>
           <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: '#3b82f6' }}>1.</span> Gestão de Janelas
+            <span style={{ color: '#3b82f6' }}>1.</span> {isEditing ? 'Editar Janela' : 'Gestão de Janelas'}
           </h3>
           
           <form onSubmit={handleSalvarJanela} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -321,6 +386,16 @@ export default function IseSimulation() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '16px' }}>
+              <div style={{ flex: 1, maxWidth: '120px' }}>
+                <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '6px' }}>ID Evento</label>
+                <input type="number" className="ise-input" name="id_evento" value={formData.id_evento} onChange={handleChange} placeholder="Opcional" />
+              </div>
+              <div style={{ flex: 3 }}>
+                <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '6px' }}>Descritivo do Evento</label>
+                <input type="text" className="ise-input" name="descritivo" value={formData.descritivo} onChange={handleChange} placeholder="Ex: Ciclone Bomba" />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '16px' }}>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '6px' }}>Início da Janela</label>
                 <input type="datetime-local" step="1" className="ise-input" name="data_inicio" value={formData.data_inicio} onChange={handleChange} required />
@@ -331,7 +406,7 @@ export default function IseSimulation() {
               </div>
             </div>
             <button type="submit" className="ise-btn" style={{ marginTop: '8px' }}>
-              + Adicionar Nova Janela
+              {isEditing ? 'Atualizar Janela' : '+ Adicionar Nova Janela'}
             </button>
           </form>
 
@@ -341,7 +416,12 @@ export default function IseSimulation() {
               <table className="ise-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr>
+                    <th style={{ width: '40px', textAlign: 'center' }}>
+                      <input type="checkbox" onChange={(e) => { if(e.target.checked) setSelectedWindows(janelas.map(j=>j.id)); else setSelectedWindows([]); }} checked={janelas.length>0 && selectedWindows.length === janelas.length} />
+                    </th>
+                    <th>ID</th>
                     <th>Reg.</th>
+                    <th>Descritivo</th>
                     <th>Início</th>
                     <th>Fim</th>
                     <th>Status</th>
@@ -350,10 +430,15 @@ export default function IseSimulation() {
                 </thead>
                 <tbody>
                   {janelas.map((j, idx) => (
-                    <tr key={idx} style={{ transition: 'background 0.2s' }}>
+                    <tr key={idx} style={{ transition: 'background 0.2s', background: selectedWindows.includes(j.id) ? 'rgba(59, 130, 246, 0.1)' : 'transparent' }}>
+                      <td style={{ textAlign: 'center' }}>
+                        <input type="checkbox" checked={selectedWindows.includes(j.id)} onChange={() => toggleSelection(j.id)} />
+                      </td>
+                      <td style={{ color: '#94a3b8', fontWeight: 'bold' }}>{j.id_evento || '-'}</td>
                       <td><span style={{ background: 'rgba(59,130,246,0.2)', color: '#60a5fa', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>{j.regional}</span></td>
-                      <td style={{ color: '#cbd5e1' }}>{j.data_inicio}</td>
-                      <td style={{ color: '#cbd5e1' }}>{j.data_fim}</td>
+                      <td style={{ color: '#cbd5e1' }}>{j.descritivo || '-'}</td>
+                      <td style={{ color: '#cbd5e1' }}>{j.data_inicio ? j.data_inicio.replace('T', ' ') : ''}</td>
+                      <td style={{ color: '#cbd5e1' }}>{j.data_fim ? j.data_fim.replace('T', ' ') : ''}</td>
                       <td>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: j.status === 'Autorizada' ? '#34d399' : '#fbbf24', fontSize: '12px' }}>
                           <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: j.status === 'Autorizada' ? '#34d399' : '#fbbf24' }}></span>
@@ -368,6 +453,25 @@ export default function IseSimulation() {
                         >
                           {j.resultado && j.resultado.status === 'CONCLUIDO' ? 'Ver Resultado' : 'Simular'}
                         </button>
+                        {j.resultado && j.resultado.status === 'CONCLUIDO' && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleSimular(j, true); }}
+                            title="Reprocessar Simulação"
+                            style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.5)', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            onMouseOver={(e) => { e.currentTarget.style.background = '#3b82f6'; e.currentTarget.style.color = '#fff'; }}
+                            onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'; e.currentTarget.style.color = '#60a5fa'; }}
+                          >
+                            ⟳
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => handleEditarJanela(j)}
+                          style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.5)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', transition: 'all 0.2s' }}
+                          onMouseOver={(e) => { e.currentTarget.style.background = '#fbbf24'; e.currentTarget.style.color = '#fff'; }}
+                          onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(245, 158, 11, 0.1)'; e.currentTarget.style.color = '#fbbf24'; }}
+                        >
+                          Editar
+                        </button>
                         <button 
                           onClick={() => handleExcluirJanela(j.id)}
                           style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.5)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', transition: 'all 0.2s' }}
@@ -380,11 +484,21 @@ export default function IseSimulation() {
                     </tr>
                   ))}
                   {janelas.length === 0 && (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>Nenhuma janela salva no banco de controle.</td></tr>
+                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>Nenhuma janela salva no banco de controle.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
+            {selectedWindows.length > 0 && (
+              <div style={{ marginTop: '16px', display: 'flex', gap: '12px', padding: '16px', background: 'rgba(15, 23, 42, 0.6)', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.3)', alignItems: 'center', animation: 'fadeIn 0.3s ease-out' }}>
+                <span style={{ fontSize: '13px', color: '#cbd5e1', flex: 1 }}><strong>{selectedWindows.length}</strong> janela(s) selecionada(s)</span>
+                
+                <button onClick={handleImplantarLote} style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.5)', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' }}>
+                  ✅ Implantar Janelas
+                </button>
+
+              </div>
+            )}
           </div>
         </div>
 
@@ -423,24 +537,54 @@ export default function IseSimulation() {
           {!loading && !error && simulacaoAtual && (
             <div style={{ animation: 'fadeIn 0.4s ease-out' }}>
               <div style={{ marginBottom: '24px' }}>
-                <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Impacto Bruto na Janela (CHI)</h4>
+                <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Impacto Geral do Evento</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div className="ise-metric-box">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>Bruto Referência</span>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>CI Total</span>
+                      <span style={{ color: '#64748b' }}>👥</span>
+                    </div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', margin: '8px 0 0 0', color: '#f8fafc' }}>
+                      {(simulacaoAtual.ci_total || 0).toLocaleString()} <span style={{ fontSize: '14px', color: '#64748b' }}>UCs</span>
+                    </div>
+                  </div>
+                  <div className="ise-metric-box">
+                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>CHI Total</span>
                       <span style={{ color: '#64748b' }}>🕒</span>
                     </div>
                     <div style={{ fontSize: '28px', fontWeight: 'bold', margin: '8px 0 0 0', color: '#f8fafc' }}>
-                      {(simulacaoAtual.resultados_ise?.ISE_CHI_BRUTO_REFERENCIA || 0).toLocaleString(undefined, {maximumFractionDigits:1})} <span style={{ fontSize: '14px', color: '#64748b' }}>h</span>
+                      {(simulacaoAtual.chi_total || 0).toLocaleString(undefined, {maximumFractionDigits:1})} <span style={{ fontSize: '14px', color: '#64748b' }}>h</span>
                     </div>
                   </div>
-                  <div className="ise-metric-box" style={{ background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.3)' }}>
-                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '11px', color: '#60a5fa', textTransform: 'uppercase', fontWeight: 'bold' }}>Líquido Reclassificável</span>
-                      <span style={{ color: '#60a5fa' }}>⚡</span>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Reclassificações ISE</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="ise-metric-box" style={{ background: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', color: '#10b981', textTransform: 'uppercase', fontWeight: 'bold' }}>Isentado (TIPO 6)</span>
+                      <span style={{ color: '#10b981' }}>✅</span>
                     </div>
-                    <div style={{ fontSize: '28px', fontWeight: 'bold', margin: '8px 0 0 0', color: '#60a5fa' }}>
-                      {(simulacaoAtual.resultados_ise?.ISE_CHI_LIQUIDO_RECLASSIFICAVEL || 0).toLocaleString(undefined, {maximumFractionDigits:1})} <span style={{ fontSize: '14px', opacity: 0.7 }}>h</span>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', margin: '8px 0 4px 0', color: '#10b981' }}>
+                      {(simulacaoAtual.chi_tipo6 || 0).toLocaleString(undefined, {maximumFractionDigits:1})} <span style={{ fontSize: '12px', opacity: 0.7 }}>horas (CHI)</span>
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#10b981', opacity: 0.8 }}>
+                      {(simulacaoAtual.ci_tipo6 || 0).toLocaleString()} UCs
+                    </div>
+                  </div>
+                  <div className="ise-metric-box" style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', fontWeight: 'bold' }}>Gangorra (TIPO 0)</span>
+                      <span style={{ color: '#ef4444' }}>⚠️</span>
+                    </div>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', margin: '8px 0 4px 0', color: '#ef4444' }}>
+                      {(simulacaoAtual.chi_tipo0 || 0).toLocaleString(undefined, {maximumFractionDigits:1})} <span style={{ fontSize: '12px', opacity: 0.7 }}>horas (CHI)</span>
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#ef4444', opacity: 0.8 }}>
+                      {(simulacaoAtual.ci_tipo0 || 0).toLocaleString()} UCs
                     </div>
                   </div>
                 </div>
@@ -449,11 +593,14 @@ export default function IseSimulation() {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '12px' }}>
                   <h4 style={{ margin: 0, color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Simulação Financeira (DISE)</h4>
-                  {simulacaoAtual.simulacao_financeira?.UCS_QUE_PERDERAM_ISENCAO_DC > 0 && (
+                  {simulacaoAtual.conjuntos_rebaixados > 0 && (
                     <span style={{ background: 'rgba(239,68,68,0.2)', color: '#fca5a5', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>
-                      ⚠️ {simulacaoAtual.simulacao_financeira?.UCS_QUE_PERDERAM_ISENCAO_DC} UCs perderam Dia Crítico
+                      ⚠️ {simulacaoAtual.conjuntos_rebaixados} Conjunto(s) perderam Dia Crítico
                     </span>
                   )}
+                  <button onClick={() => window.open(`${API_URL}/ise/janelas/${simulacaoAtual.janela?.id}/relatorio`, '_blank')} style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '4px 12px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    📈 Baixar Relatório HTML
+                  </button>
                 </div>
                 
                 <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
@@ -467,7 +614,7 @@ export default function IseSimulation() {
                     </thead>
                     <tbody>
                       <tr>
-                        <td style={{ color: '#94a3b8' }}>CHI (horas)</td>
+                        <td style={{ color: '#94a3b8' }}>Duração (CHI)</td>
                         <td style={{ textAlign: 'right', color: '#f8fafc' }}>{(simulacaoAtual.simulacao_financeira?.CHI_ORIGINAL || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                         <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>{(simulacaoAtual.simulacao_financeira?.CHI_COM_ISE || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
