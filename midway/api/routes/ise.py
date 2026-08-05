@@ -90,16 +90,12 @@ def update_janela(janela_id: str, janela: IseWindowConfig):
 
 @router.get("/debug")
 def debug_schema(anomes: str = "202607"):
-    db_path = f"data/raw/adms_servicos_raw_{anomes}.duckdb"
+    db_path = f"data/processed/iqs_adms_processed_{anomes}.duckdb"
     try:
         conn = duckdb.connect(db_path, read_only=True)
-        tables = [r[0] for r in conn.execute("SHOW TABLES").fetchall()]
-        schema = {}
-        for t in tables:
-            cols = conn.execute(f"DESCRIBE {t}").fetchall()
-            schema[t] = [c[0] for c in cols]
+        res = conn.execute("SELECT COD_CONJUNTO_ANEEL, DESC_NTFN FROM gold_metas_uc LIMIT 5").fetchall()
         conn.close()
-        return {"tables": schema}
+        return {"debug_query_results": res}
     except Exception as e:
         return {"error": str(e)}
 
@@ -202,8 +198,8 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         criar_gold_ressarcimento_prodist(conn, sufixo="_ise")
         
         # Extração Financeira
-        df_orig = conn.execute("SELECT SUM(COMP_DIC_BRUTA_PRODIST) AS DIC, SUM(COMP_FIC_BRUTA_PRODIST) AS FIC, SUM(COMP_DMIC_BRUTA_PRODIST) AS DMIC, SUM(COMP_DICRI_BRUTA_PRODIST) AS DICRI, SUM(COMP_DISE_BRUTA_PRODIST) AS DISE FROM main.gold_ressarcimento_prodist").df()
-        df_ise = conn.execute("SELECT SUM(COMP_DIC_BRUTA_PRODIST) AS DIC, SUM(COMP_FIC_BRUTA_PRODIST) AS FIC, SUM(COMP_DMIC_BRUTA_PRODIST) AS DMIC, SUM(COMP_DICRI_BRUTA_PRODIST) AS DICRI, SUM(COMP_DISE_BRUTA_PRODIST) AS DISE FROM main.gold_ressarcimento_prodist_ise").df()
+        df_orig = conn.execute("SELECT SUM(COMP_DIC_PRODIST) AS DIC, SUM(COMP_FIC_PRODIST) AS FIC, SUM(COMP_DMIC_PRODIST) AS DMIC, SUM(COMP_DICRI_PRODIST) AS DICRI, SUM(COMP_DISE_PRODIST) AS DISE, SUM(COMP_GERAL_CONTINUIDADE_PRODIST) AS COMP_GERAL, SUM(COMP_TOTAL_PRODIST) AS COMP_TOTAL FROM main.gold_ressarcimento_prodist").df()
+        df_ise = conn.execute("SELECT SUM(COMP_DIC_PRODIST) AS DIC, SUM(COMP_FIC_PRODIST) AS FIC, SUM(COMP_DMIC_PRODIST) AS DMIC, SUM(COMP_DICRI_PRODIST) AS DICRI, SUM(COMP_DISE_PRODIST) AS DISE, SUM(COMP_GERAL_CONTINUIDADE_PRODIST) AS COMP_GERAL, SUM(COMP_TOTAL_PRODIST) AS COMP_TOTAL FROM main.gold_ressarcimento_prodist_ise").df()
         
         # Extrai também as Unidades e Horas que efetivamente geraram penalidade (Líquido - TIPO != 6) e o total absoluto (Bruto)
         def _parse_dt(d_str):
@@ -249,6 +245,8 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         dmic_orig = float(df_orig['DMIC'].iloc[0] or 0) if not df_orig.empty else 0
         dicri_orig = float(df_orig['DICRI'].iloc[0] or 0) if not df_orig.empty else 0
         dise_orig = float(df_orig['DISE'].iloc[0] or 0) if not df_orig.empty else 0
+        comp_geral_orig = float(df_orig['COMP_GERAL'].iloc[0] or 0) if not df_orig.empty else 0
+        comp_total_orig = float(df_orig['COMP_TOTAL'].iloc[0] or 0) if not df_orig.empty else 0
         
         chi_bruto_orig = get_val(df_orig_kpi, 'CHI_BRUTO')
         ci_bruto_orig = get_val(df_orig_kpi, 'CI_BRUTO', True)
@@ -260,15 +258,16 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         dmic_projetado = float(df_ise['DMIC'].iloc[0] or 0) if not df_ise.empty else 0
         dicri_projetado = float(df_ise['DICRI'].iloc[0] or 0) if not df_ise.empty else 0
         dise_projetado = float(df_ise['DISE'].iloc[0] or 0) if not df_ise.empty else 0
+        comp_geral_projetado = float(df_ise['COMP_GERAL'].iloc[0] or 0) if not df_ise.empty else 0
+        comp_total_projetado = float(df_ise['COMP_TOTAL'].iloc[0] or 0) if not df_ise.empty else 0
         
         chi_bruto_projetado = get_val(df_ise_kpi, 'CHI_BRUTO')
         ci_bruto_projetado = get_val(df_ise_kpi, 'CI_BRUTO', True)
         chi_projetado = get_val(df_ise_kpi, 'CHI_LIQ')
         ci_projetado = get_val(df_ise_kpi, 'CI_LIQ', True)
-
         
-        total_sem_ise = dic_orig + fic_orig + dmic_orig + dicri_orig + dise_orig
-        total_com_ise = dic_projetado + fic_projetado + dmic_projetado + dicri_projetado + dise_projetado
+        total_sem_ise = comp_total_orig
+        total_com_ise = comp_total_projetado
         
         # 5. Métricas Executivas e Série Temporal
         
@@ -397,7 +396,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         q_conjuntos = f"""
             WITH antes AS (
                 SELECT 
-                    COALESCE(v.NOME_CONJUNTO_ANEEL, 'DESCONHECIDO') AS conjunto,
+                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
                     a.TIPO_PROTOC_JUSTIF_UCI AS protocolo,
                     COUNT(DISTINCT a.NUM_UC_UCI) AS ci_antes,
                     SUM(COALESCE(a.DURACAO_HORA, 0)) AS chi_antes
@@ -408,7 +407,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             ),
             depois AS (
                 SELECT 
-                    COALESCE(v.NOME_CONJUNTO_ANEEL, 'DESCONHECIDO') AS conjunto,
+                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
                     a.TIPO_PROTOC_JUSTIF_UCI AS protocolo,
                     COUNT(DISTINCT a.NUM_UC_UCI) AS ci_depois,
                     SUM(COALESCE(a.DURACAO_HORA, 0)) AS chi_depois
@@ -439,6 +438,71 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
                 "chi_antes": round(float(r["chi_antes"]), 2),
                 "chi_depois": round(float(r["chi_depois"]), 2)
             })
+
+        q_detalhe = f"""
+            WITH comp_sem AS (
+                SELECT 
+                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
+                    SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS comp_total_sem
+                FROM main.gold_ressarcimento_prodist r
+                LEFT JOIN main.gold_vrc v ON CAST(r.UC AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                GROUP BY 1
+            ),
+            comp_com AS (
+                SELECT 
+                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
+                    SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS comp_total_com
+                FROM main.gold_ressarcimento_prodist_ise r
+                LEFT JOIN main.gold_vrc v ON CAST(r.UC AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                GROUP BY 1
+            ),
+            indicadores AS (
+                SELECT 
+                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
+                    COALESCE(v.CEA, 'DESCONHECIDO') AS cod_conjunto,
+                    -- CHI
+                    SUM(CASE WHEN a.TIPO_PROTOC_JUSTIF_UCI = '0' THEN COALESCE(a.DURACAO_HORA, 0) ELSE 0 END) AS chi_liquido,
+                    SUM(CASE WHEN a.TIPO_PROTOC_JUSTIF_UCI = '1' THEN COALESCE(a.DURACAO_HORA, 0) ELSE 0 END) AS chi_diacritico,
+                    SUM(CASE WHEN a.TIPO_PROTOC_JUSTIF_UCI = '6' THEN COALESCE(a.DURACAO_HORA, 0) ELSE 0 END) AS chi_ise,
+                    -- CI
+                    COUNT(DISTINCT CASE WHEN a.TIPO_PROTOC_JUSTIF_UCI = '0' THEN a.NUM_UC_UCI END) AS ci_liquido,
+                    COUNT(DISTINCT CASE WHEN a.TIPO_PROTOC_JUSTIF_UCI = '1' THEN a.NUM_UC_UCI END) AS ci_diacritico,
+                    COUNT(DISTINCT CASE WHEN a.TIPO_PROTOC_JUSTIF_UCI = '6' THEN a.NUM_UC_UCI END) AS ci_ise,
+                    -- Metas
+                    COALESCE(MAX(TRY_CAST(m.META_DEC AS DOUBLE)), 0.0) AS meta_dec,
+                    COALESCE(MAX(TRY_CAST(m.META_FEC AS DOUBLE)), 0.0) AS meta_fec
+                FROM main.gold_apuracao_uc_ise a
+                LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                LEFT JOIN main.gold_metas_uc m ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(m.ISN_UC AS VARCHAR)
+                {where_clause}
+                GROUP BY 1, 2
+            )
+            SELECT 
+                i.*,
+                COALESCE(s.comp_total_sem, 0.0) AS comp_total_sem,
+                COALESCE(c.comp_total_com, 0.0) AS comp_total_com
+            FROM indicadores i
+            LEFT JOIN comp_sem s ON i.conjunto = s.conjunto
+            LEFT JOIN comp_com c ON i.conjunto = c.conjunto
+            ORDER BY i.conjunto
+        """
+        df_detalhe = conn.execute(q_detalhe).df()
+        tabela_detalhe_conjuntos = []
+        for _, r in df_detalhe.iterrows():
+            tabela_detalhe_conjuntos.append({
+                "conjunto": str(r["conjunto"]),
+                "cod_conjunto": str(r["cod_conjunto"]),
+                "chi_liquido": round(float(r["chi_liquido"]), 2),
+                "chi_diacritico": round(float(r["chi_diacritico"]), 2),
+                "chi_ise": round(float(r["chi_ise"]), 2),
+                "ci_liquido": int(r["ci_liquido"]),
+                "ci_diacritico": int(r["ci_diacritico"]),
+                "ci_ise": int(r["ci_ise"]),
+                "meta_dec": round(float(r["meta_dec"]), 2),
+                "meta_fec": round(float(r["meta_fec"]), 2),
+                "comp_total_sem": round(float(r["comp_total_sem"]), 2),
+                "comp_total_com": round(float(r["comp_total_com"]), 2)
+            })
             
         resultado = {
             "status": "CONCLUIDO",
@@ -452,6 +516,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             "conjuntos_rebaixados": conj_rebaixados,
             "serie_temporal": serie_temporal,
             "tabela_conjuntos": tabela_conjuntos,
+            "tabela_detalhe_conjuntos": tabela_detalhe_conjuntos,
             "simulacao_financeira": {
                 "CHI_BRUTO_ORIGINAL": chi_bruto_orig,
                 "CHI_BRUTO_COM_ISE": chi_bruto_projetado,
@@ -471,6 +536,10 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
                 "DICRI_COM_ISE_RS": dicri_projetado,
                 "DISE_ORIGINAL_RS": dise_orig,
                 "DISE_COM_ISE_RS": dise_projetado,
+                "COMP_GERAL_ORIGINAL_RS": comp_geral_orig,
+                "COMP_GERAL_COM_ISE_RS": comp_geral_projetado,
+                "COMP_TOTAL_ORIGINAL_RS": comp_total_orig,
+                "COMP_TOTAL_COM_ISE_RS": comp_total_projetado,
                 "DISE_GANHO_RS": total_sem_ise - total_com_ise,
             }
         }
@@ -509,11 +578,20 @@ def simular_ise(janela: IseWindowConfig, background_tasks: BackgroundTasks):
     if not os.path.exists(db_path):
         raise HTTPException(status_code=404, detail=f"Base processada não encontrada para o anomes {anomes}.")
         
-    import uuid
     if not janela.id:
+        import uuid
         janela.id = str(uuid.uuid4())
         windows = load_windows()
         windows.append(janela.dict())
+        save_windows(windows)
+    else:
+        # Clear previous result so frontend knows it's processing
+        windows = load_windows()
+        for w in windows:
+            if w.get('id') == janela.id:
+                if 'resultado' in w:
+                    del w['resultado']
+                break
         save_windows(windows)
         
     background_tasks.add_task(process_ise_bg, janela, db_path)

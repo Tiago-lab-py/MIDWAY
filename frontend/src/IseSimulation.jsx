@@ -668,7 +668,7 @@ export default function IseSimulation() {
             const getColor = (comIse, orig) => {
               if (comIse > orig) return '#ef4444'; // Red (Piorou)
               if (comIse < orig) return '#10b981'; // Green (Melhorou)
-              return '#94a3b8'; // Cinza (Igual)
+              return '#eab308'; // Amarelo (Igual)
             };
             const ecoColor = sf.DISE_GANHO_RS < 0 ? '#ef4444' : '#10b981';
             
@@ -716,23 +716,33 @@ export default function IseSimulation() {
                       </tr>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <td style={{ padding: '12px', color: '#94a3b8' }}>Risco DMIC</td>
-                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {sf.DMIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DMIC_COM_ISE_RS, sf.DMIC_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {sf.DMIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {(sf.DMIC_ORIGINAL_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DMIC_COM_ISE_RS, sf.DMIC_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {(sf.DMIC_COM_ISE_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.1)', background: 'rgba(59, 130, 246, 0.05)' }}>
+                        <td style={{ padding: '12px', color: '#60a5fa', fontWeight: 'bold' }}>Compensação Geral (Maior entre DIC/FIC/DMIC)</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', fontWeight: 'bold' }}>R$ {(sf.COMP_GERAL_ORIGINAL_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.COMP_GERAL_COM_ISE_RS, sf.COMP_GERAL_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {(sf.COMP_GERAL_COM_ISE_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <td style={{ padding: '12px', color: '#94a3b8' }}>Risco DICRI</td>
-                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {sf.DICRI_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DICRI_COM_ISE_RS, sf.DICRI_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {sf.DICRI_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {(sf.DICRI_ORIGINAL_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DICRI_COM_ISE_RS, sf.DICRI_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {(sf.DICRI_COM_ISE_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <td style={{ padding: '12px', color: '#94a3b8' }}>Risco DISE</td>
-                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {sf.DISE_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DISE_COM_ISE_RS, sf.DISE_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {sf.DISE_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {(sf.DISE_ORIGINAL_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DISE_COM_ISE_RS, sf.DISE_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {(sf.DISE_COM_ISE_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.1)', background: 'rgba(16, 185, 129, 0.05)' }}>
+                        <td style={{ padding: '12px', color: '#34d399', fontWeight: 'bold' }}>Compensação Total (Geral + DICRI + DISE)</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', fontWeight: 'bold' }}>R$ {(sf.COMP_TOTAL_ORIGINAL_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.COMP_TOTAL_COM_ISE_RS, sf.COMP_TOTAL_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {(sf.COMP_TOTAL_COM_ISE_RS || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
                       <tr style={{ background: ecoColor === '#ef4444' ? 'linear-gradient(90deg, rgba(239,68,68,0) 0%, rgba(239,68,68,0.1) 100%)' : 'linear-gradient(90deg, rgba(16,185,129,0) 0%, rgba(16,185,129,0.1) 100%)' }}>
                         <td style={{ padding: '16px 12px', color: ecoColor, fontWeight: 'bold', border: 'none' }}>ECONOMIA LÍQUIDA</td>
                         <td colSpan="2" style={{ padding: '16px 12px', textAlign: 'right', color: ecoColor, fontWeight: '900', fontSize: '20px', border: 'none', textShadow: `0 2px 10px ${ecoColor}40` }}>
-                          {sf.DISE_GANHO_RS >= 0 ? '+' : '-'} R$ {Math.abs(sf.DISE_GANHO_RS).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                           {sf.DISE_GANHO_RS >= 0 ? '+' : '-'} R$ {Math.abs(sf.DISE_GANHO_RS).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
                         </td>
                       </tr>
                     </tbody>
@@ -754,11 +764,76 @@ export default function IseSimulation() {
                     <div id="g_chi" style={{ height: '400px', width: '100%' }}></div>
                   </div>
                   
-                  <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  <h4 style={{ margin: '24px 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
                     Curva de Recomposição de CI
                   </h4>
                   <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', padding: '16px' }}>
                     <div id="g_ci" style={{ height: '400px', width: '100%' }}></div>
+                  </div>
+                </div>
+              )}
+
+              {simulacaoAtual.tabela_detalhe_conjuntos && simulacaoAtual.tabela_detalhe_conjuntos.length > 0 && (
+                <div style={{ marginTop: '32px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Indicadores, Metas e Ressarcimentos por Conjunto
+                  </h4>
+                  <p style={{ margin: '0 0 16px 0', color: '#94a3b8', fontSize: '13px' }}>
+                    Esta tabela detalha os impactos agregados por conjunto elétrico, suas metas anuais DEC/FEC e o impacto financeiro real do ressarcimento regulatório (maior valor entre DIC, FIC e DMIC + DICRI + DISE por UC).
+                  </p>
+                  <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                    <div style={{ overflowX: 'auto', maxHeight: '550px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#1e293b', zIndex: 2 }}>
+                          <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.1)' }}>
+                            <th style={{ padding: '12px', textAlign: 'left', color: '#f8fafc' }} rowspan="2">Conjunto</th>
+                            <th style={{ padding: '12px', textAlign: 'center', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)' }} colspan="3">CHI (h)</th>
+                            <th style={{ padding: '12px', textAlign: 'center', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)' }} colspan="3">CI (Qtd)</th>
+                            <th style={{ padding: '12px', textAlign: 'center', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)' }} colspan="2">Metas Anuais</th>
+                            <th style={{ padding: '12px', textAlign: 'center', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)' }} colspan="3">Ressarcimento Regulatório</th>
+                          </tr>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1', fontSize: '11px' }}>Líquido (T0)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#fbbf24', fontSize: '11px' }}>Dia Crítico (T1)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#60a5fa', fontSize: '11px' }}>ISE (T6)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1', fontSize: '11px' }}>Líquido (T0)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#fbbf24', fontSize: '11px' }}>Dia Crítico (T1)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#60a5fa', fontSize: '11px' }}>ISE (T6)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#94a3b8', fontSize: '11px' }}>Meta DEC</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#94a3b8', fontSize: '11px' }}>Meta FEC</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1', fontSize: '11px' }}>Sem ISE (Atual)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#60a5fa', fontSize: '11px' }}>Com ISE (Simulado)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#10b981', fontSize: '11px' }}>Economia</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {simulacaoAtual.tabela_detalhe_conjuntos.map((r, i) => {
+                            const economia = (r.comp_total_sem || 0) - (r.comp_total_com || 0);
+                            const ecoColor = economia > 0.01 ? '#10b981' : (economia < -0.01 ? '#ef4444' : '#94a3b8');
+                            return (
+                              <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent', transition: 'background 0.2s' }}>
+                                <td style={{ padding: '10px 12px', color: '#e2e8f0', fontWeight: 'bold' }}>
+                                  {r.conjunto} <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>({r.cod_conjunto})</span>
+                                </td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#e2e8f0' }}>{r.chi_liquido.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#fbbf24', fontWeight: 'bold' }}>{r.chi_diacritico.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#60a5fa', fontWeight: 'bold' }}>{r.chi_ise.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#e2e8f0' }}>{r.ci_liquido.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#fbbf24', fontWeight: 'bold' }}>{r.ci_diacritico.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#60a5fa', fontWeight: 'bold' }}>{r.ci_ise.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontStyle: 'italic' }}>{r.meta_dec.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontStyle: 'italic' }}>{r.meta_fec.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#e2e8f0' }}>R$ {r.comp_total_sem.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#60a5fa', fontWeight: 'bold' }}>R$ {r.comp_total_com.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: ecoColor, fontWeight: 'bold' }}>
+                                  {economia >= 0 ? '+' : '-'} R$ {Math.abs(economia).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}
