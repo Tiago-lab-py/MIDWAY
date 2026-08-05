@@ -57,6 +57,7 @@ export default function IseSimulation() {
          peakTimeFmt = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
       }
 
+      // 1. Gráfico de CI (Recomposição)
       window.Plotly.newPlot('g_ci', [
         {
           type: 'bar',
@@ -123,6 +124,52 @@ export default function IseSimulation() {
       }, {
         displaylogo: false, responsive: true, displayModeBar: false
       });
+      
+      // 2. Gráfico de CHI (Impacto Temporal)
+      const all_regions = new Set();
+      serie.forEach(s => Object.keys(s.regionais || {}).forEach(r => all_regions.add(r)));
+      const regions_arr = Array.from(all_regions).sort();
+      
+      const colors = { 'LES': '#3b82f6', 'OES': '#10b981', 'CSL': '#ef4444', 'MGA': '#f59e0b', 'NRT': '#8b5cf6', 'N/I': '#64748b' };
+      const palette = ['#3b82f6', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
+      
+      const chiTraces = regions_arr.map((reg, i) => {
+        return {
+          type: 'bar',
+          x: x,
+          y: serie.map(s => (s.regionais || {})[reg] || 0),
+          name: reg,
+          marker: { color: colors[reg.toUpperCase()] || palette[i % palette.length] },
+          opacity: 0.8
+        };
+      });
+      
+      chiTraces.push({
+          type: 'scatter',
+          x: x,
+          y: serie.map(s => s.chi_acumulado || 0),
+          name: 'CHI Acumulado',
+          mode: 'lines+markers',
+          yaxis: 'y2',
+          line: { color: '#f8fafc', width: 3, dash: 'dot' },
+          marker: { size: 6, color: '#f8fafc' }
+      });
+      
+      window.Plotly.newPlot('g_chi', chiTraces, {
+        template: 'plotly_dark',
+        barmode: 'stack',
+        hovermode: 'x unified',
+        margin: {t: 30, r: 60, b: 50, l: 60},
+        xaxis: { title: 'Hora', tickformat: '%d/%m %H:%M', gridcolor: 'rgba(255,255,255,0.05)', color: '#94a3b8' },
+        yaxis: { title: 'CHI (UC-h) - Hora', gridcolor: 'rgba(255,255,255,0.05)', color: '#94a3b8' },
+        yaxis2: { title: 'CHI Acumulado', overlaying: 'y', side: 'right', gridcolor: 'rgba(255,255,255,0.05)', color: '#94a3b8' },
+        legend: {orientation: 'h', y: 1.08, x: 0, font: {color: '#cbd5e1'}},
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)'
+      }, {
+        displaylogo: false, responsive: true, displayModeBar: false
+      });
+      
     }
   }, [simulacaoAtual]);
 
@@ -603,69 +650,162 @@ export default function IseSimulation() {
                   </button>
                 </div>
                 
-                <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                  <table className="ise-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+         {simulacaoAtual?.simulacao_financeira && (
+        <div style={{ marginTop: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+            <h4 style={{ margin: 0, color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Simulação Financeira (DISE)
+            </h4>
+            {simulacaoAtual.conjuntos_rebaixados?.length > 0 && (
+              <span style={{ background: '#451a03', color: '#fca5a5', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>
+                ⚠️ {simulacaoAtual.conjuntos_rebaixados.length} Conjunto(s) perderam Dia Crítico
+              </span>
+            )}
+          </div>
+          
+          {(() => {
+            const sf = simulacaoAtual.simulacao_financeira;
+            const getColor = (comIse, orig) => {
+              if (comIse > orig) return '#ef4444'; // Red (Piorou)
+              if (comIse < orig) return '#10b981'; // Green (Melhorou)
+              return '#94a3b8'; // Cinza (Igual)
+            };
+            const ecoColor = sf.DISE_GANHO_RS < 0 ? '#ef4444' : '#10b981';
+            
+            return (
+              <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                     <thead>
-                      <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                        <th style={{ color: '#cbd5e1' }}>Indicador</th>
-                        <th style={{ textAlign: 'right', color: '#cbd5e1' }}>Sem ISE (Atual)</th>
-                        <th style={{ textAlign: 'right', color: '#34d399' }}>Com ISE (Projeção)</th>
+                      <tr style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <th style={{ padding: '16px 12px', textAlign: 'left', color: '#f8fafc', fontWeight: '600' }}>INDICADOR</th>
+                        <th style={{ padding: '16px 12px', textAlign: 'right', color: '#f8fafc', fontWeight: '600' }}>SEM ISE (ATUAL)</th>
+                        <th style={{ padding: '16px 12px', textAlign: 'right', color: '#10b981', fontWeight: '600' }}>COM ISE (PROJEÇÃO)</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td style={{ color: '#94a3b8' }}>Duração (CHI)</td>
-                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>{(simulacaoAtual.simulacao_financeira?.CHI_ORIGINAL || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>{(simulacaoAtual.simulacao_financeira?.CHI_COM_ISE || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px', color: '#94a3b8' }}>Duração (CHI) - <strong style={{color:'#cbd5e1'}}>Bruto</strong></td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>{(sf.CHI_BRUTO_ORIGINAL || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.CHI_BRUTO_COM_ISE, sf.CHI_BRUTO_ORIGINAL), fontWeight: 'bold' }}>{(sf.CHI_BRUTO_COM_ISE || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
-                      <tr>
-                        <td style={{ color: '#94a3b8' }}>CI (qtd)</td>
-                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>{(simulacaoAtual.simulacao_financeira?.CI_ORIGINAL || 0).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
-                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>{(simulacaoAtual.simulacao_financeira?.CI_COM_ISE || 0).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px', color: '#94a3b8' }}>Duração (CHI) - <strong style={{color:'#cbd5e1'}}>Líquido</strong> (Penalizado)</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>{(sf.CHI_ORIGINAL || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.CHI_COM_ISE, sf.CHI_ORIGINAL), fontWeight: 'bold' }}>{(sf.CHI_COM_ISE || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
-                      <tr>
-                        <td style={{ color: '#94a3b8' }}>Risco DIC</td>
-                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.DIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.DIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px', color: '#94a3b8' }}>CI (qtd) - <strong style={{color:'#cbd5e1'}}>Bruto</strong></td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>{(sf.CI_BRUTO_ORIGINAL || 0).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.CI_BRUTO_COM_ISE, sf.CI_BRUTO_ORIGINAL), fontWeight: 'bold' }}>{(sf.CI_BRUTO_COM_ISE || 0).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
                       </tr>
-                      <tr>
-                        <td style={{ color: '#94a3b8' }}>Risco FIC</td>
-                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.FIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.FIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px', color: '#94a3b8' }}>CI (qtd) - <strong style={{color:'#cbd5e1'}}>Líquido</strong> (Penalizado)</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>{(sf.CI_ORIGINAL || 0).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.CI_COM_ISE, sf.CI_ORIGINAL), fontWeight: 'bold' }}>{(sf.CI_COM_ISE || 0).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
                       </tr>
-                      <tr>
-                        <td style={{ color: '#94a3b8' }}>Risco DMIC</td>
-                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.DMIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.DMIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px', color: '#94a3b8' }}>Risco DIC</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {sf.DIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DIC_COM_ISE_RS, sf.DIC_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {sf.DIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
-                      <tr>
-                        <td style={{ color: '#94a3b8' }}>Risco DICRI</td>
-                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.DICRI_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.DICRI_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px', color: '#94a3b8' }}>Risco FIC</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {sf.FIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.FIC_COM_ISE_RS, sf.FIC_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {sf.FIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
-                      <tr>
-                        <td style={{ color: '#94a3b8' }}>Risco DISE</td>
-                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>R$ {simulacaoAtual.simulacao_financeira.DISE_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>R$ {simulacaoAtual.simulacao_financeira.DISE_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px', color: '#94a3b8' }}>Risco DMIC</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {sf.DMIC_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DMIC_COM_ISE_RS, sf.DMIC_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {sf.DMIC_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
-                      <tr style={{ background: 'linear-gradient(90deg, rgba(16,185,129,0) 0%, rgba(16,185,129,0.1) 100%)' }}>
-                        <td style={{ padding: '16px 12px', color: '#10b981', fontWeight: 'bold', border: 'none' }}>ECONOMIA LÍQUIDA</td>
-                        <td colSpan="2" style={{ padding: '16px 12px', textAlign: 'right', color: '#10b981', fontWeight: '900', fontSize: '20px', border: 'none', textShadow: '0 2px 10px rgba(16,185,129,0.3)' }}>
-                          + R$ {simulacaoAtual.simulacao_financeira.DISE_GANHO_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px', color: '#94a3b8' }}>Risco DICRI</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {sf.DICRI_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DICRI_COM_ISE_RS, sf.DICRI_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {sf.DICRI_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px', color: '#94a3b8' }}>Risco DISE</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>R$ {sf.DISE_ORIGINAL_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: getColor(sf.DISE_COM_ISE_RS, sf.DISE_ORIGINAL_RS), fontWeight: 'bold' }}>R$ {sf.DISE_COM_ISE_RS.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      </tr>
+                      <tr style={{ background: ecoColor === '#ef4444' ? 'linear-gradient(90deg, rgba(239,68,68,0) 0%, rgba(239,68,68,0.1) 100%)' : 'linear-gradient(90deg, rgba(16,185,129,0) 0%, rgba(16,185,129,0.1) 100%)' }}>
+                        <td style={{ padding: '16px 12px', color: ecoColor, fontWeight: 'bold', border: 'none' }}>ECONOMIA LÍQUIDA</td>
+                        <td colSpan="2" style={{ padding: '16px 12px', textAlign: 'right', color: ecoColor, fontWeight: '900', fontSize: '20px', border: 'none', textShadow: `0 2px 10px ${ecoColor}40` }}>
+                          {sf.DISE_GANHO_RS >= 0 ? '+' : '-'} R$ {Math.abs(sf.DISE_GANHO_RS).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
                         </td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               </div>
+            );
+          })()}
+        </div>
+      )}
+              </div>
 
               {simulacaoAtual.serie_temporal && simulacaoAtual.serie_temporal.length > 0 && (
                 <div style={{ marginTop: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Curva de Impacto Temporal de CHI
+                  </h4>
+                  <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', padding: '16px', marginBottom: '24px' }}>
+                    <div id="g_chi" style={{ height: '400px', width: '100%' }}></div>
+                  </div>
+                  
                   <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
                     Curva de Recomposição de CI
                   </h4>
                   <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', padding: '16px' }}>
                     <div id="g_ci" style={{ height: '400px', width: '100%' }}></div>
+                  </div>
+                </div>
+              )}
+              
+              {simulacaoAtual.tabela_conjuntos && simulacaoAtual.tabela_conjuntos.length > 0 && (
+                <div style={{ marginTop: '32px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Impacto por Conjunto (Apenas Alterados)
+                  </h4>
+                  <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                    <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#1e293b', zIndex: 1 }}>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                            <th style={{ padding: '12px', textAlign: 'left', color: '#f8fafc' }}>Conjunto</th>
+                            <th style={{ padding: '12px', textAlign: 'left', color: '#f8fafc' }}>Protocolo</th>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>CI Antes</th>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>CI Depois</th>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>CHI Antes</th>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>CHI Depois</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {simulacaoAtual.tabela_conjuntos.filter(r => r.ci_antes !== r.ci_depois || r.chi_antes !== r.chi_depois).map((r, i) => {
+                            const ciCor = r.ci_depois < r.ci_antes ? '#10b981' : (r.ci_depois > r.ci_antes ? '#ef4444' : '#eab308');
+                            const chiCor = r.chi_depois < r.chi_antes ? '#10b981' : (r.chi_depois > r.chi_antes ? '#ef4444' : '#eab308');
+                            return (
+                              <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                                <td style={{ padding: '10px 12px', color: '#e2e8f0', fontWeight: 'bold' }}>{r.conjunto}</td>
+                                <td style={{ padding: '10px 12px', color: '#94a3b8' }}>{r.protocolo}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#cbd5e1' }}>{r.ci_antes.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: ciCor, fontWeight: 'bold' }}>{r.ci_depois.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#cbd5e1' }}>{r.chi_antes.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', color: chiCor, fontWeight: 'bold' }}>{r.chi_depois.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                              </tr>
+                            );
+                          })}
+                          {simulacaoAtual.tabela_conjuntos.filter(r => r.ci_antes !== r.ci_depois || r.chi_antes !== r.chi_depois).length === 0 && (
+                            <tr>
+                              <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+                                Nenhuma alteração de Conjunto detectada.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}

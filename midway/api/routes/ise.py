@@ -205,22 +205,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         df_orig = conn.execute("SELECT SUM(COMP_DIC_BRUTA_PRODIST) AS DIC, SUM(COMP_FIC_BRUTA_PRODIST) AS FIC, SUM(COMP_DMIC_BRUTA_PRODIST) AS DMIC, SUM(COMP_DICRI_BRUTA_PRODIST) AS DICRI, SUM(COMP_DISE_BRUTA_PRODIST) AS DISE FROM main.gold_ressarcimento_prodist").df()
         df_ise = conn.execute("SELECT SUM(COMP_DIC_BRUTA_PRODIST) AS DIC, SUM(COMP_FIC_BRUTA_PRODIST) AS FIC, SUM(COMP_DMIC_BRUTA_PRODIST) AS DMIC, SUM(COMP_DICRI_BRUTA_PRODIST) AS DICRI, SUM(COMP_DISE_BRUTA_PRODIST) AS DISE FROM main.gold_ressarcimento_prodist_ise").df()
         
-        dic_orig = float(df_orig['DIC'].iloc[0] or 0) if not df_orig.empty else 0
-        fic_orig = float(df_orig['FIC'].iloc[0] or 0) if not df_orig.empty else 0
-        dmic_orig = float(df_orig['DMIC'].iloc[0] or 0) if not df_orig.empty else 0
-        dicri_orig = float(df_orig['DICRI'].iloc[0] or 0) if not df_orig.empty else 0
-        dise_orig = float(df_orig['DISE'].iloc[0] or 0) if not df_orig.empty else 0
-        
-        dic_projetado = float(df_ise['DIC'].iloc[0] or 0) if not df_ise.empty else 0
-        fic_projetado = float(df_ise['FIC'].iloc[0] or 0) if not df_ise.empty else 0
-        dmic_projetado = float(df_ise['DMIC'].iloc[0] or 0) if not df_ise.empty else 0
-        dicri_projetado = float(df_ise['DICRI'].iloc[0] or 0) if not df_ise.empty else 0
-        dise_projetado = float(df_ise['DISE'].iloc[0] or 0) if not df_ise.empty else 0
-        
-        total_sem_ise = dic_orig + fic_orig + dmic_orig + dicri_orig + dise_orig
-        total_com_ise = dic_projetado + fic_projetado + dmic_projetado + dicri_projetado + dise_projetado
-        
-        # 5. Métricas Executivas e Série Temporal
+        # Extrai também as Unidades e Horas que efetivamente geraram penalidade (Líquido - TIPO != 6) e o total absoluto (Bruto)
         def _parse_dt(d_str):
             d = d_str.replace('T', ' ')
             if len(d) == 16: d += ':00'
@@ -228,6 +213,64 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             
         start_dt = _parse_dt(janela.data_inicio)
         end_dt = _parse_dt(janela.data_fim)
+        where_clause = f"WHERE DATA_HORA_INIC_INTRP <= CAST('{end_dt}' AS TIMESTAMP) AND DATA_HORA_INIC_INTRP + INTERVAL (COALESCE(DURACAO_HORA, 0) * 60) MINUTE >= CAST('{start_dt}' AS TIMESTAMP)"
+        
+        # Otimização: Consolida as consultas brutas e líquidas num único SCAN da tabela original
+        df_orig_kpi = conn.execute(f"""
+            SELECT 
+                COUNT(DISTINCT NUM_UC_UCI) as CI_BRUTO, 
+                SUM(COALESCE(DURACAO_HORA, 0)) as CHI_BRUTO,
+                COUNT(DISTINCT CASE WHEN TIPO_PROTOC_JUSTIF_UCI != '6' THEN NUM_UC_UCI END) as CI_LIQ,
+                SUM(CASE WHEN TIPO_PROTOC_JUSTIF_UCI != '6' THEN COALESCE(DURACAO_HORA, 0) ELSE 0 END) as CHI_LIQ
+            FROM adms.gold_apuracao_uc 
+            {where_clause}
+        """).df()
+        
+        # Otimização: Consolida as consultas brutas e líquidas num único SCAN da tabela projetada
+        df_ise_kpi = conn.execute(f"""
+            SELECT 
+                COUNT(DISTINCT NUM_UC_UCI) as CI_BRUTO, 
+                SUM(COALESCE(DURACAO_HORA, 0)) as CHI_BRUTO,
+                COUNT(DISTINCT CASE WHEN TIPO_PROTOC_JUSTIF_UCI != '6' THEN NUM_UC_UCI END) as CI_LIQ,
+                SUM(CASE WHEN TIPO_PROTOC_JUSTIF_UCI != '6' THEN COALESCE(DURACAO_HORA, 0) ELSE 0 END) as CHI_LIQ
+            FROM main.gold_apuracao_uc_ise 
+            {where_clause}
+        """).df()
+        
+        import pandas as pd
+        def get_val(df, col, is_int=False):
+            if df.empty: return 0
+            val = df[col].iloc[0]
+            if pd.isna(val): return 0
+            return int(val) if is_int else float(val)
+        
+        dic_orig = float(df_orig['DIC'].iloc[0] or 0) if not df_orig.empty else 0
+        fic_orig = float(df_orig['FIC'].iloc[0] or 0) if not df_orig.empty else 0
+        dmic_orig = float(df_orig['DMIC'].iloc[0] or 0) if not df_orig.empty else 0
+        dicri_orig = float(df_orig['DICRI'].iloc[0] or 0) if not df_orig.empty else 0
+        dise_orig = float(df_orig['DISE'].iloc[0] or 0) if not df_orig.empty else 0
+        
+        chi_bruto_orig = get_val(df_orig_kpi, 'CHI_BRUTO')
+        ci_bruto_orig = get_val(df_orig_kpi, 'CI_BRUTO', True)
+        chi_orig = get_val(df_orig_kpi, 'CHI_LIQ')
+        ci_orig = get_val(df_orig_kpi, 'CI_LIQ', True)
+        
+        dic_projetado = float(df_ise['DIC'].iloc[0] or 0) if not df_ise.empty else 0
+        fic_projetado = float(df_ise['FIC'].iloc[0] or 0) if not df_ise.empty else 0
+        dmic_projetado = float(df_ise['DMIC'].iloc[0] or 0) if not df_ise.empty else 0
+        dicri_projetado = float(df_ise['DICRI'].iloc[0] or 0) if not df_ise.empty else 0
+        dise_projetado = float(df_ise['DISE'].iloc[0] or 0) if not df_ise.empty else 0
+        
+        chi_bruto_projetado = get_val(df_ise_kpi, 'CHI_BRUTO')
+        ci_bruto_projetado = get_val(df_ise_kpi, 'CI_BRUTO', True)
+        chi_projetado = get_val(df_ise_kpi, 'CHI_LIQ')
+        ci_projetado = get_val(df_ise_kpi, 'CI_LIQ', True)
+
+        
+        total_sem_ise = dic_orig + fic_orig + dmic_orig + dicri_orig + dise_orig
+        total_com_ise = dic_projetado + fic_projetado + dmic_projetado + dicri_projetado + dise_projetado
+        
+        # 5. Métricas Executivas e Série Temporal
         
         # 5.1 KPIs de CI e CHI
         kpi_query = f"""
@@ -279,7 +322,8 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
                              EXTRACT(EPOCH FROM GREATEST(a.DATA_HORA_INIC_INTRP, h.h))) / 3600.0
                         ELSE 0 
                     END
-                ) AS chi_hora
+                ) AS chi_hora,
+                COUNT(DISTINCT a.NUM_UC_UCI) AS ci_hora
             FROM horas h
             LEFT JOIN main.gold_apuracao_uc_ise a 
               ON a.DATA_HORA_INIC_INTRP <= h.h + INTERVAL 1 HOUR
@@ -294,33 +338,107 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         """
         df_serie = conn.execute(serie_query).df()
         
+        mapa_reg = {
+            'C': 'LES',
+            'V': 'OES',
+            'P': 'CSL',
+            'M': 'MGA',
+            'L': 'NRT'
+        }
+        
         import pandas as pd
         serie_dict = {}
         for h in df_serie['hora'].unique():
             if pd.isna(h): continue
-            serie_dict[h] = {"hora": h, "chi_hora": 0, "regionais": {}}
+            serie_dict[h] = {"hora": h, "chi_hora": 0, "ci": 0, "regionais": {}, "regionais_ci": {}}
             
         chi_acum = 0.0
+        max_ci = 0
         sorted_hours = sorted(list(serie_dict.keys()))
         for h in sorted_hours:
             rows = df_serie[df_serie['hora'] == h]
-            h_total = 0
+            h_chi = 0
+            h_ci = 0
             for _, row in rows.iterrows():
-                val = float(row['chi_hora'] or 0)
-                if val <= 0: continue
-                reg = str(row['regional'])
-                if reg not in serie_dict[h]["regionais"]:
-                    serie_dict[h]["regionais"][reg] = 0
-                serie_dict[h]["regionais"][reg] += val
-                h_total += val
+                v_chi = float(row['chi_hora'] or 0)
+                v_ci = int(row['ci_hora'] or 0)
+                
+                reg_raw = str(row['regional']).upper()
+                reg = mapa_reg.get(reg_raw, reg_raw)
+                
+                if v_chi > 0:
+                    if reg not in serie_dict[h]["regionais"]:
+                        serie_dict[h]["regionais"][reg] = 0
+                    serie_dict[h]["regionais"][reg] += v_chi
+                    h_chi += v_chi
+                    
+                if v_ci > 0:
+                    if reg not in serie_dict[h]["regionais_ci"]:
+                        serie_dict[h]["regionais_ci"][reg] = 0
+                    serie_dict[h]["regionais_ci"][reg] += v_ci
+                    h_ci += v_ci
             
-            chi_acum += h_total
-            serie_dict[h]["chi_hora"] = round(h_total, 2)
+            chi_acum += h_chi
+            serie_dict[h]["chi_hora"] = round(h_chi, 2)
             serie_dict[h]["chi_acumulado"] = round(chi_acum, 2)
-            for reg in serie_dict[h]["regionais"]:
-                serie_dict[h]["regionais"][reg] = round(serie_dict[h]["regionais"][reg], 2)
+            serie_dict[h]["ci"] = h_ci
+            if h_ci > max_ci: max_ci = h_ci
+            for r in serie_dict[h]["regionais"]:
+                serie_dict[h]["regionais"][r] = round(serie_dict[h]["regionais"][r], 2)
+                
+        # Calcula recomposição
+        for h in sorted_hours:
+            ci = serie_dict[h]["ci"]
+            serie_dict[h]["rec_pct"] = (max_ci - ci) / max_ci if max_ci > 0 else 0
                 
         serie_temporal = [serie_dict[h] for h in sorted_hours]
+            
+        # 5.4 Matriz de Conjuntos (Antes vs Depois)
+        q_conjuntos = f"""
+            WITH antes AS (
+                SELECT 
+                    COALESCE(v.NOME_CONJUNTO_ANEEL, 'DESCONHECIDO') AS conjunto,
+                    a.TIPO_PROTOC_JUSTIF_UCI AS protocolo,
+                    COUNT(DISTINCT a.NUM_UC_UCI) AS ci_antes,
+                    SUM(COALESCE(a.DURACAO_HORA, 0)) AS chi_antes
+                FROM adms.gold_apuracao_uc a
+                LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                {where_clause}
+                GROUP BY 1, 2
+            ),
+            depois AS (
+                SELECT 
+                    COALESCE(v.NOME_CONJUNTO_ANEEL, 'DESCONHECIDO') AS conjunto,
+                    a.TIPO_PROTOC_JUSTIF_UCI AS protocolo,
+                    COUNT(DISTINCT a.NUM_UC_UCI) AS ci_depois,
+                    SUM(COALESCE(a.DURACAO_HORA, 0)) AS chi_depois
+                FROM main.gold_apuracao_uc_ise a
+                LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                {where_clause}
+                GROUP BY 1, 2
+            )
+            SELECT 
+                COALESCE(a.conjunto, d.conjunto) AS conjunto,
+                COALESCE(a.protocolo, d.protocolo) AS protocolo,
+                COALESCE(a.ci_antes, 0) AS ci_antes,
+                COALESCE(d.ci_depois, 0) AS ci_depois,
+                COALESCE(a.chi_antes, 0) AS chi_antes,
+                COALESCE(d.chi_depois, 0) AS chi_depois
+            FROM antes a
+            FULL OUTER JOIN depois d ON a.conjunto = d.conjunto AND a.protocolo = d.protocolo
+            ORDER BY 1, 2
+        """
+        df_conj = conn.execute(q_conjuntos).df()
+        tabela_conjuntos = []
+        for _, r in df_conj.iterrows():
+            tabela_conjuntos.append({
+                "conjunto": str(r["conjunto"]),
+                "protocolo": str(r["protocolo"]),
+                "ci_antes": int(r["ci_antes"]),
+                "ci_depois": int(r["ci_depois"]),
+                "chi_antes": round(float(r["chi_antes"]), 2),
+                "chi_depois": round(float(r["chi_depois"]), 2)
+            })
             
         resultado = {
             "status": "CONCLUIDO",
@@ -333,7 +451,16 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             "chi_tipo0": round(chi_tipo0, 2),
             "conjuntos_rebaixados": conj_rebaixados,
             "serie_temporal": serie_temporal,
+            "tabela_conjuntos": tabela_conjuntos,
             "simulacao_financeira": {
+                "CHI_BRUTO_ORIGINAL": chi_bruto_orig,
+                "CHI_BRUTO_COM_ISE": chi_bruto_projetado,
+                "CHI_ORIGINAL": chi_orig,
+                "CHI_COM_ISE": chi_projetado,
+                "CI_BRUTO_ORIGINAL": ci_bruto_orig,
+                "CI_BRUTO_COM_ISE": ci_bruto_projetado,
+                "CI_ORIGINAL": ci_orig,
+                "CI_COM_ISE": ci_projetado,
                 "DIC_ORIGINAL_RS": dic_orig,
                 "DIC_COM_ISE_RS": dic_projetado,
                 "FIC_ORIGINAL_RS": fic_orig,
@@ -412,7 +539,7 @@ def implantar_lote(req: ImplantarLoteRequest):
     modificadas = 0
     for w in windows:
         if w.get('id') in req.ids:
-            w['status'] = 'Implantada'
+            w['status'] = 'Autorizada'
             modificadas += 1
     if modificadas > 0:
         save_windows(windows)
@@ -421,9 +548,9 @@ def implantar_lote(req: ImplantarLoteRequest):
 @router.get("/exportar_lote")
 def exportar_lote(ids: str):
     lista_ids = ids.split(",")
-    windows = [w for w in load_windows() if w.get('id') in lista_ids and w.get('status') == 'Implantada']
+    windows = [w for w in load_windows() if w.get('id') in lista_ids and w.get('status') == 'Autorizada']
     if not windows:
-        raise HTTPException(status_code=400, detail="Nenhuma janela Implantada encontrada.")
+        raise HTTPException(status_code=400, detail="Nenhuma janela Autorizada encontrada.")
         
     anomes_set = set(w['anomes'] for w in windows)
     dfs = []
@@ -571,17 +698,25 @@ def gerar_relatorio_html(janela_id: str):
         'N/I': '#64748b'
     }
     
+    palette = ['#3b82f6', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16']
+    
     all_regions = set()
     for s in serie:
         all_regions.update(s.get('regionais', {}).keys())
         
-    for reg in sorted(list(all_regions)):
+    for i, reg in enumerate(sorted(list(all_regions))):
         y_vals = [s.get('regionais', {}).get(reg, 0) for s in serie]
+        
+        # Usa a cor mapeada ou pega uma vibrante da paleta
+        color = colors.get(str(reg).upper())
+        if not color:
+            color = palette[i % len(palette)]
+            
         fig.add_trace(go.Bar(
             x=horas,
             y=y_vals,
             name=reg,
-            marker_color=colors.get(reg.upper(), '#cbd5e1'),
+            marker_color=color,
             opacity=0.8,
             yaxis='y'
         ))
@@ -611,12 +746,89 @@ def gerar_relatorio_html(janela_id: str):
     
     plot_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
     
+    fig_ci = go.Figure()
+    ci_vals = [s.get('ci', 0) for s in serie]
+    rec_vals = [s.get('rec_pct', 0) for s in serie]
+    
+    fig_ci.add_trace(go.Bar(
+        x=horas,
+        y=ci_vals,
+        name='CI (hora)',
+        marker_color='#3b82f6',
+        opacity=0.8,
+        yaxis='y'
+    ))
+    
+    fig_ci.add_trace(go.Scatter(
+        x=horas,
+        y=rec_vals,
+        name='% recomposição',
+        mode='lines+markers',
+        line=dict(color='#f59e0b', width=3),
+        marker=dict(size=6, color='#f59e0b'),
+        yaxis='y2'
+    ))
+    
+    fig_ci.update_layout(
+        title=f"Curva de Recomposição de CI",
+        barmode='group',
+        xaxis=dict(title='Hora', showgrid=True, gridcolor='#e2e8f0'),
+        yaxis=dict(title='CI (UC)', showgrid=True, gridcolor='#e2e8f0', side='left'),
+        yaxis2=dict(title='% recomposição / pico', tickformat='.0%', showgrid=False, overlaying='y', side='right', range=[0, 1.1]),
+        plot_bgcolor='#ffffff',
+        paper_bgcolor='#ffffff',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode='x unified',
+        margin=dict(l=40, r=40, t=60, b=40)
+    )
+    plot_ci_html = fig_ci.to_html(full_html=False, include_plotlyjs=False)
+    
+    tabela = res.get('tabela_conjuntos', [])
+    tabela_html = """
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Conjunto</th>
+                <th>Protocolo</th>
+                <th style="text-align: right">CI Antes</th>
+                <th style="text-align: right">CI Depois (ISE)</th>
+                <th style="text-align: right">CHI Antes</th>
+                <th style="text-align: right">CHI Depois (ISE)</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    qtd_linhas = 0
+    for r in tabela:
+        if r.get('ci_antes') == r.get('ci_depois') and r.get('chi_antes') == r.get('chi_depois'):
+            continue # Oculta os inalterados (Filtro aprovado no plano)
+            
+        ci_cor = "#10b981" if r.get('ci_depois',0) < r.get('ci_antes',0) else ("#ef4444" if r.get('ci_depois',0) > r.get('ci_antes',0) else "#eab308")
+        chi_cor = "#10b981" if r.get('chi_depois',0) < r.get('chi_antes',0) else ("#ef4444" if r.get('chi_depois',0) > r.get('chi_antes',0) else "#eab308")
+        
+        tabela_html += f"""
+            <tr>
+                <td><strong>{r.get('conjunto', '')}</strong></td>
+                <td>{r.get('protocolo', '')}</td>
+                <td style="text-align: right">{r.get('ci_antes',0):,}</td>
+                <td style="text-align: right; color: {ci_cor}; font-weight: bold;">{r.get('ci_depois',0):,}</td>
+                <td style="text-align: right">{r.get('chi_antes',0):,.2f}</td>
+                <td style="text-align: right; color: {chi_cor}; font-weight: bold;">{r.get('chi_depois',0):,.2f}</td>
+            </tr>
+        """
+        qtd_linhas += 1
+        
+    if qtd_linhas == 0:
+        tabela_html += '<tr><td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">Nenhuma alteração nos conjuntos nesta janela.</td></tr>'
+        
+    tabela_html += "</tbody></table>"
+    
     html_content = f"""
     <!DOCTYPE html>
     <html lang="pt-BR">
     <head>
         <meta charset="UTF-8">
-        <title>Relatório Executivo ISE - {nome_evento}</title>
+        <title>Resumo Executivo ISE</title>
         <style>
             body {{ font-family: 'Segoe UI', system-ui, sans-serif; background: #f8fafc; color: #334155; margin: 0; padding: 20px; }}
             .container {{ max-width: 1200px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }}
@@ -630,6 +842,10 @@ def gerar_relatorio_html(janela_id: str):
             .kpi-sub {{ font-size: 14px; color: #94a3b8; margin-top: 5px; }}
             .kpi-card.highlight-green {{ border-left: 4px solid #10b981; }}
             .kpi-card.highlight-red {{ border-left: 4px solid #ef4444; }}
+            .data-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }}
+            .data-table th, .data-table td {{ padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }}
+            .data-table th {{ background: #f8fafc; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 12px; }}
+            .section-title {{ margin: 40px 0 15px 0; color: #0f172a; font-size: 18px; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; }}
         </style>
     </head>
     <body>
@@ -667,8 +883,18 @@ def gerar_relatorio_html(janela_id: str):
                 </div>
             </div>
             
-            <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
+            <div class="section-title">Análise Temporal</div>
+            <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 20px;">
                 {plot_html}
+            </div>
+            
+            <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 40px;">
+                {plot_ci_html}
+            </div>
+            
+            <div class="section-title">Matriz de Impacto por Conjunto (Apenas Alterados)</div>
+            <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 40px;">
+                {tabela_html}
             </div>
         </div>
     </body>
