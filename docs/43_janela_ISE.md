@@ -35,16 +35,30 @@ A causa de interrupção `COD_CAUSA_INTRP = 52` é elegível para ISE. No entant
 ## 4. O "Efeito Gangorra" do Dia Crítico
 
 Esta é a regra de negócio mais sensível da simulação financeira.
-A aplicação de uma janela ISE isenta as interrupções que ocorrem dentro dela. No entanto, isso reduz o total de horas interrompidas (CHI) no dia para o Conjunto Elétrico (CEA).
+A aplicação de uma janela ISE isenta as interrupções que ocorrem dentro dela. No entanto, isso reduz a volumetria de ocorrências no dia para o Conjunto Elétrico (CEA), o que pode fazer com que ele perca o enquadramento no "Dia Crítico".
 
-1. O sistema lê o arquivo base de metas: `data\input\META_CONJUNTO_DIA_CRITICO.csv`.
-2. Para cada conjunto elétrico, o sistema verifica se o CHI diário total (após subtrair as horas da janela ISE) ainda ultrapassa a `META` estabelecida no arquivo.
-3. **Perda de Isenção:** Se a meta não for mais atingida, o dia em questão **perde a classificação de Dia Crítico TIPO 1**, passando a ser TIPO 0 (Líquido). 
-4. Como consequência, todas as outras ocorrências daquele dia (que aconteceram fora da janela ISE) perdem a isenção do Dia Crítico e passam a gerar multas de ressarcimento (DIC, FIC, DMIC).
+Para que a simulação seja exata à norma da ANEEL, a Gangorra segue o seguinte algoritmo no banco de dados DuckDB:
 
-A simulação financeira final exibida pelo módulo (Ganho DISE) já contabiliza essa possível perda de Dia Crítico para refletir o cenário real financeiro da concessionária.
+1. O sistema faz um `ATTACH` dinâmico do banco bruto de serviços (`adms_servicos_raw_{anomes}.duckdb`).
+2. Verifica-se o cruzamento da chave `PID_INTRP_SRVE` = `NUM_SEQ_INTRP`.
+3. **Regra de Deslocamento:** Apenas ocorrências isentadas que possuam o campo `DTHR_SAIDA_SRV` preenchido (ou seja, houve real despacho e deslocamento de equipe a campo) são computadas para abater da meta oficial daquele conjunto.
+4. O sistema cruza esse número com o arquivo base de metas: `data\input\META_CONJUNTO_DIA_CRITICO.csv`.
+5. **Perda de Isenção (TIPO 0):** Se a volumetria cair abaixo da `META` estabelecida, as ocorrências que restaram naquele dia **perdem a classificação de Dia Crítico TIPO 1**, passando a ser TIPO 0 (Ocorrências normais penalizáveis).
+6. Como consequência, essas ocorrências passam a gerar multas de ressarcimento (DIC, FIC, DMIC).
 
-## 5. Arquitetura do Módulo (Simulação Exata via PRODIST)
+A simulação financeira final exibida pelo módulo (Ganho DISE) já contabiliza essa possível perda de Dia Crítico para refletir o cenário real financeiro.
+
+## 5. Gestão, Relatórios e Implantação Oficial (IQS)
+
+O sistema possui uma interface (React) para Gestão de Janelas com ciclo de vida completo:
+
+1. **Gestão e Reprocessamento:** Janelas em estado de `Simulação` podem ser editadas, excluídas ou "Reprocessadas" a qualquer momento. O recálculo garante que apenas a própria janela em simulação seja processada por vez (além daquelas que já foram autorizadas).
+2. **Relatório Executivo HTML:** Ao final do cálculo, a plataforma gera dinamicamente um relatório em formato Standalone HTML através da API.
+   - O relatório utiliza a biblioteca **Plotly** para demonstrar visualmente a "Curva S" da Tempestade (CHI Acumulado) somada ao Histograma Horário.
+   - O Histograma é apresentado na modalidade de *Stacked Bar Chart* (Barras Empilhadas), separando o impacto horário pelas diferentes Regionais afetadas.
+3. **Implantação (Injeção no IQS):** Quando aprovadas, as janelas recebem o status `Autorizada`. A partir deste momento, ao se processar o relatório de exportação do painel `Saídas IQS`, o motor de extração oficial lê as janelas autorizadas e injeta a regra (mudando ocorrências para TIPO 6 e processando a Gangorra), garantindo que o arquivo `.csv` enviado à ANEEL possua exatamente a mesma matemática do simulador.
+
+## 6. Arquitetura do Módulo (Simulação Exata via PRODIST)
 
 O módulo foi refatorado para garantir **100% de precisão matemática**, abandonando estimativas teóricas e reaproveitando as funções oficiais de cálculo da concessionária:
 
