@@ -431,7 +431,7 @@ export default function IseSimulation() {
                       <span style={{ color: '#64748b' }}>🕒</span>
                     </div>
                     <div style={{ fontSize: '28px', fontWeight: 'bold', margin: '8px 0 0 0', color: '#f8fafc' }}>
-                      {(simulacaoAtual.resultados_ise.ISE_CHI_BRUTO_REFERENCIA || 0).toLocaleString(undefined, {maximumFractionDigits:1})} <span style={{ fontSize: '14px', color: '#64748b' }}>h</span>
+                      {(simulacaoAtual.resultados_ise?.ISE_CHI_BRUTO_REFERENCIA || 0).toLocaleString(undefined, {maximumFractionDigits:1})} <span style={{ fontSize: '14px', color: '#64748b' }}>h</span>
                     </div>
                   </div>
                   <div className="ise-metric-box" style={{ background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.3)' }}>
@@ -440,7 +440,7 @@ export default function IseSimulation() {
                       <span style={{ color: '#60a5fa' }}>⚡</span>
                     </div>
                     <div style={{ fontSize: '28px', fontWeight: 'bold', margin: '8px 0 0 0', color: '#60a5fa' }}>
-                      {(simulacaoAtual.resultados_ise.ISE_CHI_LIQUIDO_RECLASSIFICAVEL || 0).toLocaleString(undefined, {maximumFractionDigits:1})} <span style={{ fontSize: '14px', opacity: 0.7 }}>h</span>
+                      {(simulacaoAtual.resultados_ise?.ISE_CHI_LIQUIDO_RECLASSIFICAVEL || 0).toLocaleString(undefined, {maximumFractionDigits:1})} <span style={{ fontSize: '14px', opacity: 0.7 }}>h</span>
                     </div>
                   </div>
                 </div>
@@ -449,9 +449,9 @@ export default function IseSimulation() {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '12px' }}>
                   <h4 style={{ margin: 0, color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Simulação Financeira (DISE)</h4>
-                  {simulacaoAtual.simulacao_financeira.UCS_QUE_PERDERAM_ISENCAO_DC > 0 && (
+                  {simulacaoAtual.simulacao_financeira?.UCS_QUE_PERDERAM_ISENCAO_DC > 0 && (
                     <span style={{ background: 'rgba(239,68,68,0.2)', color: '#fca5a5', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>
-                      ⚠️ {simulacaoAtual.simulacao_financeira.UCS_QUE_PERDERAM_ISENCAO_DC} UCs perderam Dia Crítico
+                      ⚠️ {simulacaoAtual.simulacao_financeira?.UCS_QUE_PERDERAM_ISENCAO_DC} UCs perderam Dia Crítico
                     </span>
                   )}
                 </div>
@@ -468,13 +468,13 @@ export default function IseSimulation() {
                     <tbody>
                       <tr>
                         <td style={{ color: '#94a3b8' }}>CHI (horas)</td>
-                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>{simulacaoAtual.simulacao_financeira.CHI_ORIGINAL.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>{simulacaoAtual.simulacao_financeira.CHI_COM_ISE.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>{(simulacaoAtual.simulacao_financeira?.CHI_ORIGINAL || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>{(simulacaoAtual.simulacao_financeira?.CHI_COM_ISE || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                       </tr>
                       <tr>
                         <td style={{ color: '#94a3b8' }}>CI (qtd)</td>
-                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>{simulacaoAtual.simulacao_financeira.CI_ORIGINAL.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
-                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>{simulacaoAtual.simulacao_financeira.CI_COM_ISE.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
+                        <td style={{ textAlign: 'right', color: '#f8fafc' }}>{(simulacaoAtual.simulacao_financeira?.CI_ORIGINAL || 0).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
+                        <td style={{ textAlign: 'right', color: '#34d399', fontWeight: 'bold' }}>{(simulacaoAtual.simulacao_financeira?.CI_COM_ISE || 0).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0})}</td>
                       </tr>
                       <tr>
                         <td style={{ color: '#94a3b8' }}>Risco DIC</td>

@@ -81,11 +81,12 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         conn.execute(f"ATTACH '{db_path}' AS adms (READ_ONLY)")
         
         # 1. Copiar tabelas necessárias
-        for tbl in ["gold_apuracao_uc", "gold_uc_fatura", "gold_metas_uc", "gold_vrc", "gold_continuidade_uc", "gold_ressarcimento_prodist"]:
+        for tbl in ["gold_apuracao_uc", "gold_interrupcao_tratada", "gold_uc_fatura", "gold_metas_uc", "gold_vrc", "gold_continuidade_uc", "gold_ressarcimento_prodist"]:
             try:
                 conn.execute(f"CREATE TABLE main.{tbl} AS SELECT * FROM adms.{tbl}")
             except Exception:
-                pass
+                if tbl == "gold_interrupcao_tratada":
+                    conn.execute("CREATE TABLE main.gold_interrupcao_tratada (NUM_OCORRENCIA_ADMS VARCHAR, NUM_SEQ_INTRP VARCHAR, NUM_OPER_CHV_INTRP VARCHAR, NUM_UC_UCI VARCHAR, INDIC_PROPR_CHVP_INTRP VARCHAR, UC_ACESSANTE VARCHAR)")
                 
         # Tabela base da simulação
         conn.execute("CREATE TABLE main.gold_apuracao_uc_ise AS SELECT * FROM main.gold_apuracao_uc")

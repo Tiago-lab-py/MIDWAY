@@ -34,11 +34,11 @@ def criar_gold_continuidade_uc(con, sufixo=""):
     colunas_gold_apuracao_uc = {
         linha[0].upper()
         for linha in con.execute(
-            """
+            f"""
             SELECT column_name
             FROM information_schema.columns
             WHERE table_schema = 'main'
-              AND table_name = f'gold_apuracao_uc{sufixo}'
+              AND table_name = 'gold_apuracao_uc{sufixo}'
             """
         ).fetchall()
     }
