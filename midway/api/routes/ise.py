@@ -392,29 +392,37 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
                 
         serie_temporal = [serie_dict[h] for h in sorted_hours]
             
+        ref_path = "data/input/Referencia_DEC FEC CONJUNTO Ano_Copel.csv"
+        if os.path.exists(ref_path):
+            conn.execute(f"CREATE TABLE main.ref_conjuntos AS SELECT CAST(CEA AS VARCHAR) AS CEA, MAX(NOME_CEA) AS NOME_CEA FROM read_csv('{ref_path}', auto_detect=true, sep=';', header=true) GROUP BY 1")
+        else:
+            conn.execute("CREATE TABLE main.ref_conjuntos (CEA VARCHAR, NOME_CEA VARCHAR)")
+
         # 5.4 Matriz de Conjuntos (Antes vs Depois)
         q_conjuntos = f"""
             WITH antes AS (
                 SELECT 
-                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
+                    COALESCE(MAX(c.NOME_CEA), COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO')) AS conjunto,
                     a.TIPO_PROTOC_JUSTIF_UCI AS protocolo,
                     COUNT(DISTINCT a.NUM_UC_UCI) AS ci_antes,
                     SUM(COALESCE(a.DURACAO_HORA, 0)) AS chi_antes
                 FROM adms.gold_apuracao_uc a
                 LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                LEFT JOIN main.ref_conjuntos c ON CAST(v.CEA AS VARCHAR) = CAST(c.CEA AS VARCHAR)
                 {where_clause}
-                GROUP BY 1, 2
+                GROUP BY CAST(v.CEA AS VARCHAR), a.TIPO_PROTOC_JUSTIF_UCI
             ),
             depois AS (
                 SELECT 
-                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
+                    COALESCE(MAX(c.NOME_CEA), COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO')) AS conjunto,
                     a.TIPO_PROTOC_JUSTIF_UCI AS protocolo,
                     COUNT(DISTINCT a.NUM_UC_UCI) AS ci_depois,
                     SUM(COALESCE(a.DURACAO_HORA, 0)) AS chi_depois
                 FROM main.gold_apuracao_uc_ise a
                 LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                LEFT JOIN main.ref_conjuntos c ON CAST(v.CEA AS VARCHAR) = CAST(c.CEA AS VARCHAR)
                 {where_clause}
-                GROUP BY 1, 2
+                GROUP BY CAST(v.CEA AS VARCHAR), a.TIPO_PROTOC_JUSTIF_UCI
             )
             SELECT 
                 COALESCE(a.conjunto, d.conjunto) AS conjunto,
@@ -442,7 +450,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         q_detalhe = f"""
             WITH comp_sem AS (
                 SELECT 
-                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
+                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto_cod,
                     SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS comp_total_sem
                 FROM main.gold_ressarcimento_prodist r
                 LEFT JOIN main.gold_vrc v ON CAST(r.UC AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
@@ -450,7 +458,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             ),
             comp_com AS (
                 SELECT 
-                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
+                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto_cod,
                     SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS comp_total_com
                 FROM main.gold_ressarcimento_prodist_ise r
                 LEFT JOIN main.gold_vrc v ON CAST(r.UC AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
@@ -458,7 +466,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             ),
             indicadores AS (
                 SELECT 
-                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
+                    COALESCE(MAX(c.NOME_CEA), COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO')) AS conjunto,
                     COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS cod_conjunto,
                     -- CHI
                     SUM(CASE WHEN a.TIPO_PROTOC_JUSTIF_UCI = '0' THEN COALESCE(a.DURACAO_HORA, 0) ELSE 0 END) AS chi_liquido,
@@ -474,16 +482,17 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
                 FROM main.gold_apuracao_uc_ise a
                 LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
                 LEFT JOIN main.gold_metas_uc m ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(m.ISN_UC AS VARCHAR)
+                LEFT JOIN main.ref_conjuntos c ON CAST(v.CEA AS VARCHAR) = CAST(c.CEA AS VARCHAR)
                 {where_clause}
-                GROUP BY 1, 2
+                GROUP BY CAST(v.CEA AS VARCHAR)
             )
             SELECT 
                 i.*,
                 COALESCE(s.comp_total_sem, 0.0) AS comp_total_sem,
                 COALESCE(c.comp_total_com, 0.0) AS comp_total_com
             FROM indicadores i
-            LEFT JOIN comp_sem s ON i.conjunto = s.conjunto
-            LEFT JOIN comp_com c ON i.conjunto = c.conjunto
+            LEFT JOIN comp_sem s ON i.cod_conjunto = s.conjunto_cod
+            LEFT JOIN comp_com c ON i.cod_conjunto = c.conjunto_cod
             ORDER BY i.conjunto
         """
         df_detalhe = conn.execute(q_detalhe).df()
@@ -503,7 +512,70 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
                 "comp_total_sem": round(float(r["comp_total_sem"]), 2),
                 "comp_total_com": round(float(r["comp_total_com"]), 2)
             })
+
+        # Lógica do ISE Otimizado
+        otimizados_ceas = []
+        l_pos = []
+        l_neg = []
+        for c in tabela_detalhe_conjuntos:
+            economia = c["comp_total_sem"] - c["comp_total_com"]
+            if economia > -0.01:
+                l_pos.append(c)
+            else:
+                l_neg.append(c)
+                
+        chi_accum = sum(c["chi_ise"] for c in l_pos)
+        otimizados_ceas.extend([c["cod_conjunto"] for c in l_pos])
+        
+        if chi_accum < 700000:
+            l_neg.sort(key=lambda x: (x["comp_total_sem"] - x["comp_total_com"]), reverse=True)
+            for c in l_neg:
+                chi_accum += c["chi_ise"]
+                otimizados_ceas.append(c["cod_conjunto"])
+                if chi_accum >= 700000:
+                    break
+                    
+        ceas_str = ", ".join([f"'{c}'" for c in otimizados_ceas]) if otimizados_ceas else "''"
+        
+        conn.execute(f"""
+            CREATE TABLE main.gold_apuracao_uc_otimizado AS 
+            SELECT a.* FROM main.gold_apuracao_uc_ise a
+            LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+            WHERE COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') IN ({ceas_str})
+            UNION ALL
+            SELECT a.* FROM main.gold_apuracao_uc a
+            LEFT JOIN main.gold_vrc v ON CAST(a.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+            WHERE COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') NOT IN ({ceas_str})
+        """)
+        
+        criar_gold_continuidade_uc(conn, sufixo="_otimizado")
+        criar_gold_ressarcimento_prodist(conn, sufixo="_otimizado")
+        
+        df_otimizado = conn.execute("SELECT SUM(COMP_DIC_PRODIST) AS DIC, SUM(COMP_FIC_PRODIST) AS FIC, SUM(COMP_DMIC_PRODIST) AS DMIC, SUM(COMP_DICRI_PRODIST) AS DICRI, SUM(COMP_DISE_PRODIST) AS DISE, SUM(COMP_GERAL_CONTINUIDADE_PRODIST) AS COMP_GERAL, SUM(COMP_TOTAL_PRODIST) AS COMP_TOTAL FROM main.gold_ressarcimento_prodist_otimizado").df()
+        
+        comp_total_otimizado = float(df_otimizado['COMP_TOTAL'].iloc[0] or 0) if not df_otimizado.empty else 0
+        dic_otimizado = float(df_otimizado['DIC'].iloc[0] or 0) if not df_otimizado.empty else 0
+        fic_otimizado = float(df_otimizado['FIC'].iloc[0] or 0) if not df_otimizado.empty else 0
+        dmic_otimizado = float(df_otimizado['DMIC'].iloc[0] or 0) if not df_otimizado.empty else 0
+        dicri_otimizado = float(df_otimizado['DICRI'].iloc[0] or 0) if not df_otimizado.empty else 0
+        dise_otimizado = float(df_otimizado['DISE'].iloc[0] or 0) if not df_otimizado.empty else 0
+        comp_geral_otimizado = float(df_otimizado['COMP_GERAL'].iloc[0] or 0) if not df_otimizado.empty else 0
+        
+        df_detalhe_otimizado = conn.execute("""
+            SELECT 
+                COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS cod_conjunto,
+                SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS comp_total_otimizado
+            FROM main.gold_ressarcimento_prodist_otimizado r
+            LEFT JOIN main.gold_vrc v ON CAST(r.UC AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+            GROUP BY 1
+        """).df()
+        dict_otimizado = dict(zip(df_detalhe_otimizado['cod_conjunto'], df_detalhe_otimizado['comp_total_otimizado']))
+        
+        for c in tabela_detalhe_conjuntos:
+            c["comp_total_otimizado"] = round(float(dict_otimizado.get(c["cod_conjunto"], 0)), 2)
+            c["is_otimizado"] = c["cod_conjunto"] in otimizados_ceas
             
+
         resultado = {
             "status": "CONCLUIDO",
             "janela": janela.dict(),
@@ -541,6 +613,15 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
                 "COMP_TOTAL_ORIGINAL_RS": comp_total_orig,
                 "COMP_TOTAL_COM_ISE_RS": comp_total_projetado,
                 "DISE_GANHO_RS": total_sem_ise - total_com_ise,
+                "DIC_OTIMIZADO_RS": dic_otimizado,
+                "FIC_OTIMIZADO_RS": fic_otimizado,
+                "DMIC_OTIMIZADO_RS": dmic_otimizado,
+                "DICRI_OTIMIZADO_RS": dicri_otimizado,
+                "DISE_OTIMIZADO_RS": dise_otimizado,
+                "COMP_GERAL_OTIMIZADO_RS": comp_geral_otimizado,
+                "COMP_TOTAL_OTIMIZADO_RS": comp_total_otimizado,
+                "DISE_GANHO_OTIMIZADO_RS": total_sem_ise - comp_total_otimizado,
+                "CHI_OTIMIZADOS_ALCANCADO": round(chi_accum, 2)
             }
         }
         
@@ -610,6 +691,7 @@ def get_resultado(janela_id: str):
 
 class ImplantarLoteRequest(BaseModel):
     ids: List[str]
+    tipo: str = "completo"
 
 @router.post("/implantar_lote")
 def implantar_lote(req: ImplantarLoteRequest):
@@ -618,6 +700,7 @@ def implantar_lote(req: ImplantarLoteRequest):
     for w in windows:
         if w.get('id') in req.ids:
             w['status'] = 'Autorizada'
+            w['tipo_implantacao'] = req.tipo
             modificadas += 1
     if modificadas > 0:
         save_windows(windows)
@@ -656,13 +739,29 @@ def exportar_lote(ids: str):
             if len(inicio) == 16: inicio += ':00'
             if len(fim) == 16: fim += ':00'
             
-            conn.execute(f"""
-                UPDATE main.gold_apuracao_uc_ise
-                SET TIPO_PROTOC_JUSTIF_UCI = '6'
-                WHERE TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)) IN {causas_ise}
-                  AND DATA_HORA_INIC_INTRP <= CAST('{fim}' AS TIMESTAMP)
-                  AND DATA_HORA_INIC_INTRP + INTERVAL (COALESCE(DURACAO_HORA, 0) * 60) MINUTE >= CAST('{inicio}' AS TIMESTAMP)
-            """)
+            tipo_implantacao = w.get('tipo_implantacao', 'completo')
+            if tipo_implantacao == 'otimizado' and 'resultado' in w and 'tabela_detalhe_conjuntos' in w['resultado']:
+                otimizados = [c['cod_conjunto'] for c in w['resultado']['tabela_detalhe_conjuntos'] if c.get('is_otimizado', False)]
+                ceas_str = ", ".join([f"'{c}'" for c in otimizados]) if otimizados else "''"
+                
+                conn.execute(f"""
+                    UPDATE main.gold_apuracao_uc_ise
+                    SET TIPO_PROTOC_JUSTIF_UCI = '6'
+                    FROM main.gold_vrc v
+                    WHERE CAST(main.gold_apuracao_uc_ise.NUM_UC_UCI AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
+                      AND TRIM(CAST(main.gold_apuracao_uc_ise.COD_CAUSA_INTRP AS VARCHAR)) IN {causas_ise}
+                      AND main.gold_apuracao_uc_ise.DATA_HORA_INIC_INTRP <= CAST('{fim}' AS TIMESTAMP)
+                      AND main.gold_apuracao_uc_ise.DATA_HORA_INIC_INTRP + INTERVAL (COALESCE(main.gold_apuracao_uc_ise.DURACAO_HORA, 0) * 60) MINUTE >= CAST('{inicio}' AS TIMESTAMP)
+                      AND COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') IN ({ceas_str})
+                """)
+            else:
+                conn.execute(f"""
+                    UPDATE main.gold_apuracao_uc_ise
+                    SET TIPO_PROTOC_JUSTIF_UCI = '6'
+                    WHERE TRIM(CAST(COD_CAUSA_INTRP AS VARCHAR)) IN {causas_ise}
+                      AND DATA_HORA_INIC_INTRP <= CAST('{fim}' AS TIMESTAMP)
+                      AND DATA_HORA_INIC_INTRP + INTERVAL (COALESCE(DURACAO_HORA, 0) * 60) MINUTE >= CAST('{inicio}' AS TIMESTAMP)
+                """)
             
         # Refaz o efeito gangorra
         meta_path = "data/input/META_CONJUNTO_DIA_CRITICO.csv"
@@ -862,44 +961,62 @@ def gerar_relatorio_html(janela_id: str):
     plot_ci_html = fig_ci.to_html(full_html=False, include_plotlyjs=False)
     
     tabela = res.get('tabela_conjuntos', [])
-    tabela_html = """
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Conjunto</th>
-                <th>Protocolo</th>
-                <th style="text-align: right">CI Antes</th>
-                <th style="text-align: right">CI Depois (ISE)</th>
-                <th style="text-align: right">CHI Antes</th>
-                <th style="text-align: right">CHI Depois (ISE)</th>
-            </tr>
-        </thead>
-        <tbody>
-    """
-    qtd_linhas = 0
+    agrupado = {}
     for r in tabela:
         if r.get('ci_antes') == r.get('ci_depois') and r.get('chi_antes') == r.get('chi_depois'):
-            continue # Oculta os inalterados (Filtro aprovado no plano)
-            
-        ci_cor = "#10b981" if r.get('ci_depois',0) < r.get('ci_antes',0) else ("#ef4444" if r.get('ci_depois',0) > r.get('ci_antes',0) else "#eab308")
-        chi_cor = "#10b981" if r.get('chi_depois',0) < r.get('chi_antes',0) else ("#ef4444" if r.get('chi_depois',0) > r.get('chi_antes',0) else "#eab308")
+            continue
+        c = r.get('conjunto', '')
+        if c not in agrupado:
+            agrupado[c] = {}
+        prot = str(r.get('protocolo', '')).strip()
+        agrupado[c][prot] = r
+
+    tabela_html = """
+    <div style="overflow-x: auto;">
+        <table class="data-table" style="min-width: 900px; font-size: 12px;">
+            <thead>
+                <tr>
+                    <th rowspan="2" style="vertical-align: middle;">Conjunto</th>
+                    <th colspan="2" style="text-align: center; border-bottom: 1px solid #e2e8f0;">0 - Líquido</th>
+                    <th colspan="2" style="text-align: center; border-bottom: 1px solid #e2e8f0; color: #d97706;">1 - Dia Crítico</th>
+                    <th colspan="2" style="text-align: center; border-bottom: 1px solid #e2e8f0; color: #0284c7;">6 - ISE</th>
+                </tr>
+                <tr>
+                    <th style="text-align: right">CI (Antes ➔ Depois)</th>
+                    <th style="text-align: right">CHI (Antes ➔ Depois)</th>
+                    <th style="text-align: right; color: #d97706;">CI (Antes ➔ Depois)</th>
+                    <th style="text-align: right; color: #d97706;">CHI (Antes ➔ Depois)</th>
+                    <th style="text-align: right; color: #0284c7;">CI (Antes ➔ Depois)</th>
+                    <th style="text-align: right; color: #0284c7;">CHI (Antes ➔ Depois)</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
+    qtd_linhas = 0
+    for c, prots in agrupado.items():
+        tabela_html += f"<tr><td><strong>{c}</strong></td>"
         
-        tabela_html += f"""
-            <tr>
-                <td><strong>{r.get('conjunto', '')}</strong></td>
-                <td>{r.get('protocolo', '')}</td>
-                <td style="text-align: right">{r.get('ci_antes',0):,}</td>
-                <td style="text-align: right; color: {ci_cor}; font-weight: bold;">{r.get('ci_depois',0):,}</td>
-                <td style="text-align: right">{r.get('chi_antes',0):,.2f}</td>
-                <td style="text-align: right; color: {chi_cor}; font-weight: bold;">{r.get('chi_depois',0):,.2f}</td>
-            </tr>
-        """
+        for p in ['0', '1', '6']:
+            r = prots.get(p, {})
+            if not r:
+                tabela_html += '<td style="text-align: right; color: #94a3b8;">-</td><td style="text-align: right; color: #94a3b8;">-</td>'
+            else:
+                ci_antes, ci_depois = r.get('ci_antes',0), r.get('ci_depois',0)
+                chi_antes, chi_depois = r.get('chi_antes',0), r.get('chi_depois',0)
+                ci_cor = "#10b981" if ci_depois < ci_antes else ("#ef4444" if ci_depois > ci_antes else "#64748b")
+                chi_cor = "#10b981" if chi_depois < chi_antes else ("#ef4444" if chi_depois > chi_antes else "#64748b")
+                
+                tabela_html += f"""
+                    <td style="text-align: right"><span style="color:#94a3b8">{ci_antes:,} ➔</span> <strong style="color:{ci_cor}">{ci_depois:,}</strong></td>
+                    <td style="text-align: right"><span style="color:#94a3b8">{chi_antes:,.2f} ➔</span> <strong style="color:{chi_cor}">{chi_depois:,.2f}</strong></td>
+                """
+        tabela_html += "</tr>"
         qtd_linhas += 1
         
     if qtd_linhas == 0:
-        tabela_html += '<tr><td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">Nenhuma alteração nos conjuntos nesta janela.</td></tr>'
+        tabela_html += '<tr><td colspan="7" style="text-align: center; color: #94a3b8; padding: 20px;">Nenhuma alteração nos conjuntos nesta janela.</td></tr>'
         
-    tabela_html += "</tbody></table>"
+    tabela_html += "</tbody></table></div>"
     
     # ---------------------------------------------------------
     # TABELA SIMULAÇÃO FINANCEIRA
@@ -920,68 +1037,82 @@ def gerar_relatorio_html(janela_id: str):
                 <tr>
                     <th>INDICADOR</th>
                     <th style="text-align: right">SEM ISE (ATUAL)</th>
-                    <th style="text-align: right; color: #10b981;">COM ISE (PROJEÇÃO)</th>
+                    <th style="text-align: right; color: #0284c7;">COM ISE (PROJEÇÃO)</th>
+                    <th style="text-align: right; color: #10b981;">ISE OTIMIZADO</th>
                 </tr>
             </thead>
             <tbody>
                 <tr>
                     <td>Duração (CHI) - <strong>Bruto</strong></td>
                     <td style="text-align: right">{sf.get('CHI_BRUTO_ORIGINAL', 0):,.2f}</td>
-                    <td style="text-align: right; color: {get_color(sf.get('CHI_BRUTO_COM_ISE',0), sf.get('CHI_BRUTO_ORIGINAL',0))}; font-weight: bold;">{sf.get('CHI_BRUTO_COM_ISE', 0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">{sf.get('CHI_BRUTO_COM_ISE', 0):,.2f}</td>
+                    <td style="text-align: right; color: #10b981; font-weight: bold;">{sf.get('CHI_BRUTO_ORIGINAL', 0):,.2f}</td>
                 </tr>
                 <tr>
                     <td>Duração (CHI) - <strong>Líquido</strong> (Penalizado)</td>
                     <td style="text-align: right">{sf.get('CHI_ORIGINAL', 0):,.2f}</td>
                     <td style="text-align: right; color: {get_color(sf.get('CHI_COM_ISE',0), sf.get('CHI_ORIGINAL',0))}; font-weight: bold;">{sf.get('CHI_COM_ISE', 0):,.2f}</td>
+                    <td style="text-align: right; color: #10b981; font-weight: bold;">-</td>
                 </tr>
                 <tr>
                     <td>CI (qtd) - <strong>Bruto</strong></td>
                     <td style="text-align: right">{sf.get('CI_BRUTO_ORIGINAL', 0):,.0f}</td>
                     <td style="text-align: right; color: {get_color(sf.get('CI_BRUTO_COM_ISE',0), sf.get('CI_BRUTO_ORIGINAL',0))}; font-weight: bold;">{sf.get('CI_BRUTO_COM_ISE', 0):,.0f}</td>
+                    <td style="text-align: right; color: #10b981; font-weight: bold;">-</td>
                 </tr>
                 <tr>
                     <td>CI (qtd) - <strong>Líquido</strong> (Penalizado)</td>
                     <td style="text-align: right">{sf.get('CI_ORIGINAL', 0):,.0f}</td>
                     <td style="text-align: right; color: {get_color(sf.get('CI_COM_ISE',0), sf.get('CI_ORIGINAL',0))}; font-weight: bold;">{sf.get('CI_COM_ISE', 0):,.0f}</td>
+                    <td style="text-align: right; color: #10b981; font-weight: bold;">-</td>
                 </tr>
                 <tr style="background: #f8fafc;">
                     <td>Ressarcimento DIC</td>
                     <td style="text-align: right">R$ {sf.get('DIC_ORIGINAL_RS', 0):,.2f}</td>
-                    <td style="text-align: right; color: {get_color(sf.get('DIC_COM_ISE_RS',0), sf.get('DIC_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DIC_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">R$ {sf.get('DIC_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('DIC_OTIMIZADO_RS',0), sf.get('DIC_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DIC_OTIMIZADO_RS', 0):,.2f}</td>
                 </tr>
                 <tr style="background: #f8fafc;">
                     <td>Ressarcimento FIC</td>
                     <td style="text-align: right">R$ {sf.get('FIC_ORIGINAL_RS', 0):,.2f}</td>
-                    <td style="text-align: right; color: {get_color(sf.get('FIC_COM_ISE_RS',0), sf.get('FIC_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('FIC_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">R$ {sf.get('FIC_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('FIC_OTIMIZADO_RS',0), sf.get('FIC_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('FIC_OTIMIZADO_RS', 0):,.2f}</td>
                 </tr>
                 <tr style="background: #f8fafc;">
                     <td>Risco DMIC</td>
                     <td style="text-align: right">R$ {sf.get('DMIC_ORIGINAL_RS', 0):,.2f}</td>
-                    <td style="text-align: right; color: {get_color(sf.get('DMIC_COM_ISE_RS',0), sf.get('DMIC_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DMIC_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">R$ {sf.get('DMIC_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('DMIC_OTIMIZADO_RS',0), sf.get('DMIC_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DMIC_OTIMIZADO_RS', 0):,.2f}</td>
                 </tr>
                 <tr style="background: #eef2ff;">
                     <td><strong>Compensação Geral (Maior entre DIC/FIC/DMIC)</strong></td>
                     <td style="text-align: right"><strong>R$ {sf.get('COMP_GERAL_ORIGINAL_RS', 0):,.2f}</strong></td>
-                    <td style="text-align: right; color: {get_color(sf.get('COMP_GERAL_COM_ISE_RS',0), sf.get('COMP_GERAL_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('COMP_GERAL_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">R$ {sf.get('COMP_GERAL_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('COMP_GERAL_OTIMIZADO_RS',0), sf.get('COMP_GERAL_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('COMP_GERAL_OTIMIZADO_RS', 0):,.2f}</td>
                 </tr>
                 <tr style="background: #f8fafc;">
                     <td>Ressarcimento DICRI</td>
                     <td style="text-align: right">R$ {sf.get('DICRI_ORIGINAL_RS', 0):,.2f}</td>
-                    <td style="text-align: right; color: {get_color(sf.get('DICRI_COM_ISE_RS',0), sf.get('DICRI_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DICRI_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">R$ {sf.get('DICRI_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('DICRI_OTIMIZADO_RS',0), sf.get('DICRI_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DICRI_OTIMIZADO_RS', 0):,.2f}</td>
                 </tr>
                 <tr style="background: #f8fafc;">
                     <td>Ressarcimento DISE</td>
                     <td style="text-align: right">R$ {sf.get('DISE_ORIGINAL_RS', 0):,.2f}</td>
-                    <td style="text-align: right; color: {get_color(sf.get('DISE_COM_ISE_RS',0), sf.get('DISE_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DISE_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">R$ {sf.get('DISE_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('DISE_OTIMIZADO_RS',0), sf.get('DISE_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DISE_OTIMIZADO_RS', 0):,.2f}</td>
                 </tr>
                 <tr style="background: #eef2ff;">
                     <td style="font-size: 14px;"><strong>COMPENSAÇÃO TOTAL (Geral + DICRI + DISE)</strong></td>
                     <td style="text-align: right; font-size: 14px;"><strong>R$ {sf.get('COMP_TOTAL_ORIGINAL_RS', 0):,.2f}</strong></td>
-                    <td style="text-align: right; color: {get_color(sf.get('COMP_TOTAL_COM_ISE_RS',0), sf.get('COMP_TOTAL_ORIGINAL_RS',0))}; font-weight: bold; font-size: 14px;">R$ {sf.get('COMP_TOTAL_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold; font-size: 14px;">R$ {sf.get('COMP_TOTAL_COM_ISE_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('COMP_TOTAL_OTIMIZADO_RS',0), sf.get('COMP_TOTAL_ORIGINAL_RS',0))}; font-weight: bold; font-size: 14px;">R$ {sf.get('COMP_TOTAL_OTIMIZADO_RS', 0):,.2f}</td>
                 </tr>
                 <tr style="background: #ecfdf5;">
-                    <td colspan="2" style="font-size: 16px; color: #0f172a; text-align: right;"><strong>Economia Líquida:</strong></td>
-                    <td style="font-size: 18px; text-align: right; color: {eco_color}; font-weight: bold;">{'+' if sf.get('DISE_GANHO_RS', 0) >= 0 else '-'} R$ {abs(sf.get('DISE_GANHO_RS', 0)):,.2f}</td>
+                    <td style="font-size: 16px; color: #0f172a; text-align: right;"><strong>Economia Líquida:</strong></td>
+                    <td style="font-size: 18px; text-align: right; font-weight: bold;"></td>
+                    <td style="font-size: 18px; text-align: right; color: {'#ef4444' if sf.get('DISE_GANHO_RS', 0) < 0 else '#0284c7'}; font-weight: bold;">{'+' if sf.get('DISE_GANHO_RS', 0) >= 0 else '-'} R$ {abs(sf.get('DISE_GANHO_RS', 0)):,.2f}</td>
+                    <td style="font-size: 20px; text-align: right; color: {eco_color}; font-weight: bold;">{'+' if sf.get('DISE_GANHO_OTIMIZADO_RS', 0) >= 0 else '-'} R$ {abs(sf.get('DISE_GANHO_OTIMIZADO_RS', 0)):,.2f}</td>
                 </tr>
             </tbody>
         </table>
@@ -993,14 +1124,14 @@ def gerar_relatorio_html(janela_id: str):
     tabela_detalhe = res.get('tabela_detalhe_conjuntos', [])
     td_html = """
     <div style="overflow-x: auto;">
-        <table class="data-table" style="min-width: 1000px; font-size: 11px;">
+        <table class="data-table" style="min-width: 1100px; font-size: 11px;">
             <thead>
                 <tr>
                     <th rowspan="2">Conjunto</th>
                     <th colspan="3" style="text-align: center; border-bottom: 1px solid #e2e8f0;">CHI (h)</th>
                     <th colspan="3" style="text-align: center; border-bottom: 1px solid #e2e8f0;">CI (Qtd)</th>
                     <th colspan="2" style="text-align: center; border-bottom: 1px solid #e2e8f0;">Metas Anuais</th>
-                    <th colspan="3" style="text-align: center; border-bottom: 1px solid #e2e8f0;">Ressarcimento Regulatório</th>
+                    <th colspan="4" style="text-align: center; border-bottom: 1px solid #e2e8f0;">Ressarcimento Regulatório</th>
                 </tr>
                 <tr>
                     <th style="text-align: right">Líquido (T0)</th>
@@ -1013,19 +1144,21 @@ def gerar_relatorio_html(janela_id: str):
                     <th style="text-align: right; color: #64748b;">Meta FEC</th>
                     <th style="text-align: right">Sem ISE (Atual)</th>
                     <th style="text-align: right; color: #0284c7;">Com ISE (Simulado)</th>
-                    <th style="text-align: right; color: #10b981;">Economia</th>
+                    <th style="text-align: right; color: #a855f7;">Otimizado (Simulado)</th>
+                    <th style="text-align: right; color: #10b981;">Economia Otimizada</th>
                 </tr>
             </thead>
             <tbody>
     """
     
     for r in tabela_detalhe:
-        economia = r.get('comp_total_sem', 0) - r.get('comp_total_com', 0)
+        economia = r.get('comp_total_sem', 0) - r.get('comp_total_otimizado', 0)
         eco_color = '#10b981' if economia > 0.01 else ('#ef4444' if economia < -0.01 else '#94a3b8')
+        estrela = "⭐" if r.get('is_otimizado') else ""
         
         td_html += f"""
                 <tr>
-                    <td><strong>{r.get('conjunto', '')}</strong> <span style="color: #64748b; font-size: 9px;">({r.get('cod_conjunto', '')})</span></td>
+                    <td><strong>{r.get('conjunto', '')}</strong> <span style="color: #64748b; font-size: 9px;">({r.get('cod_conjunto', '')})</span> {estrela}</td>
                     <td style="text-align: right">{r.get('chi_liquido',0):,.2f}</td>
                     <td style="text-align: right; color: #d97706; font-weight: bold;">{r.get('chi_diacritico',0):,.2f}</td>
                     <td style="text-align: right; color: #0284c7; font-weight: bold;">{r.get('chi_ise',0):,.2f}</td>
@@ -1036,6 +1169,7 @@ def gerar_relatorio_html(janela_id: str):
                     <td style="text-align: right; color: #64748b; font-style: italic;">{r.get('meta_fec',0):,.2f}</td>
                     <td style="text-align: right">R$ {r.get('comp_total_sem',0):,.2f}</td>
                     <td style="text-align: right; color: #0284c7; font-weight: bold;">R$ {r.get('comp_total_com',0):,.2f}</td>
+                    <td style="text-align: right; color: #a855f7; font-weight: bold;">R$ {r.get('comp_total_otimizado',0):,.2f}</td>
                     <td style="text-align: right; color: {eco_color}; font-weight: bold;">{'+' if economia >= 0 else '-'} R$ {abs(economia):,.2f}</td>
                 </tr>
         """
