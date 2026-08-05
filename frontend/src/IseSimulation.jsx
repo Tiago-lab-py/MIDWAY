@@ -16,6 +16,20 @@ export default function IseSimulation() {
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
 
+  const [sortConfigDetalhe, setSortConfigDetalhe] = useState({ key: null, direction: 'asc' });
+  const [filterTextDetalhe, setFilterTextDetalhe] = useState('');
+  
+  const [sortConfigImpacto, setSortConfigImpacto] = useState({ key: null, direction: 'asc' });
+  const [filterTextImpacto, setFilterTextImpacto] = useState('');
+
+  const handleSort = (key, currentConfig, setConfig) => {
+    let direction = 'asc';
+    if (currentConfig.key === key && currentConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setConfig({ key, direction });
+  };
+
   const API_URL = import.meta.env.VITE_MIDWAY_API_URL || 'http://127.0.0.1:8000';
 
   const carregarJanelas = async () => {
@@ -313,6 +327,42 @@ export default function IseSimulation() {
       setLoading(false);
     }
   };
+
+  let sortedTabelaDetalhe = simulacaoAtual?.tabela_detalhe_conjuntos ? [...simulacaoAtual.tabela_detalhe_conjuntos] : [];
+  if (filterTextDetalhe) {
+    const text = filterTextDetalhe.toLowerCase();
+    sortedTabelaDetalhe = sortedTabelaDetalhe.filter(r => (r.conjunto && String(r.conjunto).toLowerCase().includes(text)) || (r.cod_conjunto && String(r.cod_conjunto).toLowerCase().includes(text)));
+  }
+  if (sortConfigDetalhe.key) {
+    sortedTabelaDetalhe.sort((a, b) => {
+      let aVal = a[sortConfigDetalhe.key] ?? '';
+      let bVal = b[sortConfigDetalhe.key] ?? '';
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+      if (aVal < bVal) return sortConfigDetalhe.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfigDetalhe.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
+  let sortedTabelaImpacto = simulacaoAtual?.tabela_conjuntos ? [...simulacaoAtual.tabela_conjuntos] : [];
+  // Para Impacto, aplica primeiro o filtro padrão (apenas alterados)
+  sortedTabelaImpacto = sortedTabelaImpacto.filter(r => r.ci_antes !== r.ci_depois || r.chi_antes !== r.chi_depois);
+  if (filterTextImpacto) {
+    const text = filterTextImpacto.toLowerCase();
+    sortedTabelaImpacto = sortedTabelaImpacto.filter(r => (r.conjunto && String(r.conjunto).toLowerCase().includes(text)));
+  }
+  if (sortConfigImpacto.key) {
+    sortedTabelaImpacto.sort((a, b) => {
+      let aVal = a[sortConfigImpacto.key] ?? '';
+      let bVal = b[sortConfigImpacto.key] ?? '';
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+      if (aVal < bVal) return sortConfigImpacto.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfigImpacto.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
 
   return (
     <div style={{ padding: '24px', fontFamily: '"Inter", system-ui, sans-serif', color: '#f8fafc', animation: 'fadeIn 0.5s ease-out' }}>
@@ -781,33 +831,42 @@ export default function IseSimulation() {
                   <p style={{ margin: '0 0 16px 0', color: '#94a3b8', fontSize: '13px' }}>
                     Esta tabela detalha os impactos agregados por conjunto elétrico, suas metas anuais DEC/FEC e o impacto financeiro real do ressarcimento regulatório (maior valor entre DIC, FIC e DMIC + DICRI + DISE por UC).
                   </p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Filtrar por conjunto..." 
+                      value={filterTextDetalhe} 
+                      onChange={e => setFilterTextDetalhe(e.target.value)} 
+                      style={{ padding: '8px 12px', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.2)', color: '#f1f5f9', fontSize: '13px', width: '250px' }}
+                    />
+                  </div>
                   <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
                     <div style={{ overflowX: 'auto', maxHeight: '550px' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                         <thead style={{ position: 'sticky', top: 0, background: '#1e293b', zIndex: 2 }}>
                           <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.1)' }}>
-                            <th style={{ padding: '12px', textAlign: 'left', color: '#f8fafc' }} rowspan="2">Conjunto</th>
+                            <th onClick={() => handleSort('conjunto', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '12px', textAlign: 'left', color: '#f8fafc', cursor: 'pointer' }} rowspan="2">Conjunto {sortConfigDetalhe.key === 'conjunto' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
                             <th style={{ padding: '12px', textAlign: 'center', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)' }} colspan="3">CHI (h)</th>
                             <th style={{ padding: '12px', textAlign: 'center', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)' }} colspan="3">CI (Qtd)</th>
                             <th style={{ padding: '12px', textAlign: 'center', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)' }} colspan="2">Metas Anuais</th>
                             <th style={{ padding: '12px', textAlign: 'center', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)' }} colspan="3">Ressarcimento Regulatório</th>
                           </tr>
                           <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1', fontSize: '11px' }}>Líquido (T0)</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#fbbf24', fontSize: '11px' }}>Dia Crítico (T1)</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#60a5fa', fontSize: '11px' }}>ISE (T6)</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1', fontSize: '11px' }}>Líquido (T0)</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#fbbf24', fontSize: '11px' }}>Dia Crítico (T1)</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#60a5fa', fontSize: '11px' }}>ISE (T6)</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#94a3b8', fontSize: '11px' }}>Meta DEC</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#94a3b8', fontSize: '11px' }}>Meta FEC</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1', fontSize: '11px' }}>Sem ISE (Atual)</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#60a5fa', fontSize: '11px' }}>Com ISE (Simulado)</th>
+                            <th onClick={() => handleSort('chi_liquido', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1', fontSize: '11px', cursor: 'pointer' }}>Líquido (T0) {sortConfigDetalhe.key === 'chi_liquido' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('chi_diacritico', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#fbbf24', fontSize: '11px', cursor: 'pointer' }}>Dia Crítico (T1) {sortConfigDetalhe.key === 'chi_diacritico' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('chi_ise', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#60a5fa', fontSize: '11px', cursor: 'pointer' }}>ISE (T6) {sortConfigDetalhe.key === 'chi_ise' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('ci_liquido', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1', fontSize: '11px', cursor: 'pointer' }}>Líquido (T0) {sortConfigDetalhe.key === 'ci_liquido' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('ci_diacritico', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#fbbf24', fontSize: '11px', cursor: 'pointer' }}>Dia Crítico (T1) {sortConfigDetalhe.key === 'ci_diacritico' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('ci_ise', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#60a5fa', fontSize: '11px', cursor: 'pointer' }}>ISE (T6) {sortConfigDetalhe.key === 'ci_ise' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('meta_dec', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#94a3b8', fontSize: '11px', cursor: 'pointer' }}>Meta DEC {sortConfigDetalhe.key === 'meta_dec' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('meta_fec', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#94a3b8', fontSize: '11px', cursor: 'pointer' }}>Meta FEC {sortConfigDetalhe.key === 'meta_fec' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('comp_total_sem', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1', fontSize: '11px', cursor: 'pointer' }}>Sem ISE (Atual) {sortConfigDetalhe.key === 'comp_total_sem' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('comp_total_com', sortConfigDetalhe, setSortConfigDetalhe)} style={{ padding: '8px 12px', textAlign: 'right', color: '#60a5fa', fontSize: '11px', cursor: 'pointer' }}>Com ISE (Simulado) {sortConfigDetalhe.key === 'comp_total_com' ? (sortConfigDetalhe.direction === 'asc' ? '↑' : '↓') : ''}</th>
                             <th style={{ padding: '8px 12px', textAlign: 'right', color: '#10b981', fontSize: '11px' }}>Economia</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {simulacaoAtual.tabela_detalhe_conjuntos.map((r, i) => {
+                          {sortedTabelaDetalhe.map((r, i) => {
                             const economia = (r.comp_total_sem || 0) - (r.comp_total_com || 0);
                             const ecoColor = economia > 0.01 ? '#10b981' : (economia < -0.01 ? '#ef4444' : '#94a3b8');
                             return (
@@ -843,21 +902,30 @@ export default function IseSimulation() {
                   <h4 style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>
                     Impacto por Conjunto (Apenas Alterados)
                   </h4>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Filtrar por conjunto..." 
+                      value={filterTextImpacto} 
+                      onChange={e => setFilterTextImpacto(e.target.value)} 
+                      style={{ padding: '8px 12px', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.2)', color: '#f1f5f9', fontSize: '13px', width: '250px' }}
+                    />
+                  </div>
                   <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
                     <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                         <thead style={{ position: 'sticky', top: 0, background: '#1e293b', zIndex: 1 }}>
                           <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                            <th style={{ padding: '12px', textAlign: 'left', color: '#f8fafc' }}>Conjunto</th>
-                            <th style={{ padding: '12px', textAlign: 'left', color: '#f8fafc' }}>Protocolo</th>
-                            <th style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>CI Antes</th>
-                            <th style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>CI Depois</th>
-                            <th style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>CHI Antes</th>
-                            <th style={{ padding: '12px', textAlign: 'right', color: '#f8fafc' }}>CHI Depois</th>
+                            <th onClick={() => handleSort('conjunto', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'left', color: '#f8fafc', cursor: 'pointer' }}>Conjunto {sortConfigImpacto.key === 'conjunto' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('protocolo', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'left', color: '#f8fafc', cursor: 'pointer' }}>Protocolo {sortConfigImpacto.key === 'protocolo' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('ci_antes', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', cursor: 'pointer' }}>CI Antes {sortConfigImpacto.key === 'ci_antes' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('ci_depois', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', cursor: 'pointer' }}>CI Depois {sortConfigImpacto.key === 'ci_depois' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('chi_antes', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', cursor: 'pointer' }}>CHI Antes {sortConfigImpacto.key === 'chi_antes' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th onClick={() => handleSort('chi_depois', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', cursor: 'pointer' }}>CHI Depois {sortConfigImpacto.key === 'chi_depois' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {simulacaoAtual.tabela_conjuntos.filter(r => r.ci_antes !== r.ci_depois || r.chi_antes !== r.chi_depois).map((r, i) => {
+                          {sortedTabelaImpacto.map((r, i) => {
                             const ciCor = r.ci_depois < r.ci_antes ? '#10b981' : (r.ci_depois > r.ci_antes ? '#ef4444' : '#eab308');
                             const chiCor = r.chi_depois < r.chi_antes ? '#10b981' : (r.chi_depois > r.chi_antes ? '#ef4444' : '#eab308');
                             return (
@@ -871,10 +939,10 @@ export default function IseSimulation() {
                               </tr>
                             );
                           })}
-                          {simulacaoAtual.tabela_conjuntos.filter(r => r.ci_antes !== r.ci_depois || r.chi_antes !== r.chi_depois).length === 0 && (
+                          {sortedTabelaImpacto.length === 0 && (
                             <tr>
                               <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
-                                Nenhuma alteração de Conjunto detectada.
+                                Nenhuma alteração de Conjunto detectada ou compatível com o filtro.
                               </td>
                             </tr>
                           )}

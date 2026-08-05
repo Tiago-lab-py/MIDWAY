@@ -396,7 +396,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         q_conjuntos = f"""
             WITH antes AS (
                 SELECT 
-                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
+                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
                     a.TIPO_PROTOC_JUSTIF_UCI AS protocolo,
                     COUNT(DISTINCT a.NUM_UC_UCI) AS ci_antes,
                     SUM(COALESCE(a.DURACAO_HORA, 0)) AS chi_antes
@@ -407,7 +407,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             ),
             depois AS (
                 SELECT 
-                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
+                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
                     a.TIPO_PROTOC_JUSTIF_UCI AS protocolo,
                     COUNT(DISTINCT a.NUM_UC_UCI) AS ci_depois,
                     SUM(COALESCE(a.DURACAO_HORA, 0)) AS chi_depois
@@ -442,7 +442,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         q_detalhe = f"""
             WITH comp_sem AS (
                 SELECT 
-                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
+                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
                     SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS comp_total_sem
                 FROM main.gold_ressarcimento_prodist r
                 LEFT JOIN main.gold_vrc v ON CAST(r.UC AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
@@ -450,7 +450,7 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             ),
             comp_com AS (
                 SELECT 
-                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
+                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
                     SUM(COALESCE(r.COMP_TOTAL_PRODIST, 0)) AS comp_total_com
                 FROM main.gold_ressarcimento_prodist_ise r
                 LEFT JOIN main.gold_vrc v ON CAST(r.UC AS VARCHAR) = CAST(v.ISN_UC AS VARCHAR)
@@ -458,8 +458,8 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             ),
             indicadores AS (
                 SELECT 
-                    COALESCE(v.CEA, 'DESCONHECIDO') AS conjunto,
-                    COALESCE(v.CEA, 'DESCONHECIDO') AS cod_conjunto,
+                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS conjunto,
+                    COALESCE(CAST(v.CEA AS VARCHAR), 'DESCONHECIDO') AS cod_conjunto,
                     -- CHI
                     SUM(CASE WHEN a.TIPO_PROTOC_JUSTIF_UCI = '0' THEN COALESCE(a.DURACAO_HORA, 0) ELSE 0 END) AS chi_liquido,
                     SUM(CASE WHEN a.TIPO_PROTOC_JUSTIF_UCI = '1' THEN COALESCE(a.DURACAO_HORA, 0) ELSE 0 END) AS chi_diacritico,
@@ -901,6 +901,147 @@ def gerar_relatorio_html(janela_id: str):
         
     tabela_html += "</tbody></table>"
     
+    # ---------------------------------------------------------
+    # TABELA SIMULAÇÃO FINANCEIRA
+    # ---------------------------------------------------------
+    sf = res.get('simulacao_financeira', {})
+    sf_html = ""
+    if sf:
+        def get_color(com_ise, orig):
+            if com_ise > orig: return '#ef4444'
+            if com_ise < orig: return '#10b981'
+            return '#eab308'
+            
+        eco_color = '#ef4444' if sf.get('DISE_GANHO_RS', 0) < 0 else '#10b981'
+        
+        sf_html = f"""
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>INDICADOR</th>
+                    <th style="text-align: right">SEM ISE (ATUAL)</th>
+                    <th style="text-align: right; color: #10b981;">COM ISE (PROJEÇÃO)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Duração (CHI) - <strong>Bruto</strong></td>
+                    <td style="text-align: right">{sf.get('CHI_BRUTO_ORIGINAL', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('CHI_BRUTO_COM_ISE',0), sf.get('CHI_BRUTO_ORIGINAL',0))}; font-weight: bold;">{sf.get('CHI_BRUTO_COM_ISE', 0):,.2f}</td>
+                </tr>
+                <tr>
+                    <td>Duração (CHI) - <strong>Líquido</strong> (Penalizado)</td>
+                    <td style="text-align: right">{sf.get('CHI_ORIGINAL', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('CHI_COM_ISE',0), sf.get('CHI_ORIGINAL',0))}; font-weight: bold;">{sf.get('CHI_COM_ISE', 0):,.2f}</td>
+                </tr>
+                <tr>
+                    <td>CI (qtd) - <strong>Bruto</strong></td>
+                    <td style="text-align: right">{sf.get('CI_BRUTO_ORIGINAL', 0):,.0f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('CI_BRUTO_COM_ISE',0), sf.get('CI_BRUTO_ORIGINAL',0))}; font-weight: bold;">{sf.get('CI_BRUTO_COM_ISE', 0):,.0f}</td>
+                </tr>
+                <tr>
+                    <td>CI (qtd) - <strong>Líquido</strong> (Penalizado)</td>
+                    <td style="text-align: right">{sf.get('CI_ORIGINAL', 0):,.0f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('CI_COM_ISE',0), sf.get('CI_ORIGINAL',0))}; font-weight: bold;">{sf.get('CI_COM_ISE', 0):,.0f}</td>
+                </tr>
+                <tr style="background: #f8fafc;">
+                    <td>Ressarcimento DIC</td>
+                    <td style="text-align: right">R$ {sf.get('DIC_ORIGINAL_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('DIC_COM_ISE_RS',0), sf.get('DIC_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DIC_COM_ISE_RS', 0):,.2f}</td>
+                </tr>
+                <tr style="background: #f8fafc;">
+                    <td>Ressarcimento FIC</td>
+                    <td style="text-align: right">R$ {sf.get('FIC_ORIGINAL_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('FIC_COM_ISE_RS',0), sf.get('FIC_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('FIC_COM_ISE_RS', 0):,.2f}</td>
+                </tr>
+                <tr style="background: #f8fafc;">
+                    <td>Risco DMIC</td>
+                    <td style="text-align: right">R$ {sf.get('DMIC_ORIGINAL_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('DMIC_COM_ISE_RS',0), sf.get('DMIC_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DMIC_COM_ISE_RS', 0):,.2f}</td>
+                </tr>
+                <tr style="background: #eef2ff;">
+                    <td><strong>Compensação Geral (Maior entre DIC/FIC/DMIC)</strong></td>
+                    <td style="text-align: right"><strong>R$ {sf.get('COMP_GERAL_ORIGINAL_RS', 0):,.2f}</strong></td>
+                    <td style="text-align: right; color: {get_color(sf.get('COMP_GERAL_COM_ISE_RS',0), sf.get('COMP_GERAL_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('COMP_GERAL_COM_ISE_RS', 0):,.2f}</td>
+                </tr>
+                <tr style="background: #f8fafc;">
+                    <td>Ressarcimento DICRI</td>
+                    <td style="text-align: right">R$ {sf.get('DICRI_ORIGINAL_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('DICRI_COM_ISE_RS',0), sf.get('DICRI_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DICRI_COM_ISE_RS', 0):,.2f}</td>
+                </tr>
+                <tr style="background: #f8fafc;">
+                    <td>Ressarcimento DISE</td>
+                    <td style="text-align: right">R$ {sf.get('DISE_ORIGINAL_RS', 0):,.2f}</td>
+                    <td style="text-align: right; color: {get_color(sf.get('DISE_COM_ISE_RS',0), sf.get('DISE_ORIGINAL_RS',0))}; font-weight: bold;">R$ {sf.get('DISE_COM_ISE_RS', 0):,.2f}</td>
+                </tr>
+                <tr style="background: #eef2ff;">
+                    <td style="font-size: 14px;"><strong>COMPENSAÇÃO TOTAL (Geral + DICRI + DISE)</strong></td>
+                    <td style="text-align: right; font-size: 14px;"><strong>R$ {sf.get('COMP_TOTAL_ORIGINAL_RS', 0):,.2f}</strong></td>
+                    <td style="text-align: right; color: {get_color(sf.get('COMP_TOTAL_COM_ISE_RS',0), sf.get('COMP_TOTAL_ORIGINAL_RS',0))}; font-weight: bold; font-size: 14px;">R$ {sf.get('COMP_TOTAL_COM_ISE_RS', 0):,.2f}</td>
+                </tr>
+                <tr style="background: #ecfdf5;">
+                    <td colspan="2" style="font-size: 16px; color: #0f172a; text-align: right;"><strong>Economia Líquida:</strong></td>
+                    <td style="font-size: 18px; text-align: right; color: {eco_color}; font-weight: bold;">{'+' if sf.get('DISE_GANHO_RS', 0) >= 0 else '-'} R$ {abs(sf.get('DISE_GANHO_RS', 0)):,.2f}</td>
+                </tr>
+            </tbody>
+        </table>
+        """
+        
+    # ---------------------------------------------------------
+    # TABELA INDICADORES, METAS E RESSARCIMENTOS POR CONJUNTO
+    # ---------------------------------------------------------
+    tabela_detalhe = res.get('tabela_detalhe_conjuntos', [])
+    td_html = """
+    <div style="overflow-x: auto;">
+        <table class="data-table" style="min-width: 1000px; font-size: 11px;">
+            <thead>
+                <tr>
+                    <th rowspan="2">Conjunto</th>
+                    <th colspan="3" style="text-align: center; border-bottom: 1px solid #e2e8f0;">CHI (h)</th>
+                    <th colspan="3" style="text-align: center; border-bottom: 1px solid #e2e8f0;">CI (Qtd)</th>
+                    <th colspan="2" style="text-align: center; border-bottom: 1px solid #e2e8f0;">Metas Anuais</th>
+                    <th colspan="3" style="text-align: center; border-bottom: 1px solid #e2e8f0;">Ressarcimento Regulatório</th>
+                </tr>
+                <tr>
+                    <th style="text-align: right">Líquido (T0)</th>
+                    <th style="text-align: right; color: #d97706;">Dia Crítico (T1)</th>
+                    <th style="text-align: right; color: #0284c7;">ISE (T6)</th>
+                    <th style="text-align: right">Líquido (T0)</th>
+                    <th style="text-align: right; color: #d97706;">Dia Crítico (T1)</th>
+                    <th style="text-align: right; color: #0284c7;">ISE (T6)</th>
+                    <th style="text-align: right; color: #64748b;">Meta DEC</th>
+                    <th style="text-align: right; color: #64748b;">Meta FEC</th>
+                    <th style="text-align: right">Sem ISE (Atual)</th>
+                    <th style="text-align: right; color: #0284c7;">Com ISE (Simulado)</th>
+                    <th style="text-align: right; color: #10b981;">Economia</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
+    
+    for r in tabela_detalhe:
+        economia = r.get('comp_total_sem', 0) - r.get('comp_total_com', 0)
+        eco_color = '#10b981' if economia > 0.01 else ('#ef4444' if economia < -0.01 else '#94a3b8')
+        
+        td_html += f"""
+                <tr>
+                    <td><strong>{r.get('conjunto', '')}</strong> <span style="color: #64748b; font-size: 9px;">({r.get('cod_conjunto', '')})</span></td>
+                    <td style="text-align: right">{r.get('chi_liquido',0):,.2f}</td>
+                    <td style="text-align: right; color: #d97706; font-weight: bold;">{r.get('chi_diacritico',0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">{r.get('chi_ise',0):,.2f}</td>
+                    <td style="text-align: right">{r.get('ci_liquido',0):,}</td>
+                    <td style="text-align: right; color: #d97706; font-weight: bold;">{r.get('ci_diacritico',0):,}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">{r.get('ci_ise',0):,}</td>
+                    <td style="text-align: right; color: #64748b; font-style: italic;">{r.get('meta_dec',0):,.2f}</td>
+                    <td style="text-align: right; color: #64748b; font-style: italic;">{r.get('meta_fec',0):,.2f}</td>
+                    <td style="text-align: right">R$ {r.get('comp_total_sem',0):,.2f}</td>
+                    <td style="text-align: right; color: #0284c7; font-weight: bold;">R$ {r.get('comp_total_com',0):,.2f}</td>
+                    <td style="text-align: right; color: {eco_color}; font-weight: bold;">{'+' if economia >= 0 else '-'} R$ {abs(economia):,.2f}</td>
+                </tr>
+        """
+        
+    td_html += "</tbody></table></div>"
+    
     html_content = f"""
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -968,6 +1109,16 @@ def gerar_relatorio_html(janela_id: str):
             
             <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 40px;">
                 {plot_ci_html}
+            </div>
+            
+            <div class="section-title">Simulação Financeira (DISE)</div>
+            <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 40px;">
+                {sf_html}
+            </div>
+            
+            <div class="section-title">Indicadores, Metas e Ressarcimentos por Conjunto</div>
+            <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 40px;">
+                {td_html}
             </div>
             
             <div class="section-title">Matriz de Impacto por Conjunto (Apenas Alterados)</div>
