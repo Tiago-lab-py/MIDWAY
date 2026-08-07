@@ -436,15 +436,22 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
             ORDER BY 1, 2
         """
         df_conj = conn.execute(q_conjuntos).df()
+        
+        conjuntos_dia_critico_antes = set(df_conj[(df_conj["protocolo"] == "1") & (df_conj["chi_antes"] > 0)]["conjunto"])
+        conjuntos_ise_depois = set(df_conj[(df_conj["protocolo"] == "6") & ((df_conj["chi_depois"] > 0) | (df_conj["ci_depois"] > 0))]["conjunto"])
+        
         tabela_conjuntos = []
         for _, r in df_conj.iterrows():
+            c_name = str(r["conjunto"])
             tabela_conjuntos.append({
-                "conjunto": str(r["conjunto"]),
+                "conjunto": c_name,
                 "protocolo": str(r["protocolo"]),
                 "ci_antes": int(r["ci_antes"]),
                 "ci_depois": int(r["ci_depois"]),
                 "chi_antes": round(float(r["chi_antes"]), 2),
-                "chi_depois": round(float(r["chi_depois"]), 2)
+                "chi_depois": round(float(r["chi_depois"]), 2),
+                "tinha_dia_critico": c_name in conjuntos_dia_critico_antes,
+                "reclassificado_ise": c_name in conjuntos_ise_depois
             })
 
         q_detalhe = f"""
@@ -498,8 +505,9 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
         df_detalhe = conn.execute(q_detalhe).df()
         tabela_detalhe_conjuntos = []
         for _, r in df_detalhe.iterrows():
+            c_name = str(r["conjunto"])
             tabela_detalhe_conjuntos.append({
-                "conjunto": str(r["conjunto"]),
+                "conjunto": c_name,
                 "cod_conjunto": str(r["cod_conjunto"]),
                 "chi_liquido": round(float(r["chi_liquido"]), 2),
                 "chi_diacritico": round(float(r["chi_diacritico"]), 2),
@@ -510,7 +518,9 @@ def process_ise_bg(janela: IseWindowConfig, db_path: str):
                 "meta_dec": round(float(r["meta_dec"]), 2),
                 "meta_fec": round(float(r["meta_fec"]), 2),
                 "comp_total_sem": round(float(r["comp_total_sem"]), 2),
-                "comp_total_com": round(float(r["comp_total_com"]), 2)
+                "comp_total_com": round(float(r["comp_total_com"]), 2),
+                "tinha_dia_critico": c_name in conjuntos_dia_critico_antes,
+                "reclassificado_ise": c_name in conjuntos_ise_depois
             })
 
         # Lógica do ISE Otimizado
@@ -994,7 +1004,18 @@ def gerar_relatorio_html(janela_id: str):
     """
     qtd_linhas = 0
     for c, prots in agrupado.items():
-        tabela_html += f"<tr><td><strong>{c}</strong></td>"
+        # Get flags from the first available protocol for this conjunto
+        first_prot = next(iter(prots.values()))
+        tinha_dia = first_prot.get('tinha_dia_critico', False)
+        reclass = first_prot.get('reclassificado_ise', False)
+        
+        icones = ""
+        if tinha_dia:
+            icones += " ✨"
+        if tinha_dia and reclass:
+            icones += " 🌪️"
+
+        tabela_html += f"<tr><td><strong>{c}</strong>{icones}</td>"
         
         for p in ['0', '1', '6']:
             r = prots.get(p, {})
@@ -1155,6 +1176,10 @@ def gerar_relatorio_html(janela_id: str):
         economia = r.get('comp_total_sem', 0) - r.get('comp_total_otimizado', 0)
         eco_color = '#10b981' if economia > 0.01 else ('#ef4444' if economia < -0.01 else '#94a3b8')
         estrela = "⭐" if r.get('is_otimizado') else ""
+        if r.get('tinha_dia_critico'):
+            estrela += " ✨"
+        if r.get('tinha_dia_critico') and r.get('reclassificado_ise'):
+            estrela += " 🌪️"
         
         td_html += f"""
                 <tr>
@@ -1246,16 +1271,30 @@ def gerar_relatorio_html(janela_id: str):
             </div>
             
             <div class="section-title">Simulação Financeira (DISE)</div>
+            <div style="font-size: 13px; color: #64748b; margin: -10px 0 15px 0; line-height: 1.5;">
+                A simulação financeira projeta os impactos regulatórios pós-ISE. A <strong>Otimização</strong> aplica a isenção de ISE apenas nos conjuntos onde há redução real de ressarcimento. Isso previne o <strong>Efeito Gangorra</strong>: quando a migração de ocorrências para ISE desqualifica o conjunto da meta de Dia Crítico, e a perda desse protocolo acaba elevando o ressarcimento regulatório final do conjunto em vez de reduzi-lo.
+            </div>
             <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 40px;">
                 {sf_html}
             </div>
             
             <div class="section-title">Indicadores, Metas e Ressarcimentos por Conjunto</div>
+            <div style="font-size: 12px; color: #64748b; margin: -10px 0 15px 0;">
+                <strong>Legenda:</strong> 
+                <span style="margin-right: 15px;">⭐ ISE Otimizado</span>
+                <span style="margin-right: 15px;">✨ Tinha Dia Crítico Anteriormente</span>
+                <span>🌪️ Reclassificado para ISE (Efeito Gangorra)</span>
+            </div>
             <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 40px;">
                 {td_html}
             </div>
             
             <div class="section-title">Matriz de Impacto por Conjunto (Apenas Alterados)</div>
+            <div style="font-size: 12px; color: #64748b; margin: -10px 0 15px 0;">
+                <strong>Legenda:</strong> 
+                <span style="margin-right: 15px;">✨ Tinha Dia Crítico Anteriormente</span>
+                <span>🌪️ Reclassificado para ISE (Efeito Gangorra)</span>
+            </div>
             <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 40px;">
                 {tabela_html}
             </div>

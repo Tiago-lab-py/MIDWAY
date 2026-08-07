@@ -347,19 +347,52 @@ export default function IseSimulation() {
     });
   }
 
-  let sortedTabelaImpacto = simulacaoAtual?.tabela_conjuntos ? [...simulacaoAtual.tabela_conjuntos] : [];
-  // Para Impacto, aplica primeiro o filtro padrão (apenas alterados)
-  sortedTabelaImpacto = sortedTabelaImpacto.filter(r => r.ci_antes !== r.ci_depois || r.chi_antes !== r.chi_depois);
+  // Agrupar a tabela_conjuntos (lista flat) em estrutura pivotada
+  const agrupadoImpacto = {};
+  if (simulacaoAtual?.tabela_conjuntos) {
+    simulacaoAtual.tabela_conjuntos.forEach(r => {
+      if (r.ci_antes === r.ci_depois && r.chi_antes === r.chi_depois) {
+        return;
+      }
+      const c = r.conjunto || '';
+      if (!agrupadoImpacto[c]) {
+        agrupadoImpacto[c] = {};
+      }
+      const prot = String(r.protocolo || '').trim();
+      agrupadoImpacto[c][prot] = r;
+    });
+  }
+
+  let sortedTabelaImpacto = Object.keys(agrupadoImpacto).map(conjunto => {
+    const prots = agrupadoImpacto[conjunto];
+    const firstProt = Object.values(prots)[0] || {};
+    return {
+      conjunto,
+      tinha_dia_critico: firstProt.tinha_dia_critico || false,
+      reclassificado_ise: firstProt.reclassificado_ise || false,
+      prots
+    };
+  });
+
   if (filterTextImpacto) {
     const text = filterTextImpacto.toLowerCase();
-    sortedTabelaImpacto = sortedTabelaImpacto.filter(r => (r.conjunto && String(r.conjunto).toLowerCase().includes(text)));
+    sortedTabelaImpacto = sortedTabelaImpacto.filter(r => r.conjunto.toLowerCase().includes(text));
   }
+
   if (sortConfigImpacto.key) {
     sortedTabelaImpacto.sort((a, b) => {
-      let aVal = a[sortConfigImpacto.key] ?? '';
-      let bVal = b[sortConfigImpacto.key] ?? '';
-      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+      let aVal;
+      let bVal;
+      if (sortConfigImpacto.key === 'conjunto') {
+        aVal = a.conjunto.toLowerCase();
+        bVal = b.conjunto.toLowerCase();
+      } else {
+        const [prot, metric, sub] = sortConfigImpacto.key.split('_');
+        const valA = a.prots[prot]?.[`${metric}_${sub}`];
+        const valB = b.prots[prot]?.[`${metric}_${sub}`];
+        aVal = valA !== undefined ? valA : -99999999;
+        bVal = valB !== undefined ? valB : -99999999;
+      }
       if (aVal < bVal) return sortConfigImpacto.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfigImpacto.direction === 'asc' ? 1 : -1;
       return 0;
@@ -877,7 +910,10 @@ export default function IseSimulation() {
                             return (
                               <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent', transition: 'background 0.2s' }}>
                                 <td style={{ padding: '10px 12px', color: '#e2e8f0', fontWeight: 'bold' }}>
-                                  {r.conjunto} <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>({r.cod_conjunto})</span> {r.is_otimizado && <span style={{ color: '#10b981', marginLeft: '4px' }}>⭐</span>}
+                                  {r.conjunto} <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>({r.cod_conjunto})</span> 
+                                  {r.is_otimizado && <span style={{ color: '#10b981', marginLeft: '4px' }} title="ISE Otimizado">⭐</span>}
+                                  {r.tinha_dia_critico && <span style={{ marginLeft: '4px' }} title="Tinha Dia Crítico Anteriormente">✨</span>}
+                                  {r.tinha_dia_critico && r.reclassificado_ise && <span style={{ marginLeft: '4px' }} title="Reclassificado para ISE">🌪️</span>}
                                 </td>
                                 <td style={{ padding: '10px 12px', textAlign: 'right', color: '#e2e8f0' }}>{r.chi_liquido.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                                 <td style={{ padding: '10px 12px', textAlign: 'right', color: '#fbbf24', fontWeight: 'bold' }}>{r.chi_diacritico.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
@@ -922,32 +958,62 @@ export default function IseSimulation() {
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                         <thead style={{ position: 'sticky', top: 0, background: '#1e293b', zIndex: 1 }}>
                           <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                            <th onClick={() => handleSort('conjunto', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'left', color: '#f8fafc', cursor: 'pointer' }}>Conjunto {sortConfigImpacto.key === 'conjunto' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
-                            <th onClick={() => handleSort('protocolo', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'left', color: '#f8fafc', cursor: 'pointer' }}>Protocolo {sortConfigImpacto.key === 'protocolo' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
-                            <th onClick={() => handleSort('ci_antes', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', cursor: 'pointer' }}>CI Antes {sortConfigImpacto.key === 'ci_antes' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
-                            <th onClick={() => handleSort('ci_depois', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', cursor: 'pointer' }}>CI Depois {sortConfigImpacto.key === 'ci_depois' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
-                            <th onClick={() => handleSort('chi_antes', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', cursor: 'pointer' }}>CHI Antes {sortConfigImpacto.key === 'chi_antes' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
-                            <th onClick={() => handleSort('chi_depois', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'right', color: '#f8fafc', cursor: 'pointer' }}>CHI Depois {sortConfigImpacto.key === 'chi_depois' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th rowSpan={2} onClick={() => handleSort('conjunto', sortConfigImpacto, setSortConfigImpacto)} style={{ padding: '12px', textAlign: 'left', color: '#f8fafc', cursor: 'pointer', verticalAlign: 'middle' }}>
+                              Conjunto {sortConfigImpacto.key === 'conjunto' ? (sortConfigImpacto.direction === 'asc' ? '↑' : '↓') : ''}
+                            </th>
+                            <th colSpan={2} style={{ padding: '12px', textAlign: 'center', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>0 - LÍQUIDO</th>
+                            <th colSpan={2} style={{ padding: '12px', textAlign: 'center', color: '#fbbf24', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>1 - DIA CRÍTICO</th>
+                            <th colSpan={2} style={{ padding: '12px', textAlign: 'center', color: '#60a5fa', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>6 - ISE</th>
+                          </tr>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#cbd5e1' }}>CI (Antes ➔ Depois)</th>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#cbd5e1' }}>CHI (Antes ➔ Depois)</th>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#fbbf24' }}>CI (Antes ➔ Depois)</th>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#fbbf24' }}>CHI (Antes ➔ Depois)</th>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#60a5fa' }}>CI (Antes ➔ Depois)</th>
+                            <th style={{ padding: '12px', textAlign: 'right', color: '#60a5fa' }}>CHI (Antes ➔ Depois)</th>
                           </tr>
                         </thead>
                         <tbody>
                           {sortedTabelaImpacto.map((r, i) => {
-                            const ciCor = r.ci_depois < r.ci_antes ? '#10b981' : (r.ci_depois > r.ci_antes ? '#ef4444' : '#eab308');
-                            const chiCor = r.chi_depois < r.chi_antes ? '#10b981' : (r.chi_depois > r.chi_antes ? '#ef4444' : '#eab308');
                             return (
                               <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
-                                <td style={{ padding: '10px 12px', color: '#e2e8f0', fontWeight: 'bold' }}>{r.conjunto}</td>
-                                <td style={{ padding: '10px 12px', color: '#94a3b8' }}>{r.protocolo}</td>
-                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#cbd5e1' }}>{r.ci_antes.toLocaleString()}</td>
-                                <td style={{ padding: '10px 12px', textAlign: 'right', color: ciCor, fontWeight: 'bold' }}>{r.ci_depois.toLocaleString()}</td>
-                                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#cbd5e1' }}>{r.chi_antes.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                                <td style={{ padding: '10px 12px', textAlign: 'right', color: chiCor, fontWeight: 'bold' }}>{r.chi_depois.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                                <td style={{ padding: '10px 12px', color: '#e2e8f0', fontWeight: 'bold' }}>
+                                  {r.conjunto}
+                                  {r.tinha_dia_critico && <span style={{ marginLeft: '4px' }} title="Tinha Dia Crítico Anteriormente">✨</span>}
+                                  {r.tinha_dia_critico && r.reclassificado_ise && <span style={{ marginLeft: '4px' }} title="Reclassificado para ISE">🌪️</span>}
+                                </td>
+                                {['0', '1', '6'].map(p => {
+                                  const protData = r.prots[p];
+                                  if (!protData) {
+                                    return (
+                                      <React.Fragment key={p}>
+                                        <td style={{ padding: '10px 12px', textAlign: 'right', color: '#64748b' }}>-</td>
+                                        <td style={{ padding: '10px 12px', textAlign: 'right', color: '#64748b' }}>-</td>
+                                      </React.Fragment>
+                                    );
+                                  }
+                                  const ciCor = protData.ci_depois < protData.ci_antes ? '#10b981' : (protData.ci_depois > protData.ci_antes ? '#ef4444' : '#64748b');
+                                  const chiCor = protData.chi_depois < protData.chi_antes ? '#10b981' : (protData.chi_depois > protData.chi_antes ? '#ef4444' : '#64748b');
+                                  return (
+                                    <React.Fragment key={p}>
+                                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                        <span style={{ color: '#94a3b8' }}>{protData.ci_antes.toLocaleString()} ➔</span>{' '}
+                                        <strong style={{ color: ciCor }}>{protData.ci_depois.toLocaleString()}</strong>
+                                      </td>
+                                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                        <span style={{ color: '#94a3b8' }}>{protData.chi_antes.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})} ➔</span>{' '}
+                                        <strong style={{ color: chiCor }}>{protData.chi_depois.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</strong>
+                                      </td>
+                                    </React.Fragment>
+                                  );
+                                })}
                               </tr>
                             );
                           })}
                           {sortedTabelaImpacto.length === 0 && (
                             <tr>
-                              <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+                              <td colSpan="7" style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
                                 Nenhuma alteração de Conjunto detectada ou compatível com o filtro.
                               </td>
                             </tr>
